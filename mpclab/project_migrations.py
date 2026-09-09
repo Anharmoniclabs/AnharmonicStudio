@@ -4,10 +4,10 @@ Project loading used to rely on tolerant dataclass defaults alone.  That remains
 useful, but explicit migrations give future schema changes one controlled place
 to preserve older songs before the model validates them.
 
-Historical formats 0..4 intentionally require no structural rewrite: the current
-model already defines their missing-field semantics through safe defaults.  The
-steps are still explicit so the next format change must add a reviewed migration
-instead of silently changing load behavior.
+Historical upgrades through format 4 require no structural rewrite: the model
+defines their missing-field semantics through safe defaults. Those steps remain
+explicit. Format 5 adds stable mixer identities while retaining the existing
+integer routing fields.
 """
 
 from __future__ import annotations
@@ -22,6 +22,21 @@ def _identity(document: dict) -> dict:
     return document
 
 
+def legacy_mixer_track_id(index: int) -> str:
+    """Project-local identity for an original fixed mixer slot."""
+    return f"mixer:{index:02d}"
+
+
+def _mixer_track_ids(document: dict) -> dict:
+    tracks = document.get("tracks")
+    # Let the model report malformed collections and enforce its safety limit.
+    if isinstance(tracks, list):
+        for index, track in enumerate(tracks):
+            if isinstance(track, dict):
+                track.setdefault("id", legacy_mixer_track_id(index))
+    return document
+
+
 # Version 0 means an unversioned legacy project.  Keep every historical step
 # explicit even when it is currently an identity migration.
 MIGRATIONS: dict[int, Migration] = {
@@ -29,6 +44,7 @@ MIGRATIONS: dict[int, Migration] = {
     1: _identity,
     2: _identity,
     3: _identity,
+    4: _mixer_track_ids,
 }
 
 

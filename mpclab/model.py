@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .music import Note, AutomationLane, read_notes, read_automation
 from .plugin_registry import validate_project_plugins
-from .project_migrations import migrate_project_document
+from .project_migrations import legacy_mixer_track_id, migrate_project_document
 
 PADS_PER_BANK = 16
 BANKS = 4
@@ -33,7 +33,7 @@ PAD_KEYS = ["0", ".", "/", "*", "1", "2", "3", "⏎", "4", "5", "6", "+", "7", "
 DISPLAY_ORDER = [12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3]
 
 MODES = ("one-shot", "gate", "loop")
-PROJECT_FORMAT_VERSION = 4
+PROJECT_FORMAT_VERSION = 5
 _UNSAFE_FILENAME = re.compile(r"[^\w .()-]+", re.UNICODE)
 
 
@@ -393,6 +393,19 @@ class Track:
     mute: bool = False
     solo: bool = False
     fx: TrackFX = field(default_factory=TrackFX)
+    id: str = field(default_factory=uid, kw_only=True)
+
+    def validate(self) -> None:
+        if (
+            not isinstance(self.id, str)
+            or not self.id.strip()
+            or self.id != self.id.strip()
+            or len(self.id) > 128
+        ):
+            raise ValueError("mixer track id must be a non-empty string of at most 128 characters")
+
+    def __post_init__(self) -> None:
+        self.validate()
 
 
 @dataclass
@@ -426,7 +439,7 @@ class Row:
 
 def _default_tracks() -> list[Track]:
     names = ["DRUMS", "BASS", "KEYS", "AUDIO", "TRK 5", "TRK 6", "TRK 7", "TRK 8"]
-    return [Track(name=n) for n in names]
+    return [Track(name=n, id=legacy_mixer_track_id(i)) for i, n in enumerate(names)]
 
 
 @dataclass
@@ -462,6 +475,7 @@ class Project:
     plugins: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        self._validate_track_ids()
         if not self.current_pattern and self.patterns:
             self.current_pattern = self.patterns[0].id
 
@@ -475,6 +489,24 @@ class Project:
 
     def pad(self, index: int) -> Pad:
         return self.pads[index]
+
+    def _validate_track_ids(self) -> None:
+        ids: set[str] = set()
+        for track in self.tracks:
+            track.validate()
+            if track.id in ids:
+                raise ValueError("mixer track ids must be unique")
+            ids.add(track.id)
+
+    def track_index(self, track_id: str) -> int:
+        """Resolve a persisted identity outside the realtime callback."""
+        for index, track in enumerate(self.tracks):
+            if track.id == track_id:
+                return index
+        raise KeyError(track_id)
+
+    def track_by_id(self, track_id: str) -> Track:
+        return self.tracks[self.track_index(track_id)]
 
     def any_solo(self) -> bool:
         return any(t.solo for t in self.tracks)
@@ -494,6 +526,7 @@ class Project:
 
     # ── persistence ──────────────────────────────────────────
     def to_dict(self) -> dict:
+        self._validate_track_ids()
         d = asdict(self)
         d["format_version"] = PROJECT_FORMAT_VERSION
         # JSON object keys must be strings; keep steps readable.
@@ -635,10 +668,13 @@ class Project:
 
         tracks = []
         for t in tracks_data:
+            if "id" not in t:
+                raise ValueError("mixer track id is required in project format 5")
             fields = {k: v for k, v in t.items() if k in Track.__annotations__ and k != "fx"}
             tracks.append(Track(fx=_from_dict(TrackFX, t.get("fx")), **fields))
         defaults = _default_tracks()
         proj.tracks = (tracks + defaults[len(tracks) :])[:NTRACKS]
+        proj._validate_track_ids()
 
         pats = []
         for pattern_index, p in enumerate(patterns_data):
