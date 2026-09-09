@@ -89,7 +89,7 @@ def render_export(
                 frames += len(block)
             output.flush()
         report(1)
-        with open(temporary, "rb") as handle:
+        with open(temporary, "r+b") as handle:
             os.fsync(handle.fileno())
         os.replace(temporary, destination)
     finally:

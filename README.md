@@ -11,12 +11,13 @@ build a rhythm, write notes, arrange a song, and export a stereo WAV.
 
 [Explore the studio and watch the film](https://anharmoniclabs.github.io/AnharmonicStudio/)
 
-## Open source and the Windows pack
+## Open source and official app downloads
 
 The application source code is free under **GPL-2.0-or-later**. Download, build,
 modify, and run the source without buying an official installer.
 
-The official Windows EXE pack is coming soon. Release details will be announced
+Official Windows, macOS and Linux builds are intended for paid distribution.
+The payment/download service is not enabled yet. Release details will be announced
 on the website; no price is announced yet. Source access remains free.
 Packaged installers are distributed separately from this public repository.
 Recipients retain the rights provided by the GPL.

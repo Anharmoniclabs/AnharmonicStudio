@@ -237,6 +237,9 @@ def main():
         source_hash = build_bundle(ROOT, ready / f"{NAME}-{args.version}-source.zip")
         manifest = dict(
             version=args.version,
+            source_commit=subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+            ).strip(),
             platform=platform.platform(),
             architecture=platform.machine(),
             python=platform.python_version(),

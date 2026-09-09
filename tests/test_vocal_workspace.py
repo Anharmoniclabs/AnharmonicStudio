@@ -198,4 +198,12 @@ def test_comp_panel_does_not_force_pitch_editor_horizontal_overflow(window):  # 
     window.pad_side.show()
     window.show_tab(5)
     QApplication.processEvents()
-    assert window.vocal_panel.workspace_scroller.horizontalScrollBar().maximum() == 0
+    scroller = window.vocal_panel.workspace_scroller
+    assert scroller.horizontalScrollBar().maximum() == 0, {
+        "viewport": scroller.viewport().width(),
+        "body_minimum": scroller.widget().minimumSizeHint().width(),
+        "keys": [
+            (key.text(), key.minimumWidth(), key.minimumSizeHint().width())
+            for key in window.vocal_panel.root_keys.values()
+        ],
+    }

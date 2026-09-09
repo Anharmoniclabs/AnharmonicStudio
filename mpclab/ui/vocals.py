@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QMessageBox,
     QInputDialog,
+    QSizePolicy,
 )
 
 from ..model import Clip, NTRACKS, VocalComp, VocalCompRegion
@@ -338,7 +339,10 @@ class VocalPanel(WindowClient, QWidget):
         for note in NOTE_NAMES:
             button = QPushButton(note)
             button.setCheckable(True)
-            button.setMinimumWidth(24)
+            # Windows' native style gives ordinary buttons a wide minimum.
+            # These twelve piano keys share the available width instead.
+            button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            button.setMinimumWidth(36)
             button.setToolTip(f"Set the song key to {note}")
             button.clicked.connect(
                 lambda checked=False, root=note: self.key_box.setCurrentText(root)

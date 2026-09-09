@@ -58,6 +58,18 @@ def test_media_tools_prefer_bundled_executables(tmp_path, monkeypatch):
     assert runtime_paths.media_tool("ffmpeg") == str(tmp_path / "tools/ffmpeg.exe")
 
 
+def test_bundled_ffmpeg_retains_its_frozen_library_search_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime_paths, "RESOURCE_ROOT", tmp_path)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LD_LIBRARY_PATH", str(tmp_path))
+    monkeypatch.delenv("LD_LIBRARY_PATH_ORIG", raising=False)
+    assert runtime_paths.external_environment(tmp_path / "tools/ffmpeg")["LD_LIBRARY_PATH"] == str(
+        tmp_path
+    )
+    assert "LD_LIBRARY_PATH" not in runtime_paths.external_environment("/usr/bin/ffmpeg")
+
+
 @pytest.mark.parametrize("original", [None, "/system/libs"])
 def test_system_programs_do_not_inherit_bundled_libraries(original, monkeypatch):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
@@ -126,5 +138,5 @@ def test_installed_launcher_icon_points_into_its_build(tmp_path, resource_folder
     icon.write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
     installed, desktop = install_bundle(source, tmp_path / "user prefix")
     expected = installed / resource_folder / "assets/branding/anharmonic-studios.svg"
-    assert f"Icon={expected}\n" in desktop.read_text()
+    assert "Icon=" + str(expected).replace("\\", "\\\\") + "\n" in desktop.read_text()
     assert expected.read_bytes() == icon.read_bytes()

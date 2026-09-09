@@ -73,7 +73,7 @@ def build_bundle(root: Path, destination: Path) -> str:
                 mode = 0o755 if source.stat().st_mode & 0o111 else 0o644
                 entry.external_attr = (0o100000 | mode) << 16
                 bundle.writestr(entry, source.read_bytes())
-        with open(temporary, "rb") as handle:
+        with open(temporary, "r+b") as handle:
             digest = hashlib.file_digest(handle, "sha256").hexdigest()
             os.fsync(handle.fileno())
         os.replace(temporary, destination)
