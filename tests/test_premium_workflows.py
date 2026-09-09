@@ -54,15 +54,11 @@ def test_unmanaged_ctrl_number_workspace_keys_remain_enabled(tmp_path, monkeypat
     _app, window, controller = make_window(tmp_path, monkeypatch)
     try:
         ctrl_one = [
-            shortcut
-            for shortcut in window._shortcuts
-            if shortcut.key().toString() == "Ctrl+1"
+            shortcut for shortcut in window._shortcuts if shortcut.key().toString() == "Ctrl+1"
         ]
         assert ctrl_one and ctrl_one[0].isEnabled()
         managed_five = [
-            shortcut
-            for shortcut in window._shortcuts
-            if shortcut.key().toString() == "F5"
+            shortcut for shortcut in window._shortcuts if shortcut.key().toString() == "F5"
         ]
         assert managed_five and not managed_five[0].isEnabled()
     finally:
