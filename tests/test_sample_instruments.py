@@ -11,7 +11,7 @@ from PySide6.QtTest import QSignalSpy, QTest
 from mpclab.engine import Engine
 from mpclab.export import render_export
 from mpclab.library import Library
-from mpclab.model import Pad, Project, Clip, Row
+from mpclab.model import PROJECT_FORMAT_VERSION, Pad, Project, Clip, Row
 from mpclab.music import Note
 from mpclab.ui import main_window
 from mpclab.ui.sample_drag import RANGE_MIME
@@ -87,7 +87,7 @@ def test_roundtrip_and_legacy_notes(audio_project, tmp_path):
     path = tmp_path / "song.json"
     project.save(path)
     assert Project.load(path).to_dict() == project.to_dict()
-    assert project.to_dict()["format_version"] == 4
+    assert project.to_dict()["format_version"] == PROJECT_FORMAT_VERSION
     legacy = Project.from_dict({"format_version": 2, "patterns": [{"notes": [{"pitch": 67}]}]})
     assert legacy.pattern().notes[0].pad is None and legacy.pads[0].root_note == 60
 

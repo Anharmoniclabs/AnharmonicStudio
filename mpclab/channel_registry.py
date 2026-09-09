@@ -78,6 +78,13 @@ class ChannelRegistry:
         assert ref.pad_index is not None
         return int(self.project.pads[ref.pad_index].track)
 
+    def mixer_track_id(self, channel_id: str) -> str:
+        """Bridge current integer routing to the persisted mixer identity."""
+        index = self.mixer_track(channel_id)
+        if not 0 <= index < len(self.project.tracks):
+            raise ValueError("channel output is outside the mixer")
+        return self.project.tracks[index].id
+
     def display_name(self, channel_id: str) -> str:
         ref = self.resolve(channel_id)
         if ref.kind is ChannelKind.SYNTH:
