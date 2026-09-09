@@ -1,0 +1,16 @@
+ANHARMONIC STUDIO - DESIGN NOTES
+
+The existing A-wave-dot identity was refined using the built-in image generation tool.
+The clean black-on-white reference is included for provenance. It is not a transparent asset.
+Production symbols were converted to real Bezier vector paths. Logo typography was
+rebuilt with URW Gothic Book and converted to outlines; logo files require no fonts.
+The primary black/white identity is complemented by an optional #427BFF blue accent.
+
+Generation prompt (final selected source):
+Create the production symbol for this exact existing brand. Keep the A, its lower sine
+wave crossing through the A, and its separate small round dot on the right. Remove
+all text including ANHARMONIC and STUDIO. Reproduce the entire A-wave-dot silhouette
+as perfectly flat solid black on a uniform white background. Preserve the sharp peak,
+thin rising left stem, broad right stroke, serif feet, fluid waveform, and the cutout at
+the wave crossing. Crisp edges; no texture, shadow, glow, 3D, paper, or checkerboard.
+Center the mark with wide clean white space. Exactly one symbol, no extra text.

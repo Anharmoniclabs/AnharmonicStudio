@@ -1,4 +1,9 @@
-# Anharmonic Studios
+# Anharmonic Studio
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/branding/logo-pack/01-Logos/anharmonic-horizontal-white.svg">
+  <img src="assets/branding/logo-pack/01-Logos/anharmonic-horizontal-ink.svg" alt="Anharmonic Studio" width="480">
+</picture>
 
 A native desktop music studio for sampling, beatmaking, synthesis, arranging,
 vocal production, and mixing. Import a sound, cut it into playable slices,
@@ -79,6 +84,13 @@ uv run --no-sync python scripts/build_source_bundle.py dist/AnharmonicStudio-sou
 The Linux packaging script uses `requirements-build.txt` and is intended for a
 separate build environment. It creates a local, unsigned Linux bundle, not a
 Windows EXE. Generated bundles and installers stay outside version control.
+
+## Logo pack
+
+The [complete 84-file logo pack](assets/branding/logo-pack) includes outlined SVGs,
+transparent PNGs, light/dark and accent versions, Windows and macOS icons,
+favicons, social artwork, and a four-page usage guide.
+See the [branding index](assets/branding/README.md) for the app and website asset mapping.
 
 ## Repository contents
 

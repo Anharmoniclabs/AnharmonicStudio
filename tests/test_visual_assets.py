@@ -12,8 +12,28 @@ from mpclab.ui.visual_assets import (
     PAGES,
     WorkspaceHeader,
     _source,
+    brand_pixmap,
     studio_icon,
 )
+
+
+def test_signature_renders_at_high_dpi_and_follows_project_accent():
+    original_accent = theme.C["accent"]
+    try:
+        theme.set_theme("dark")
+        theme.set_accent("#427BFF")
+        blue = brand_pixmap(2.0)
+        assert not blue.isNull()
+        assert blue.devicePixelRatio() == 2.0
+        assert (blue.width(), blue.height()) == (436, 88)
+        theme.set_accent("#E65A91")
+        pink = brand_pixmap(2.0)
+        assert blue.toImage() != pink.toImage()
+        theme.set_theme("light")
+        assert pink.toImage() != brand_pixmap(2.0).toImage()
+    finally:
+        theme.set_theme("dark")
+        theme.set_accent(original_accent)
 
 
 @pytest.fixture
