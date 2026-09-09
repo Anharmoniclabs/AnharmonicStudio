@@ -125,7 +125,7 @@ class CommandRegistry:
         if spec.id in self._commands:
             raise ValueError(f"duplicate command id: {spec.id}")
         self._commands[spec.id] = spec
-        if spec.id not in self.bindings and spec.default_shortcut:
+        if self.preset != "Custom" and spec.id not in self.bindings and spec.default_shortcut:
             shortcut = _valid_shortcut(spec.default_shortcut)
             occupied = {value.casefold() for value in self.bindings.values()}
             if shortcut.casefold() not in occupied:
