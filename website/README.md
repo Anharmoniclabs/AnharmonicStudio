@@ -37,8 +37,8 @@ All paid download plans include Linux, Windows, Intel Mac, and Apple Silicon Mac
 Installed versions keep working without recurring payments.
 
 `config.js` enables the verified $1 one-time Stripe test Payment Link.
-The button and release status explicitly identify test mode. Live sales and donations
-stay closed. `deliveryReady` remains false until the private service below has been
+The button and release status explicitly identify test mode. Live installer sales stay closed. Ko-fi donations are open at
+https://ko-fi.com/anharmoniclabs and operate independently of Stripe test mode. `deliveryReady` remains false until the private service below has been
 deployed and a real Stripe sandbox purchase has downloaded its selected installer.
 Every unavailable offer opens an information dialog or links to the visible release
 status without JavaScript. Checkout runs on Stripe; the website does not collect
@@ -50,7 +50,9 @@ status as testing, with no real charge. Payment Links do not
 use the publishable key; no Stripe secret belongs in the site.
 
 To open live offers later, change `paymentMode` to `live`, configure their real HTTPS
-hosted checkout URLs, and explicitly enable sales or donations. Each offer is checked
+hosted checkout URLs, and explicitly enable sales. Donations use their own `donationsOpen` flag and
+remain independent of the installer payment mode. Keep the donation link and status
+in `index.html` in sync for visitors without JavaScript. Each offer is checked
 independently. An invalid or missing URL stays closed even if other offers are enabled. URLs containing credentials or using
 non-HTTPS schemes are rejected. No price, payment status, or download entitlement is
 trusted from browser state. The provider must enforce those on its server.

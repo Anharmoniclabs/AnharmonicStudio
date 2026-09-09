@@ -6,10 +6,10 @@ window.ANHARMONIC_CONFIG = Object.freeze({
   testCheckoutOpen: true, // Verified $1 one-time Stripe sandbox checkout.
   deliveryReady: false, // Enable only after a hosted, verified purchase downloads an installer.
   salesOpen: false,
-  donationsOpen: false,
+  donationsOpen: true,
   links: Object.freeze({
     download: 'https://buy.stripe.com/test_4gMdR877K9rwdfA30g9oc00', // $1 one-time test payment.
     supporter: null,    // Hosted supporter checkout: $45 minimum.
-    donation: null      // Separate optional contribution; no download entitlement.
+    donation: 'https://ko-fi.com/anharmoniclabs' // Separate contribution; no download entitlement.
   })
 });
