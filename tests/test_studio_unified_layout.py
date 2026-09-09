@@ -65,7 +65,7 @@ def test_more_menu_keeps_all_workflow_actions():
         menu = studio.more_button.menu()
         assert menu is not None
         assert [action.text() for action in menu.actions()] == [
-            "Takes, comp & tuning",
+            "Record vocals in Song",
             "Automation",
             "Master output",
             "Musical typing",

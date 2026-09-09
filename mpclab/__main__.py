@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 import argparse
 from pathlib import Path
 
 from . import APP_NAME, APP_SLUG, ORGANIZATION_NAME
-from .runtime_paths import RESOURCE_ROOT, data_root
+from .runtime_paths import RESOURCE_ROOT, data_root, media_tool
 
 ROOT = RESOURCE_ROOT
 
@@ -20,7 +19,8 @@ def main() -> int:
     configure()
 
     # Qt's own Wayland plugin ships with PySide6; fall back to XWayland if it fails.
-    os.environ.setdefault("QT_QPA_PLATFORM", "wayland;xcb")
+    if sys.platform.startswith("linux"):
+        os.environ.setdefault("QT_QPA_PLATFORM", "wayland;xcb")
     os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
 
     parser = argparse.ArgumentParser(
@@ -56,7 +56,7 @@ def main() -> int:
     args, qt_args = parser.parse_known_args(sys.argv[1:])
 
     if args.install:
-        if not getattr(sys, "frozen", False):
+        if not getattr(sys, "frozen", False) or not sys.platform.startswith("linux"):
             parser.error("--install is available in the built Linux bundle")
         from .install_bundle import install_bundle
 
@@ -74,7 +74,7 @@ def main() -> int:
         from .release_check import main as check_main
 
         return check_main()
-    missing = [name for name in ("ffmpeg", "ffprobe") if not shutil.which(name)]
+    missing = [name for name in ("ffmpeg", "ffprobe") if not media_tool(name)]
     if missing:
         print(
             "Missing " + ", ".join(missing) + "; install your system's ffmpeg package.",

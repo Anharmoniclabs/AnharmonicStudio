@@ -94,6 +94,23 @@ def main():
         bundle = stage / "dist/AnharmonicStudio"
         for name in ("LICENSE", "THIRD_PARTY.md"):
             shutil.copy2(root / name, bundle / name)
+        # Some wheels keep notices outside their .dist-info directory. Preserve
+        # those too, along with exact upstream metadata/source links.
+        for name in packages:
+            distribution = metadata.distribution(name)
+            notices = bundle / "notices" / name
+            notices.mkdir(parents=True, exist_ok=True)
+            (notices / "METADATA.txt").write_text(distribution.read_text("METADATA") or "")
+            for file in distribution.files or ():
+                if any(word in file.name.lower() for word in ("license", "copying", "notice")):
+                    path = Path(str(file))
+                    if path.is_absolute() or ".." in path.parts:
+                        continue
+                    original = distribution.locate_file(file)
+                    if original.is_file():
+                        target = notices / path
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(original, target)
         manifest = {
             "platform": platform.platform(),
             "machine": platform.machine(),
@@ -135,6 +152,36 @@ def main():
         (bundle / "self-check.log").write_text(checked.stdout + checked.stderr)
         if checked.returncode:
             raise RuntimeError("Bundled self-check failed:\n" + checked.stdout + checked.stderr)
+        # Exercise the installer in a disposable prefix, never the user's menu.
+        prefix = stage / "install check with spaces"
+        installed = subprocess.run(
+            [str(bundle / "AnharmonicStudio"), "--install", "--install-prefix", str(prefix)],
+            cwd=stage,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if installed.returncode:
+            raise RuntimeError("Bundled installer failed:\n" + installed.stdout + installed.stderr)
+        executable = next((prefix / "opt/anharmonic-studio").glob("build-*/AnharmonicStudio"))
+        relocated = subprocess.run(
+            [str(executable), "--self-check"],
+            cwd=stage,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if relocated.returncode:
+            raise RuntimeError("Installed app failed:\n" + relocated.stdout + relocated.stderr)
+        (bundle / "installed-self-check.log").write_text(relocated.stdout + relocated.stderr)
+        validator = shutil.which("desktop-file-validate")
+        if validator:
+            subprocess.run(
+                [validator, str(prefix / "share/applications/anharmonic-studio.desktop")],
+                check=True,
+            )
         # Atomically expose a candidate only after the real frozen export/UI check passes.
         os.replace(stage / "dist", output)
     archive = output / "AnharmonicStudio-linux.tar.gz"

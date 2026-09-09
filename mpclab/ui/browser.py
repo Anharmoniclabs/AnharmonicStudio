@@ -360,17 +360,19 @@ class BrowserPanel(WindowClient, QWidget):
         self.empty_label.setWordWrap(True)
         lay.addWidget(self.empty_label)
 
-        actions = QHBoxLayout()
+        use_sound = QPushButton("Use sound")
+        use_sound.setMinimumHeight(30)
+        use_sound.setToolTip("Use the whole sound selected in the Browser")
+        use_menu = QMenu(use_sound)
         for label, destination in (("Play in Notes", "notes"), ("Add to Beats", "beats")):
-            button = QPushButton(label)
-            button.setMinimumHeight(30)
-            button.clicked.connect(
-                lambda checked=False, d=destination: self.app.sample_workflow.send(
+            use_menu.addAction(
+                label,
+                lambda d=destination: self.app.sample_workflow.send(
                     self.selected_clip_id(), destination=d
-                )
+                ),
             )
-            actions.addWidget(button)
-        lay.addLayout(actions)
+        use_sound.setMenu(use_menu)
+        lay.addWidget(use_sound)
         hint = QLabel(
             "▶ Preview · double-click or Enter to audition\n"
             "Drag to Beats lanes, Notes, pads or Arrange"

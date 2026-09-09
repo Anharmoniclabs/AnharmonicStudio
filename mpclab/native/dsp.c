@@ -3,8 +3,14 @@
 #include <stdint.h>
 #include <math.h>
 
+#ifdef _WIN32
+#define MPC_EXPORT __declspec(dllexport)
+#else
+#define MPC_EXPORT
+#endif
+
 /* Recurrence replaces FFT convolution in compressor/reverb smoothing. */
-void mpc_onepole(float *block, size_t frames, size_t channels,
+MPC_EXPORT void mpc_onepole(float *block, size_t frames, size_t channels,
                  float *state, double b) {
     for (size_t c = 0; c < channels; ++c) {
         double value = state[c];
@@ -17,7 +23,7 @@ void mpc_onepole(float *block, size_t frames, size_t channels,
     }
 }
 
-int mpc_dsp_abi(void) { return 1; }
+MPC_EXPORT int mpc_dsp_abi(void) { return 1; }
 
 #define PI 3.14159265358979323846264338327950288
 
@@ -52,7 +58,7 @@ static double oscillator(int kind, double phase, double step, double pw) {
  * dead, and four filter integrators. Noise comes from the reference RNG.
  * Half-rate filtering and pair hold match the existing patch sound exactly.
  */
-void mpc_synth(float *out, size_t n, const double *noise, const double *p,
+MPC_EXPORT void mpc_synth(float *out, size_t n, const double *noise, const double *p,
                double *s, int64_t age, int64_t gate) {
     double sr = p[0], sums[3] = {0.0, 0.0, 0.0};
     double env = s[4], release = s[6];
@@ -128,7 +134,7 @@ void mpc_synth(float *out, size_t n, const double *noise, const double *p,
 }
 
 /* state: envelope, stage (attack/decay/sustain/release), release step, dead */
-void mpc_envelope(double *out, size_t n, double *state, int64_t age,
+MPC_EXPORT void mpc_envelope(double *out, size_t n, double *state, int64_t age,
                   int64_t gate, double attack, double decay, double sustain,
                   int64_t release_frames) {
     double env = state[0], release = state[2];
@@ -156,7 +162,7 @@ void mpc_envelope(double *out, size_t n, double *state, int64_t age,
 }
 
 /* The exact existing nonlinear-filter recurrence, with stereo state retained. */
-void mpc_filter(const double *left, const double *right, const double *g,
+MPC_EXPORT void mpc_filter(const double *left, const double *right, const double *g,
                 size_t n, double k, double *state, double *out_l, double *out_r) {
     double ic1_l = state[0], ic2_l = state[1], ic1_r = state[2], ic2_r = state[3];
     for (size_t i = 0; i < n; ++i) {

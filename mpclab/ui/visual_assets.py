@@ -1,8 +1,9 @@
 """Local vector artwork for the native studio; no network or audio work."""
 
 from functools import lru_cache
-from math import ceil
 from pathlib import Path
+from math import ceil
+from ..runtime_paths import RESOURCE_ROOT
 
 from PySide6.QtCore import QByteArray, QEvent, QObject, QRectF, QSize, Qt
 from PySide6.QtGui import QIcon, QPainter, QPixmap
@@ -10,7 +11,6 @@ from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QWidget
 
 from . import theme
-from ..runtime_paths import RESOURCE_ROOT
 
 ASSET_ROOT = Path(__file__).resolve().parents[2] / "assets/studio/interface"
 ASSET_NAMES = frozenset(
@@ -26,7 +26,7 @@ PAGES = {
     ),
     3: ("mix", "Mix", "Balance every routed sound, effect send and the master."),
     4: ("instruments", "Instruments", "Choose a playable sound and shape its performance."),
-    5: ("record", "Record", "Capture takes, comp performances and place them in Arrange."),
+    5: ("notes", "Autotune", "See recorded pitch, shape the correction and compare tuned takes."),
     6: ("notes", "Notes", "Compose synth or chromatic sample notes in the piano roll."),
     7: ("automation", "Automation", "Draw level and pan movement across the song."),
 }
@@ -117,8 +117,15 @@ def _icon(name: str, normal: str, accent: str, disabled: str) -> QIcon:
     return result
 
 
+def owner_icon() -> QIcon:
+    """The supplied logo, bundled unchanged so installations never need Downloads."""
+    return QIcon(str(ASSET_ROOT.parents[1] / "branding/anharmonic-studios.png"))
+
+
 def studio_icon(name: str) -> QIcon:
     """Return theme-aware cached artwork. Call only on the GUI thread."""
+    if name == "identity":
+        return owner_icon()
     return QIcon(_icon(name, theme.C["dim"], theme.C["accent"], theme.C["dim2"]))
 
 

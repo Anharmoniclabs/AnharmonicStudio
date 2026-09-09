@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
 import numpy as np
-from .runtime_paths import external_environment
+from .runtime_paths import external_environment, media_tool, subprocess_options
 
 SR = 44100
-FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
-FFPROBE = shutil.which("ffprobe") or "ffprobe"
+FFMPEG = media_tool("ffmpeg") or "ffmpeg"
+FFPROBE = media_tool("ffprobe") or "ffprobe"
 
 
 class AudioError(RuntimeError):
@@ -33,7 +32,13 @@ def probe(path: Path) -> dict:
         "a:0",
         str(path),
     ]
-    out = subprocess.run(cmd, capture_output=True, text=True, env=external_environment())
+    out = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        env=external_environment(FFPROBE),
+        **subprocess_options(),
+    )
     if out.returncode != 0:
         raise AudioError(out.stderr.strip()[:400] or "ffprobe failed")
     info = json.loads(out.stdout or "{}")
@@ -94,7 +99,13 @@ def to_wav(src: Path, dst: Path, sr: int = SR, channels: int = 2) -> Path:
             "pcm_s24le",
             str(dst),
         ]
-        out = subprocess.run(cmd, capture_output=True, text=True, env=external_environment())
+        out = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=external_environment(FFMPEG),
+            **subprocess_options(),
+        )
         if out.returncode == 0 and dst.exists():
             return dst
         detail = (out.stderr or "").strip()[:300]
@@ -123,7 +134,9 @@ def read_mono(path: Path, sr: int = SR) -> np.ndarray:
         "pcm_f32le",
         "-",
     ]
-    out = subprocess.run(cmd, capture_output=True, env=external_environment())
+    out = subprocess.run(
+        cmd, capture_output=True, env=external_environment(FFMPEG), **subprocess_options()
+    )
     if out.returncode != 0:
         raise AudioError(out.stderr.decode(errors="replace").strip()[:400])
     # frombuffer views immutable bytes, so take a writable copy.

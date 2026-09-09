@@ -32,15 +32,22 @@ def test_portaudio_exposes_input_and_output_devices():
 
 def test_default_duplex_stream_opens_twice_without_stale_device_state():
     sd = _sounddevice()
+    callbacks = []
+    errors = []
 
     def callback(indata, outdata, _frames, _time_info, status):
-        assert not getattr(status, "input_overflow", False)
-        assert not getattr(status, "output_underflow", False)
+        # PortAudio prints callback exceptions rather than raising them in the
+        # test thread. Collect observations and assert after closing the stream.
+        callbacks.append(len(indata))
+        if getattr(status, "input_overflow", False) or getattr(status, "output_underflow", False):
+            errors.append(str(status))
         outdata.fill(0)
         if len(indata):
             outdata[:, 0] = indata[:, 0] * np.float32(0.0)
 
     for _attempt in range(2):
+        callbacks.clear()
+        errors.clear()
         with sd.Stream(
             samplerate=48_000,
             blocksize=512,
@@ -48,8 +55,11 @@ def test_default_duplex_stream_opens_twice_without_stale_device_state():
             dtype="float32",
             latency="low",
             callback=callback,
-        ):
+        ) as stream:
             time.sleep(0.25)
+            assert stream.active, "duplex callback stopped unexpectedly"
+        assert callbacks, "duplex stream opened without delivering audio callbacks"
+        assert not errors, errors
 
 
 def test_each_available_output_can_open_a_short_silent_stream():
@@ -62,6 +72,17 @@ def test_each_available_output_can_open_a_short_silent_stream():
     assert outputs
     failures = []
     for index in outputs:
+        callbacks = []
+        errors = []
+
+        def silent_callback(
+            outdata, _frames, _time_info, status, callbacks=callbacks, errors=errors
+        ):
+            callbacks.append(len(outdata))
+            if getattr(status, "output_underflow", False):
+                errors.append(str(status))
+            outdata.fill(0)
+
         try:
             with sd.OutputStream(
                 device=index,
@@ -69,9 +90,12 @@ def test_each_available_output_can_open_a_short_silent_stream():
                 blocksize=512,
                 channels=2,
                 dtype="float32",
-                callback=lambda outdata, *_args: outdata.fill(0),
-            ):
+                callback=silent_callback,
+            ) as stream:
                 time.sleep(0.1)
+                assert stream.active, "output callback stopped unexpectedly"
+            assert callbacks, "output stream opened without delivering audio callbacks"
+            assert not errors, errors
         except Exception as exc:  # report every unusable advertised destination
             failures.append(f"{index}: {exc}")
     assert not failures, failures

@@ -108,3 +108,11 @@ with clean source history; it does not import the former development repository'
 The orchestral recordings are CC0, with their dedication retained alongside the
 assets. Other dependencies and media keep their own licenses. See [LICENSE](LICENSE)
 and [THIRD_PARTY.md](THIRD_PARTY.md).
+
+
+## Native release candidates
+
+The public source remains GPL-2.0-or-later. Official Linux, macOS and Windows
+binaries are intended for paid distribution; checkout/paywall integration is
+not enabled yet. See [the candidate build guide](docs/CROSS_PLATFORM_RELEASE.md).
+Release CI uploads encrypted candidate artifacts, never plaintext paid installers.

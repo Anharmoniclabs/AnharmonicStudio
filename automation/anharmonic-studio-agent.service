@@ -1,0 +1,16 @@
+[Unit]
+Description=Anharmonic Studio continuous sequential refinement
+
+[Service]
+Type=simple
+WorkingDirectory=/home/al/Projects/mpc-lab
+ExecStart=/usr/bin/python3 /home/al/Projects/mpc-lab/automation/anharmonic_agent.py run --continuous
+Environment=PATH=/home/al/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=QT_QPA_PLATFORM=offscreen
+Environment=MPC_HARDWARE_TEST=0
+Nice=10
+IOSchedulingClass=idle
+UMask=0077
+TimeoutStartSec=infinity
+KillMode=process
+# Pause with the controller's pause command; never restart/stop a shared Codex service.

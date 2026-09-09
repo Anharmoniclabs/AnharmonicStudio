@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QScrollArea,
     QTabWidget,
-    QStackedWidget,
     QSplitter,
     QFrame,
     QSpinBox,
@@ -101,7 +100,8 @@ from .typing_keyboard import TypingKeyboardWindow
 from .audio_setup import AudioSetupDialog
 from .waveform import WaveformView, NavStrip
 from .color_picker import TonePickerDialog
-from .visual_assets import brand_pixmap
+from .transport_meters import TransportMeters
+from .visual_assets import owner_icon, brand_pixmap
 
 # Numeric keypad → local pad index, matching PAD_KEYS. Every entry is matched
 # only when Qt.KeypadModifier is set, so the number row and the main Enter,
@@ -190,7 +190,7 @@ SHORTCUTS = (
             ("Ctrl+F", "find samples in the browser"),
             ("Shift+F8", "show / hide the pads"),
             ("F9", "Mixer"),
-            ("F10", "Vocal recording + autotune"),
+            ("F10", "Autotune · recorded vocal editor"),
             ("F11", "Playlist focus mode"),
             ("Ctrl+1…9", "the workspaces, in order · Ctrl+9 opens Studio"),
         ),
@@ -445,6 +445,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
     def __init__(self, root: Path, *, restore_session: bool = True):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.setWindowIcon(owner_icon())
         self.export_job = None
         self.project_path: Path | None = None
         self._recorded_notes = {}
@@ -571,6 +572,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         outer.setSpacing(0)
         transport = self._build_transport()
         project_bar = QWidget()
+        self.project_bar = project_bar
         project_bar.setObjectName("projectBar")
         project_bar.setAttribute(Qt.WA_StyledBackground, True)
         project_layout = QHBoxLayout(project_bar)
@@ -594,6 +596,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 8, 0)
         header_layout.addWidget(scrolling_bar(project_bar), 1)
+        header_layout.addWidget(self.transport_meters)
         # Appearance stays reachable at the top right even in a narrow window.
         for widget in (self.btn_theme, self.btn_color, self.btn_help):
             project_layout.removeWidget(widget)
@@ -636,7 +639,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             except (ValueError, TypeError):
                 pass
         for name, panel in (("browser", self.browser_frame), ("pads", self.pad_side)):
-            visible = self.settings.value(f"ui/{name}_visible", name != "pads")
+            visible = self.settings.value(f"ui/{name}_visible", True)
             panel.setVisible(str(visible).lower() not in ("false", "0"))
         outer.addWidget(self.main_splitter, 1)
 
@@ -649,7 +652,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         panel_controls.setContentsMargins(0, 0, 6, 0)
         for text, callback in (
             ("Browser", self.toggle_browser),
-            ("Inspector", self.toggle_pads),
+            ("Pads", self.toggle_pads),
             ("Focus", lambda: self.btn_playlist_focus.toggle()),
         ):
             button = QPushButton(text)
@@ -660,6 +663,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
                 button.setCheckable(True)
                 self.btn_playlist_focus.toggled.connect(button.setChecked)
         project_layout.addWidget(self.panel_controls)
+        project_bar.setMinimumWidth(project_bar.sizeHint().width())
         self.studio.create_beat.clicked.connect(self.create_factory_beat)
         self.studio.arrange_pattern.clicked.connect(self.append_pattern_to_arrangement)
         self._build_menus()
@@ -1006,6 +1010,8 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         lay.setContentsMargins(12, 7, 12, 7)
         lay.setSpacing(9)
 
+        self.transport_meters = TransportMeters()
+        lay.addWidget(self.transport_meters)
         self.logo = QLabel()
         self.logo.setObjectName("logo")
         self.logo.setFixedSize(218, 44)
@@ -1260,6 +1266,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             self.logo.setText(APP_NAME)
         else:
             self.logo.setPixmap(signature)
+        self.project_bar.setMinimumWidth(self.project_bar.sizeHint().width())
         self.btn_theme.setText("DARK" if theme.is_light() else "LIGHT")
         self.browser.refresh_separation_status()
         self.browser.refresh()
@@ -1309,7 +1316,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.synth_panel = SynthPanel(self)
         self.tabs.addTab(self.synth_panel, "Synth")
         self.vocal_panel = VocalPanel(self)
-        self.tabs.addTab(self.vocal_panel, "Vocals")
+        self.tabs.addTab(self.vocal_panel, "Autotune")
         self.piano_roll = PianoRollPanel(self)
         self.tabs.addTab(self.piano_roll, "Piano Roll")
         self.automation_panel = AutomationPanel(self)
@@ -1325,7 +1332,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
                 "Arrange patterns and audio into a track  (F5)",
                 "Levels, effects, sends and the master bus  (F9)",
                 "The built-in analog instrument and arpeggiator  (F7)",
-                "Record, comp, tune and place vocal takes  (F10)",
+                "Visually tune recorded vocals and compare takes  (F10)",
                 "Compose sample and synth notes  (F12 / Ctrl+7)",
                 "Draw arrangement levels and pan  (Ctrl+8)",
                 "Docked Playlist, channel rack and mix console  (Ctrl+9)",
@@ -1411,23 +1418,16 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
         self.clip_label = QLabel("no sample loaded")
         self.clip_label.setObjectName("clipname")
-        self.btn_scan = QPushButton("AUTO CHOP")
+        self.btn_scan = QPushButton("Find slices")
         self.btn_scan.setObjectName("go")
         self.btn_scan.setToolTip(
             "Detect cuts throughout the sample, including quiet attacks. Adjust sensitivity and scan again."
         )
-        self.btn_scan.clicked.connect(self.auto_chop)
-
-        self.btn_auto_map = QPushButton("AUTO-MAP → PADS")
-        self.btn_auto_map.setObjectName("go2")
-        self.btn_auto_map.setToolTip(
-            "Lay the best hits out on this bank, loops on the next, drops after that"
+        self.btn_scan.clicked.connect(
+            lambda: self.auto_chop() if self.chop_mode.currentIndex() == 0 else self.do_chop()
         )
-        self.btn_auto_map.clicked.connect(self.auto_map)
-        tl.addWidget(self.btn_auto_map)
 
-        tl.addSpacing(10)
-        tl.addWidget(small("SLICE"))
+        tl.addWidget(small("METHOD"))
         self.chop_mode = QComboBox()
         self.chop_mode.addItems(["transients", "equal grid", "beat grid"])
         self.chop_mode.currentIndexChanged.connect(self._chop_mode_changed)
@@ -1439,8 +1439,10 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.sens.setValue(100)
         self.sens.setFixedWidth(90)
         self.sens.setToolTip(
-            "Left: fewer cuts · Right: pick up quieter attacks · press Auto Chop to apply"
+            "Left: fewer cuts · Right: pick up quieter attacks · press Find slices to apply"
         )
+        tl.addWidget(self.sens_label)
+        tl.addWidget(self.sens)
 
         self.pieces_label = small("PIECES")
         self.pieces = QSpinBox()
@@ -1451,21 +1453,25 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         tl.addWidget(self.pieces_label)
         tl.addWidget(self.pieces)
 
-        chop = QPushButton("CHOP")
-        chop.setObjectName("go")
-        chop.clicked.connect(self.do_chop)
-        tl.addWidget(chop)
+        tl.addWidget(self.btn_scan)
 
-        to_pads = QPushButton("→ PADS")
+        to_pads = QPushButton("Map slices to pads")
         to_pads.setObjectName("go2")
+        to_pads.setToolTip("Assign the existing slices across the current pad bank")
         to_pads.clicked.connect(self.slices_to_pads)
         tl.addWidget(to_pads)
 
-        for text, slot in (("DETECT BPM", self.detect_bpm), ("CLEAR", self.clear_slices)):
-            b = QPushButton(text)
-            b.setObjectName("mini")
-            b.clicked.connect(slot)
-            tl.addWidget(b)
+        chop_options = QPushButton("Options")
+        chop_menu = QMenu(chop_options)
+        self.btn_auto_map = chop_menu.addAction(
+            "Detect and map hits, loops and drops", self.auto_map
+        )
+        chop_menu.addAction("Detect source tempo", self.detect_bpm)
+        chop_menu.addSeparator()
+        chop_menu.addAction("Clear all slices", self.clear_slices)
+        chop_options.setMenu(chop_menu)
+        tl.addWidget(chop_options)
+        tl.addStretch(1)
 
         primary = QWidget()
         primary_row = QHBoxLayout(primary)
@@ -1476,9 +1482,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.clip_label.setMinimumWidth(80)
         self.clip_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         primary_row.addWidget(self.clip_label, 1)
-        primary_row.addWidget(self.btn_scan)
-        primary_row.addWidget(self.sens_label)
-        primary_row.addWidget(self.sens)
         preview_button = QPushButton("▶ Preview")
         preview_button.clicked.connect(self.audition_selection)
         primary_row.addWidget(preview_button)
@@ -1491,29 +1494,33 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         )
         self.cut_sample_button.toggled.connect(self._set_sample_cut_mode)
         primary_row.addWidget(self.cut_sample_button)
-        advanced = QPushButton("More ▸")
+        advanced = QPushButton("Chop tools ▸")
         self.sample_more = advanced
-        advanced.setToolTip("Grid slicing, automatic pad mapping, and four-bar phrases")
+        advanced.setToolTip("Open slicing and four-bar phrase tools")
         advanced.setCheckable(True)
         primary_row.addWidget(advanced)
-        for button in (import_button, preview_button, self.btn_scan, advanced):
+        for button in (import_button, preview_button, advanced):
             button.setMinimumHeight(36)
         lay.addWidget(scrolling_bar(primary))
         advanced_tools = scrolling_bar(tools)
-        advanced_tools.hide()
-        advanced.toggled.connect(advanced_tools.setVisible)
-        advanced.toggled.connect(lambda opened: advanced.setText("Less ▾" if opened else "More ▸"))
-        lay.addWidget(advanced_tools)
+        self.sample_tool_tabs = QTabWidget()
+        self.sample_tool_tabs.addTab(advanced_tools, "Slice sample")
+        self.sample_tool_tabs.hide()
+        advanced.toggled.connect(self.sample_tool_tabs.setVisible)
+        advanced.toggled.connect(
+            lambda opened: advanced.setText("Chop tools ▾" if opened else "Chop tools ▸")
+        )
+        lay.addWidget(self.sample_tool_tabs)
 
         phrase_tools = QWidget()
         phrase_row = QHBoxLayout(phrase_tools)
         phrase_row.setContentsMargins(10, 5, 10, 5)
-        phrase_row.addWidget(small("4-BAR PHRASE · 4/4"))
+        phrase_row.addWidget(small("SOURCE TEMPO"))
         self.phrase_bpm = QDoubleSpinBox()
         self.phrase_bpm.setRange(20, 400)
         self.phrase_bpm.setDecimals(2)
         self.phrase_bpm.setValue(self.project.bpm)
-        self.phrase_bpm.setSuffix(" source BPM")
+        self.phrase_bpm.setSuffix(" BPM")
         self.phrase_bpm.setKeyboardTracking(False)
         self.phrase_bpm.setToolTip("Source tempo for selecting 16 beats from your range start")
         phrase_row.addWidget(self.phrase_bpm)
@@ -1525,7 +1532,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             self.phrase_pieces.addItem(f"{count} chops", count)
         self.phrase_pieces.setCurrentIndex(2)
         phrase_row.addWidget(self.phrase_pieces)
-        self.btn_arrange_phrase = QPushButton("Chop range → 4-bar song clip")
+        self.btn_arrange_phrase = QPushButton("Create 4-bar pattern in Song")
         self.btn_arrange_phrase.setToolTip(
             "Treat the exact selection as four bars. Map unused pads and create an editable "
             "pattern in the Playlist. Repitch follows song tempo and changes pitch like vinyl. "
@@ -1535,9 +1542,12 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         phrase_row.addWidget(self.btn_arrange_phrase)
         phrase_row.addStretch(1)
         phrase_bar = scrolling_bar(phrase_tools)
-        phrase_bar.hide()
-        advanced.toggled.connect(phrase_bar.setVisible)
-        lay.addWidget(phrase_bar)
+        self.sample_tool_tabs.addTab(phrase_bar, "4-bar phrase")
+        self.sample_tool_tabs.setFixedHeight(
+            max(advanced_tools.height(), phrase_bar.height())
+            + self.sample_tool_tabs.tabBar().sizeHint().height()
+            + 6
+        )
 
         self.wave = WaveformView()
         self.wave.sliceSelected.connect(self._slice_selected)
@@ -1556,7 +1566,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         sl = QHBoxLayout(selection_tools)
         sl.setContentsMargins(10, 5, 10, 5)
         sl.setSpacing(7)
-        sl.addWidget(small("SAMPLE RANGE"))
+        sl.addWidget(small("SELECTION"))
 
         self.selection_start = QDoubleSpinBox()
         self.selection_end = QDoubleSpinBox()
@@ -1594,52 +1604,51 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
         # These two must never be the controls that give up room when the
         # window narrows — they are the point of the whole editor.
-        self.map_selection_button = QPushButton("MAP RANGE → PAD A1")
+        self.map_selection_button = QPushButton("Assign to pad A1")
         self.map_selection_button.setObjectName("go2")
         self.map_selection_button.setMinimumWidth(160)
         self.map_selection_button.setToolTip("Assign the highlighted audio to the selected pad")
         self.map_selection_button.clicked.connect(self.map_selection_to_pad)
 
-        map_next = QPushButton("MAP + NEXT")
-        map_next.setObjectName("go")
-        map_next.setMinimumWidth(96)
-        map_next.setToolTip("Map this range, select the next pad, and advance the range")
-        map_next.clicked.connect(self.map_selection_and_next)
         destination = QWidget()
         destination_row = QHBoxLayout(destination)
         destination_row.setContentsMargins(10, 8, 10, 8)
-        destination_row.addWidget(QLabel("Send selection"))
+        destination_row.addWidget(QLabel("Use selection"))
         self.sample_target = QComboBox()
         self.sample_target.addItems([f"{chr(65 + i // 16)}{i % 16 + 1}" for i in range(64)])
         self.sample_target.currentIndexChanged.connect(self.select_pad)
         destination_row.addWidget(self.sample_target)
         destination_row.addWidget(self.map_selection_button)
-        map_next.setText("Send + next pad")
-        destination_row.addWidget(map_next)
-        self.send_sample_button = SampleDragButton("Send to Arrange →", self.wave._start_range_drag)
+        self.send_sample_button = SampleDragButton("Add to Song", self.wave._start_range_drag)
         self.send_sample_button.setMinimumHeight(36)
         self.send_sample_button.setObjectName("go2")
         self.send_sample_button.setToolTip(
-            "Click to append the selected audio. Drag onto Arrange, pause to open it, "
+            "Click to append the selected audio. Drag onto Song, pause to open it, "
             "then drop onto a lane at the desired beat."
         )
         self.send_sample_button.clicked.connect(self.send_selection_to_arrangement)
         destination_row.addWidget(self.send_sample_button)
-        for title, target in (("Play in Notes", "notes"), ("Add to Beats", "beats")):
-            button = QPushButton(title)
-            button.setMinimumHeight(36)
-            button.clicked.connect(
-                lambda checked=False, d=target: self.sample_workflow.from_selection(d)
-            )
-            destination_row.addWidget(button)
+        selection_more = QPushButton("More destinations")
+        selection_more.setMinimumHeight(36)
+        selection_menu = QMenu(selection_more)
+        selection_menu.addAction(
+            "Play selection in Notes", lambda: self.sample_workflow.from_selection("notes")
+        )
+        selection_menu.addAction(
+            "Add selection to Beats", lambda: self.sample_workflow.from_selection("beats")
+        )
+        selection_menu.addSeparator()
+        selection_menu.addAction("Assign to pad and advance to next", self.map_selection_and_next)
+        selection_more.setMenu(selection_menu)
+        destination_row.addWidget(selection_more)
         destination_row.addStretch()
         self.map_selection_button.setMinimumHeight(36)
-        map_next.setMinimumHeight(36)
-        lay.addWidget(scrolling_bar(destination))
         lay.addWidget(scrolling_bar(selection_tools))
+        lay.addWidget(scrolling_bar(destination))
         lay.addWidget(self._build_view_bar())
 
         chips_area = QScrollArea()
+        self.slice_chips_area = chips_area
         chips_area.setWidgetResizable(True)
         chips_area.setFixedHeight(74)
         chips_area.setFrameShape(QFrame.NoFrame)
@@ -1828,6 +1837,20 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         add_row.clicked.connect(self.add_song_row)
         tl.addWidget(add_row)
 
+        self.track_controls_button = QPushButton("Track controls")
+        self.track_controls_button.setObjectName("mini")
+        self.track_controls_button.setCheckable(True)
+        self.track_controls_button.setToolTip(
+            "Show recording and routing for the selected Song track"
+        )
+        tl.addWidget(self.track_controls_button)
+
+        self.add_vocal_button = QPushButton("+ VOCAL TRACK")
+        self.add_vocal_button.setObjectName("mini")
+        self.add_vocal_button.setToolTip("Add and arm a dry microphone track at the Song playhead")
+        self.add_vocal_button.clicked.connect(self.add_vocal_track)
+        tl.addWidget(self.add_vocal_button)
+
         self.btn_playlist_focus = QPushButton("⛶ FOCUS", self)
         self.btn_playlist_focus.setObjectName("mini")
         self.btn_playlist_focus.setCheckable(True)
@@ -2013,6 +2036,12 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.playlist_clip_scroll = scrolling_bar(self.playlist_clip_tools)
         lay.addWidget(self.playlist_clip_scroll)
 
+        self.song_track_mount = QWidget()
+        track_layout = QVBoxLayout(self.song_track_mount)
+        track_layout.setContentsMargins(0, 0, 0, 0)
+        track_layout.setSpacing(0)
+        lay.addWidget(self.song_track_mount)
+
         self.song_scroll = QScrollArea()
         # Fill the whole Playlist tab. With a fixed-size scroll widget only the
         # short white strip was interactive and the large area below was dead.
@@ -2045,40 +2074,12 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        self.side_pages = QStackedWidget()
-        self.side_pages.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self.track_inspector = TrackInspector(self)
-        inspector_scroll = QScrollArea()
-        inspector_scroll.setWidgetResizable(True)
-        inspector_scroll.setFrameShape(QFrame.NoFrame)
-        inspector_scroll.setWidget(self.track_inspector)
-        self.side_pages.addWidget(inspector_scroll)
-        self.pad_page = QWidget()
-        pad_layout = QVBoxLayout(self.pad_page)
-        pad_layout.setContentsMargins(0, 0, 0, 0)
-        pad_layout.setSpacing(0)
-        self.side_pages.addWidget(self.pad_page)
-        side_head = QHBoxLayout()
-        side_buttons = QButtonGroup(self)
-        side_buttons.setExclusive(True)
-        for title, index in (("Track", 0), ("Pads", 1)):
-            button = QPushButton(title)
-            button.setCheckable(True)
-            button.setChecked(index == 0)
-            side_buttons.addButton(button, index)
-            button.clicked.connect(lambda _=False, i=index: self.side_pages.setCurrentIndex(i))
-            side_head.addWidget(button)
-        self.side_pages.currentChanged.connect(
-            lambda index: side_buttons.button(index).setChecked(True)
-        )
-        hide = QPushButton("×")
-        hide.setFixedWidth(28)
-        hide.setToolTip("Hide inspector · Shift+F8")
-        hide.clicked.connect(self.toggle_pads)
-        side_head.addWidget(hide)
-        lay.addLayout(side_head)
-        lay.addWidget(self.side_pages, 1)
-        lay = pad_layout
+        self.track_controls_scroll = scrolling_bar(self.track_inspector)
+        self.song_track_mount.layout().addWidget(self.track_controls_scroll)
+        self.song_track_mount.hide()
+        self.track_controls_button.toggled.connect(self.song_track_mount.setVisible)
+        self.pad_page = side
 
         head = QWidget()
         head.setObjectName("padHead")
@@ -2086,6 +2087,11 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         hl = QHBoxLayout(head)
         hl.setContentsMargins(9, 6, 9, 6)
         hl.addWidget(small("PADS"))
+        hide = QPushButton("×")
+        hide.setFixedWidth(24)
+        hide.setToolTip("Hide pads · Shift+F8")
+        hide.clicked.connect(self.toggle_pads)
+
         hl.addStretch(1)
         self.bank_buttons = []
         for b in range(BANKS):
@@ -2098,6 +2104,8 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             self.bank_buttons.append(btn)
             hl.addWidget(btn)
         lay.addWidget(head)
+
+        hl.addWidget(hide)
 
         self.pads = PadGrid(self)
         self.pads.padPressed.connect(self._pad_pressed)
@@ -2396,8 +2404,8 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             self.btn_rec.blockSignals(True)
             self.btn_rec.setChecked(False)
             self.btn_rec.blockSignals(False)
-            self.pad_side.show()
-            self.side_pages.setCurrentIndex(0)
+            self.track_controls_button.setChecked(True)
+            self.show_tab(2)
             self.status.showMessage("Arm a Song track with its R button, then press Record", 5000)
             return
         if not enabled and (capture.active or capture.pending):
@@ -2409,6 +2417,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
                 self.btn_rec.setChecked(False)
                 self.btn_rec.blockSignals(False)
                 return
+            self.show_tab(2)
             self.engine.recording = False
             self.engine.stop_transport(rewind=False)
             self.engine.mode = "song"
@@ -2482,8 +2491,14 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.sample_workflow.note_off(note)
 
     def play_synth_note(self, note: int, velocity: float = 1.0):
-        self.track_capture.note_on(note, velocity)
-        if self.engine.recording and self.engine.playing and self.engine.mode == "pattern":
+        if not self.project.arp.enabled:
+            self.track_capture.note_on(note, velocity)
+        if (
+            not self.project.arp.enabled
+            and self.engine.recording
+            and self.engine.playing
+            and self.engine.mode == "pattern"
+        ):
             if note not in self._recorded_notes:
                 self.snapshot()
                 self._recorded_notes[note] = (self.project.pattern().id, self.engine.beat, velocity)
@@ -2758,7 +2773,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.step_grid.refresh()
 
     def select_pad(self, gi: int):
-        self.side_pages.setCurrentIndex(1)
         self.pads.selected = gi
         if hasattr(self, "sample_target"):
             self.sample_target.blockSignals(True)
@@ -2767,7 +2781,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.pad_inspector.set_pad(gi)
         if hasattr(self, "map_selection_button"):
             bank = chr(ord("A") + gi // PADS_PER_BANK)
-            self.map_selection_button.setText(f"MAP RANGE → PAD {bank}{gi % PADS_PER_BANK + 1}")
+            self.map_selection_button.setText(f"Assign to pad {bank}{gi % PADS_PER_BANK + 1}")
         if hasattr(self, "synth_panel"):
             self.synth_panel.sync_target_pad()
         self.pads.update()
@@ -3203,8 +3217,16 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     def _chop_mode_changed(self, idx):
         transient = idx == 0
+        self.sens.setVisible(transient)
+        self.sens_label.setVisible(transient)
         self.pieces.setVisible(not transient)
         self.pieces_label.setVisible(not transient)
+        self.btn_scan.setText("Find slices" if transient else "Slice sample")
+        self.btn_scan.setToolTip(
+            "Detect cuts throughout the sample using the sensitivity setting"
+            if transient
+            else "Divide the sample using the selected grid and piece count"
+        )
 
     def select_four_bar_phrase(self):
         if not self.current_clip:
@@ -3564,14 +3586,10 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
                 w.setParent(None)
                 w.deleteLater()
         if not self.current_clip or (not self.wave.markers and not self.wave.regions):
-            hint = small(
-                "Cut sample + click = split · drag waveform = select · "
-                "drag S/E = trim · drag slices or Send to Arrange onto Arrange · "
-                "Ctrl+drag the range onto a pad or lane"
-            )
-            self.chips.addWidget(hint)
+            self.slice_chips_area.hide()
             self.chips.addStretch(1)
             return
+        self.slice_chips_area.show()
         kinds = self.wave.slice_kinds
         for i, (s, e) in enumerate(self.wave.all_slices()):
             kind = kinds.get(i)
@@ -3865,13 +3883,65 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         sf.write(str(out), segment, self.engine.sr, subtype="PCM_24")
         self.status.showMessage(f"saved clip WAV → {out}", 8000)
 
+    def prepare_vocal_recording(self):
+        """Prepare dry Song capture; never open a device until Record is pressed."""
+        if self.track_capture.busy:
+            self.show_tab(2)
+            return
+        row = next((r for r in self.project.rows if r.id == self.track_capture.armed_id), None)
+        if row is None or row.record_source != "audio":
+            row = self.track_inspector.row()
+        if row is None or row.record_source != "audio":
+            self.add_vocal_track()
+            return
+        if self.engine.mode != "song":
+            position = self.engine.beat
+            self.set_mode("song")
+            self.engine.set_position(position)
+        self.show_tab(2)
+        self.track_inspector.select_row(row)
+        if self.track_capture.armed_id != row.id:
+            self.track_capture.arm(row)
+        self.status.showMessage(
+            "Microphone track armed · choose input, then press Record · Stop saves the waveform in Song",
+            7000,
+        )
+
+    def add_vocal_track(self):
+        if self.track_capture.busy:
+            self.status.showMessage(
+                "Finish the current recording before adding a vocal track", 3500
+            )
+            return
+        self.snapshot()
+        number = 1 + sum(r.name.startswith("Vocal ") for r in self.project.rows)
+        row = Row(name=f"Vocal {number}", record_source="audio", record_track=3)
+        index = next(
+            (i for i, r in enumerate(self.project.rows) if not r.clips), len(self.project.rows)
+        )
+        self.project.rows.insert(index, row)
+        self.track_inspector.select_row(row)
+        self.track_capture.arm(row)
+        self.playlist.refresh()
+        self.prepare_vocal_recording()
+        self.song_scroll.ensureVisible(0, RULER_H + index * ROW_H)
+
+    def open_vocal_clip(self, clip=None):
+        clip = clip if clip is not None else self.playlist.selected_clip
+        if clip is None or clip.kind != "audio":
+            self.status.showMessage(
+                "Select a recorded audio clip in Song to open in Autotune", 4500
+            )
+            return
+        self.vocal_panel.open_arranged_take(clip)
+        self.show_tab(5)
+
     def add_song_row(self):
         self.snapshot()
         row = Row(name=f"TRACK {len(self.project.rows) + 1}")
         self.project.rows.append(row)
         self.track_inspector.select_row(row)
-        self.side_pages.setCurrentIndex(0)
-        self.pad_side.show()
+        self.track_controls_button.setChecked(True)
         self.playlist.refresh()
         self.song_scroll.ensureVisible(
             int(self.playlist.beat_to_x(0)), RULER_H + len(self.project.rows) * ROW_H
@@ -4232,6 +4302,17 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             int(min(1, self.track_capture.recorder.input_peak) * 100)
         )
 
+        recorders = (self.track_capture.recorder, self.vocal_panel.recorder)
+        active_inputs = [rec for rec in recorders if rec.recording]
+        self.transport_meters.set_levels(
+            eng.master_meter[0],
+            eng.master_meter[1],
+            eng.master_peak,
+            max((rec.input_peak for rec in active_inputs), default=0.0),
+            bool(active_inputs),
+            eng.cpu,
+        )
+
         pat = self.project.pattern()
         beats = eng.beat
         if eng.mode == "pattern" and pat.length_beats:
@@ -4244,6 +4325,8 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         if eng.pattern_dirty:
             eng.pattern_dirty = False
             self.step_grid.update()
+            self.piano_roll.canvas.refresh()
+            self._set_dirty(True)
 
         # Follow the preview voice through the waveform while it plays.
         if self.studio.selected == 0:

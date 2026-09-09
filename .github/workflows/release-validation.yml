@@ -1,0 +1,36 @@
+name: extended release validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paced-session:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Install runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential libportaudio2
+          uv sync --locked
+          uv run --no-sync python scripts/build_native.py
+      - name: Ten minute paced mixed-instrument session (no audio devices)
+        run: >-
+          uv run --no-sync python scripts/soak_production.py --seconds 600 --frames 512
+          --max-p99-load 0.75 --max-late-fraction 0.001 --max-growth-mib 32
+          --json /tmp/anharmonic-release/soak.json
+      - name: Preserve measurement report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-soak-measurements
+          path: /tmp/anharmonic-release/*.json
+          retention-days: 14

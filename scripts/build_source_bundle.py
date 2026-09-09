@@ -11,7 +11,17 @@ import zipfile
 import os
 import hashlib
 
-SOURCE_DIRS = {"mpclab", "native", "assets", "scripts", "tests", "website", ".github"}
+SOURCE_DIRS = {
+    "mpclab",
+    "native",
+    "assets",
+    "scripts",
+    "tests",
+    "automation",
+    "docs",
+    ".github",
+    "packaging",
+}
 SOURCE_FILES = {
     "README.md",
     "LICENSE",
