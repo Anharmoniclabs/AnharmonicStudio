@@ -4,7 +4,22 @@ Official released binaries are Anharmonic Studio's supported distribution for mu
 Support covers those published builds on their documented platforms. Release candidates
 remain evaluation builds until release acceptance is complete. The standard $1 download
 is open through the website, with private installer delivery after payment confirmation.
-Signing/notarization and physical-device acceptance remain unfinished.
+The packages are unsigned and the Mac builds are not Apple-notarized. Physical-device
+acceptance remains unfinished.
+
+## Installing official downloads
+
+Windows may show an unknown-publisher or SmartScreen warning. macOS may block either
+Mac build and require individual approval in Privacy & Security. Some security policies
+and managed computers prevent installation entirely. Payment does not remove these
+restrictions or include a signed/notarized build. Linux users must extract the full
+archive and have compatible system libraries, graphics, and audio drivers.
+
+Read the [installation guidance before purchasing](https://anharmoniclabs.github.io/AnharmonicStudio/#installation-guidance).
+It links to Apple and Microsoft guidance and explains the difference between an
+unrecognized-publisher warning and a malware or damaged-file alert. Keep antivirus
+and system-wide security protections enabled. The download-page checksums verify
+file integrity; they do not certify software safety.
 
 ## Self-compiled copies
 

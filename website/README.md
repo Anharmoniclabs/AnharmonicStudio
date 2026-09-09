@@ -6,6 +6,13 @@ checkout. Supporter downloads remain disabled. Optional donations are open separ
 at https://ko-fi.com/anharmoniclabs and do not include downloads. No subscription is offered.
 The current installers are unsigned 0.1.0-rc.1 release candidates.
 
+The visible notice before pricing and the reminder beside the standard checkout button
+explain Windows publisher warnings, Apple's lack of notarization, possible installation
+blocks, and Linux prerequisites. They also work without JavaScript. The confirmation
+page repeats the notice and links to `#installation-guidance`, which cites official
+Apple/Microsoft instructions. These are disclosures, not a security bypass or an extra
+purchase-approval step. Keep them synchronized with the actual release's signing status.
+
 ## Preview and validate
 
 ```sh

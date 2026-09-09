@@ -75,6 +75,15 @@
   });
 
   const config = window.ANHARMONIC_CONFIG || {};
+  const installationGuidance = document.querySelector('#installation-guidance');
+  const revealInstallationGuidance = () => {
+    if (location.hash === '#installation-guidance') installationGuidance.open = true;
+  };
+  window.addEventListener('hashchange', revealInstallationGuidance);
+  document.querySelectorAll('a[href="#installation-guidance"]').forEach(link => {
+    link.addEventListener('click', () => { installationGuidance.open = true; });
+  });
+  revealInstallationGuidance();
   const dialog = document.querySelector('#download-dialog');
   dialog.querySelector('.dialog-close').addEventListener('click', () => dialog.close());
   dialog.addEventListener('click', event => {
@@ -145,7 +154,7 @@
     document.querySelector('.hero-note strong').textContent = '$1 test checkout available.';
   } else if (downloadsOpen) {
     document.querySelector('#release-status-title').textContent = 'Official downloads are open';
-    document.querySelector('#release-status-copy').textContent = 'Choose your computer below. Pay $1 USD once, plus applicable tax, and your selected installer downloads after Stripe confirms payment. These are unsigned 0.1.0-rc.1 release candidates; signing and physical audio-interface testing remain unfinished.';
+    document.querySelector('#release-status-copy').textContent = 'Choose your computer below. Pay $1 USD once, plus applicable tax, and your selected installer downloads after Stripe confirms payment. These are unsigned 0.1.0-rc.1 release candidates; they are not Apple-notarized, and physical audio-interface testing remains unfinished.';
     document.querySelector('#availability-answer').textContent = 'Yes. The standard $1 USD download is open, plus applicable tax at Stripe checkout. Choose your computer above; its installer starts after payment confirmation. These are unsigned release candidates. The complete source remains free on GitHub.';
     document.querySelector('.hero-note strong').textContent = 'Official downloads available.';
   } else {
