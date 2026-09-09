@@ -1,0 +1,44 @@
+name: Format Premium Workflow Once
+
+on:
+  push:
+    branches:
+      - feature/premium-daw-workflows
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: ${{ !contains(github.event.head_commit.message, '[autoformat]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature/premium-daw-workflows
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
+      - name: Apply repository formatter
+        run: |
+          uv run --group dev ruff format \
+            mpclab/premium_workflows.py \
+            mpclab/workflow_commands.py \
+            mpclab/workflow_notes.py \
+            mpclab/workflow_tools.py \
+            tests/test_premium_workflows.py
+      - name: Commit formatter output
+        run: |
+          if git diff --quiet; then
+            echo 'No formatter changes required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mpclab/premium_workflows.py mpclab/workflow_commands.py mpclab/workflow_notes.py mpclab/workflow_tools.py tests/test_premium_workflows.py
+          git commit -m 'Format premium workflow sources [autoformat]'
+          git push origin HEAD:feature/premium-daw-workflows
