@@ -68,6 +68,23 @@ The optional C++ ALSA/LV2 engine additionally requires CMake, pkg-config, PortAu
 and ALSA development headers, and Lilv development files. It is not required for
 the active C DSP helper.
 
+### Shared engine source
+
+All platform builds use the same engine modules. `mpclab/engine.py` retains the
+`Engine` API and owns device lifecycle, command handling and callback state.
+`sample_voice.py` owns sample playback and scratch buffers; `engine_scheduling.py`
+collects musical events; `engine_mixing.py` renders track/master blocks; and
+`engine_offline.py` handles bounded export and its reference renderer. Shared
+limits live in `engine_constants.py`. Existing imports of `PadVoice` and
+`PadRenderWorkspace` from `mpclab.engine` remain supported.
+
+The functions in these modules receive the coordinator explicitly. They do not
+create another engine, audio stream or copy of playback state. Device/platform
+policy remains in the existing PortAudio and Linux runtime integration. Native C
+DSP, its Python fallback, the C++ engine interface and isolated VST3 hosting keep
+their existing selection and lifecycle. This separation does not promote the
+optional C++ engine to the production callback or establish hardware timing parity.
+
 ### macOS — Apple Silicon or Intel
 
 Install Apple's Xcode command-line tools, Git, uv, Python 3.12, FFmpeg/ffprobe,

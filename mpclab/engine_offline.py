@@ -1,0 +1,407 @@
+"""Shared bounded offline mixdown and its original reference renderer.
+
+Engine owns the mutable state and device/plugin lifecycle. These functions take
+that coordinator explicitly and never create a second engine or audio stream.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+from .model import NPADS, NTRACKS
+from .music import automation_values
+from .sample_voice import PadVoice, PadRenderWorkspace, _balance_gains
+from .audio_kernel import MasteringKernel
+from .fx import MixRack
+from .external_dsp import OfflinePlugins
+from .engine_constants import FADE
+
+if TYPE_CHECKING:
+    from .engine import Engine
+
+
+def render_offline_reference(
+    engine: Engine,
+    mode: str = "song",
+    repeats: int = 1,
+    tail: float = 2.5,
+    progress=None,
+    *,
+    voice_chunk: int,
+) -> np.ndarray:
+    """Original whole-session renderer retained for equivalence tests."""
+    # Offline rendering is allowed to load assets; the live callback is not.
+    engine.preload_project_audio()
+    proj = engine.project
+    spb = 60.0 / proj.bpm
+    if mode == "song":
+        length_beats = proj.song_end()
+    else:
+        length_beats = proj.pattern().length_beats * max(1, repeats)
+    if length_beats <= 0:
+        raise ValueError("nothing to render — place some clips or steps first")
+
+    total = int((length_beats * spb + tail) * engine.sr)
+    out = np.zeros((total, 2), dtype=np.float32)
+    tbuf = np.zeros((NTRACKS, total, 2), dtype=np.float32)
+
+    saved_mode, engine.mode = engine.mode, mode
+    try:
+        notes, audio = engine._collect(0.0, length_beats)
+        voices: list[tuple[int, PadVoice]] = []
+        for event in notes:
+            item = engine._offline_pad_event(*event, spb)
+            if item is not None:
+                voices.append(item)
+        for clip in audio:
+            data, s0, s1 = engine._audio_clip_source(clip)
+            if data is None:
+                continue
+            if s1 - s0 < 8:
+                continue
+            arranged = max(1, int(clip.length_beats * spb * engine.sr))
+            voice_length = arranged if clip.loop else min(arranged, s1 - s0)
+            pl, pr = _balance_gains(0.0)
+            voices.append(
+                (
+                    int(clip.start_beat * spb * engine.sr),
+                    PadVoice(
+                        data=data,
+                        source_id=clip.ref,
+                        s0=s0,
+                        s1=s1,
+                        rate=1.0,
+                        gain=float(clip.gain),
+                        pan_l=pl,
+                        pan_r=pr,
+                        attack=max(1, int(0.003 * engine.sr)),
+                        release=max(1, int(0.008 * engine.sr)),
+                        length=voice_length,
+                        track=max(0, min(NTRACKS - 1, clip.track)),
+                        choke=0,
+                        pad_index=-1,
+                        loop=bool(clip.loop),
+                        loop_crossfade=max(0, int(clip.loop_crossfade * engine.sr)),
+                        quality="offline",
+                    ),
+                )
+            )
+
+        # Apply the same choke/source-stealing decisions as the live
+        # callback before rendering the voices independently. Without
+        # this pass a bounced chop could overlap even though live playback
+        # cut correctly.
+        voices.sort(key=lambda item: item[0])
+        fade = max(1, int(FADE * engine.sr))
+        for index, (at, voice) in enumerate(voices):
+            if not (0 <= voice.pad_index < len(proj.pads)):
+                continue
+            pad = proj.pads[voice.pad_index]
+            for previous_at, previous in voices[:index]:
+                if engine._pad_trigger_cuts(previous, voice, pad, voice.pad_index):
+                    elapsed = max(0, at - previous_at)
+                    previous.length = min(previous.length, elapsed + fade)
+                    previous.release = fade
+
+        # A whole-song PadRenderWorkspace costs 68 bytes per frame. Render
+        # voices through one cache-sized workspace instead of allocating
+        # gigabytes of temporary arrays for every long clip or loop.
+        voice_workspace = PadRenderWorkspace(min(voice_chunk, max(1, total)))
+        for n, (at, v) in enumerate(voices):
+            room = total - at
+            if room <= 0:
+                continue
+            v.length = min(v.length, room)
+            rendered = 0
+            while rendered < room and not v.dead:
+                take = min(voice_chunk, room - rendered)
+                start = at + rendered
+                v.render(tbuf[v.track][start : start + take], 0, voice_workspace)
+                rendered += take
+            if progress and n % 32 == 0:
+                progress(n / max(1, len(voices)))
+
+        # The mix runs block by block through a rack of its own, so an
+        # export hears exactly what the live callback hears — same insert
+        # chains, same send tails, same glue — without disturbing the
+        # effect state the running engine is using.
+        any_solo = proj.any_solo()
+        gains = []
+        for i in range(NTRACKS):
+            t = proj.tracks[i]
+            g = 0.0 if (t.mute or (any_solo and not t.solo)) else t.gain
+            pl, pr = _balance_gains(t.pan)
+            gains.append((g * pl, g * pr, g > 0.0))
+
+        rack = MixRack(NTRACKS)
+        kernel = MasteringKernel(engine.sr, blocksize=engine.blocksize)
+        run_sends = any(t.fx.sends_active for t in proj.tracks) and (
+            proj.delay_fx.enabled or proj.reverb_fx.enabled
+        )
+        for start in range(0, total, engine.blocksize):
+            stop = min(total, start + engine.blocksize)
+            n = stop - start
+            block = out[start:stop]
+            delay_send = reverb_send = None
+            if run_sends:
+                delay_send, reverb_send = rack.send_buffers(n)
+            for i in range(NTRACKS):
+                left, right, live = gains[i]
+                if not live:
+                    continue
+                buf = tbuf[i][start:stop]
+                fx = proj.tracks[i].fx
+                if fx.active:
+                    rack.tracks[i].process(buf, fx)
+                block[:, 0] += buf[:, 0] * left
+                block[:, 1] += buf[:, 1] * right
+                if run_sends and fx.sends_active:
+                    panned = np.empty_like(buf)
+                    panned[:, 0] = buf[:, 0] * left
+                    panned[:, 1] = buf[:, 1] * right
+                    if fx.send_delay > 1e-4:
+                        delay_send += panned * np.float32(fx.send_delay)
+                    if fx.send_reverb > 1e-4:
+                        reverb_send += panned * np.float32(fx.send_reverb)
+            if run_sends:
+                if proj.delay_fx.enabled:
+                    block += rack.delay.process(delay_send, proj.delay_fx, proj.bpm)
+                if proj.reverb_fx.enabled:
+                    block += rack.reverb.process(reverb_send, proj.reverb_fx)
+            if proj.master_fx.active:
+                rack.master.process(block, proj.master_fx)
+            block *= proj.master
+            kernel.process(block)
+    finally:
+        engine.mode = saved_mode
+    if progress:
+        progress(1.0)
+    return out
+
+
+def offline_pad_event(engine: Engine, beat, index, velocity, gate, sequence_id, spb):
+    pitch = None
+    if index >= NPADS:
+        index, pitch = divmod(index - NPADS, 128)
+    if not 0 <= index < len(engine.project.pads):
+        return None
+    pad = engine.project.pads[index]
+    voice = engine._voice_for_pad(pad, velocity, pitch)
+    if voice is None:
+        return None
+    voice.pad_index, voice.sequence_id = index, sequence_id
+    voice.quality = "offline"
+    if pitch is not None and voice.gated:
+        voice.length = min(voice.length, max(1, int(gate * spb * engine.sr)) + voice.release)
+    frame = round(beat * spb * engine.sr) if pitch is not None else int(beat * spb * engine.sr)
+    return frame, voice
+
+
+def offline_frame_count(engine: Engine, mode: str, repeats: int, tail: float) -> int:
+    proj = engine.project
+    spb = 60.0 / proj.bpm
+    length_beats = (
+        proj.song_end() if mode == "song" else proj.pattern().length_beats * max(1, repeats)
+    )
+    if length_beats <= 0:
+        raise ValueError("nothing to render — place some clips or steps first")
+    return int((length_beats * spb + tail) * engine.sr)
+
+
+def iter_offline_blocks(
+    engine: Engine, mode: str = "song", repeats: int = 1, tail: float = 2.5, progress=None
+):
+    """Yield a mixdown in bounded float32 blocks.
+
+    The caller must consume or copy each block before requesting the next.
+    Each yielded value is already an independent array, so file writers can
+    pass it straight to ``SoundFile.write``. Memory is bounded by events,
+    active voices and ``NTRACKS * blocksize`` rather than song duration.
+    """
+    engine.preload_project_audio()
+    proj = engine.project
+    spb = 60.0 / proj.bpm
+    length_beats = (
+        proj.song_end() if mode == "song" else proj.pattern().length_beats * max(1, repeats)
+    )
+    total = engine._offline_frame_count(mode, repeats, tail)
+
+    saved_mode, engine.mode = engine.mode, mode
+    plugins = None
+    try:
+        notes, audio = engine._collect(0.0, length_beats)
+        synth_events = sorted(
+            [
+                (round(beat * spb * engine.sr), -idx - 1, vel, max(1, int(gate * spb * engine.sr)))
+                for beat, idx, vel, gate, _sequence_id in notes
+                if idx < 0
+            ],
+            key=lambda event: event[0],
+        )
+        synth_voices = []
+        next_synth = 0
+        if proj.plugins:
+            plugins = OfflinePlugins(proj.plugins, engine.sr, synth_events)
+        voices: list[tuple[int, PadVoice]] = []
+        for event in notes:
+            item = engine._offline_pad_event(*event, spb)
+            if item is not None:
+                voices.append(item)
+        for clip in audio:
+            data, s0, s1 = engine._audio_clip_source(clip)
+            if data is None or s1 - s0 < 8:
+                continue
+            arranged = max(1, int(clip.length_beats * spb * engine.sr))
+            voice_length = arranged if clip.loop else min(arranged, s1 - s0)
+            pl, pr = _balance_gains(0.0)
+            voices.append(
+                (
+                    int(clip.start_beat * spb * engine.sr),
+                    PadVoice(
+                        data=data,
+                        source_id=clip.ref,
+                        s0=s0,
+                        s1=s1,
+                        rate=1.0,
+                        gain=float(clip.gain),
+                        pan_l=pl,
+                        pan_r=pr,
+                        attack=max(1, int(0.003 * engine.sr)),
+                        release=max(1, int(0.008 * engine.sr)),
+                        length=voice_length,
+                        track=max(0, min(NTRACKS - 1, clip.track)),
+                        choke=0,
+                        pad_index=-1,
+                        loop=bool(clip.loop),
+                        loop_crossfade=max(0, int(clip.loop_crossfade * engine.sr)),
+                        quality="offline",
+                    ),
+                )
+            )
+
+        voices.sort(key=lambda item: item[0])
+        fade = max(1, int(FADE * engine.sr))
+        for index, (at, voice) in enumerate(voices):
+            if not (0 <= voice.pad_index < len(proj.pads)):
+                continue
+            pad = proj.pads[voice.pad_index]
+            for previous_index in range(index):
+                previous_at, previous = voices[previous_index]
+                if engine._pad_trigger_cuts(previous, voice, pad, voice.pad_index):
+                    elapsed = max(0, at - previous_at)
+                    previous.length = min(previous.length, elapsed + fade)
+                    previous.release = fade
+
+        blocksize = engine.blocksize
+        tbuf = np.zeros((NTRACKS, blocksize, 2), dtype=np.float32)
+        output = np.zeros((blocksize, 2), dtype=np.float32)
+        panned = np.zeros((blocksize, 2), dtype=np.float32)
+        voice_workspace = PadRenderWorkspace(blocksize)
+        active: list[tuple[int, PadVoice]] = []
+        next_voice = 0
+
+        any_solo = proj.any_solo()
+        rack = MixRack(NTRACKS)
+        rack.prepare(blocksize)
+        kernel = MasteringKernel(engine.sr, blocksize=blocksize)
+        run_sends = any(t.fx.sends_active for t in proj.tracks) and (
+            proj.delay_fx.enabled or proj.reverb_fx.enabled
+        )
+
+        for start in range(0, total, blocksize):
+            stop = min(total, start + blocksize)
+            n = stop - start
+            tracks = tbuf[:, :n]
+            tracks.fill(0.0)
+            block = output[:n]
+            block.fill(0.0)
+
+            while next_voice < len(voices) and voices[next_voice][0] < stop:
+                at, voice = voices[next_voice]
+                voice.length = min(voice.length, total - at)
+                active.append((at, voice))
+                next_voice += 1
+            for at, voice in active:
+                offset = max(0, at - start)
+                voice.render(tracks[voice.track], offset, voice_workspace)
+            for index in range(len(active) - 1, -1, -1):
+                if active[index][1].dead:
+                    del active[index]
+
+            while next_synth < len(synth_events) and synth_events[next_synth][0] < stop:
+                at, pitch, velocity, gate = synth_events[next_synth]
+                if plugins is None or plugins.instrument is None:
+                    engine._spawn_synth(
+                        pitch,
+                        velocity,
+                        max(0, at - start),
+                        gate,
+                        voices=synth_voices,
+                        live_trigger=False,
+                    )
+                next_synth += 1
+            for voice in synth_voices:
+                voice.render(tracks[voice.track], proj.synth)
+            synth_voices[:] = [v for v in synth_voices if not v.dead]
+            if plugins is not None:
+                plugins.render_instrument(
+                    tracks[max(0, min(NTRACKS - 1, proj.synth.track))], start, n
+                )
+            automation_beats = engine._automation_beats(mode, start / (spb * engine.sr), n)
+            delay_send = reverb_send = None
+            if run_sends:
+                delay_send, reverb_send = rack.send_buffers(n)
+            for i in range(NTRACKS):
+                track = proj.tracks[i]
+                left, right = engine._track_controls(i, automation_beats)
+                if track.mute or (any_solo and not track.solo):
+                    continue
+                buf = tracks[i]
+                fx = proj.tracks[i].fx
+                if fx.active:
+                    rack.tracks[i].process(buf, fx)
+                np.multiply(buf[:, 0], left, out=panned[:n, 0])
+                np.multiply(buf[:, 1], right, out=panned[:n, 1])
+                np.add(block, panned[:n], out=block)
+                if run_sends and fx.sends_active:
+                    if fx.send_delay > 1e-4:
+                        delay_send += panned[:n] * np.float32(fx.send_delay)
+                    if fx.send_reverb > 1e-4:
+                        reverb_send += panned[:n] * np.float32(fx.send_reverb)
+            if run_sends:
+                if proj.delay_fx.enabled:
+                    block += rack.delay.process(delay_send, proj.delay_fx, proj.bpm)
+                if proj.reverb_fx.enabled:
+                    block += rack.reverb.process(reverb_send, proj.reverb_fx)
+            if proj.master_fx.active:
+                rack.master.process(block, proj.master_fx)
+            if plugins is not None:
+                plugins.render_effect(block)
+            gain = (
+                proj.master
+                if automation_beats is None
+                else automation_values(proj, "master", automation_beats, proj.master)
+            )
+            block *= gain[:, None] if isinstance(gain, np.ndarray) else gain
+            kernel.process(block)
+            if progress:
+                progress(stop / max(1, total))
+            yield block.copy()
+    finally:
+        if plugins is not None:
+            plugins.close()
+        engine.mode = saved_mode
+    if progress:
+        progress(1.0)
+
+
+def render_offline(
+    engine: Engine, mode: str = "song", repeats: int = 1, tail: float = 2.5, progress=None
+) -> np.ndarray:
+    """Render to memory for API callers; file export uses the block iterator."""
+    blocks = list(
+        engine.iter_offline_blocks(mode=mode, repeats=repeats, tail=tail, progress=progress)
+    )
+    return np.concatenate(blocks, axis=0)
