@@ -6,6 +6,7 @@ from copy import deepcopy
 
 import pytest
 
+from mpclab.model import Project
 from mpclab.project_migrations import migrate_project_document, project_format_version
 
 
@@ -31,9 +32,28 @@ def test_historical_project_versions_upgrade_without_losing_fields(version):
     assert migrated["custom_unknown_field"] == original["custom_unknown_field"]
 
 
+def test_project_loader_migrates_legacy_document_without_mutating_it():
+    source = {
+        "format_version": 2,
+        "name": "old song",
+        "bpm": 111.0,
+        "patterns": [{"name": "legacy pattern", "notes": [{"pitch": 67}]}],
+    }
+    original = deepcopy(source)
+
+    loaded = Project.from_dict(source)
+
+    assert source == original
+    assert loaded.name == "old song"
+    assert loaded.bpm == 111.0
+    assert loaded.pattern().name == "legacy pattern"
+    assert loaded.pattern().notes[0].pitch == 67
+
+
 def test_negative_legacy_version_keeps_old_unversioned_compatibility():
     assert project_format_version({"format_version": -3}) == 0
-    assert migrate_project_document({"format_version": -3}, target_version=4)["format_version"] == 4
+    migrated = migrate_project_document({"format_version": -3}, target_version=4)
+    assert migrated["format_version"] == 4
 
 
 def test_invalid_version_is_rejected():
