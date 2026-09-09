@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .music import Note, AutomationLane, read_notes, read_automation
 from .plugin_registry import validate_project_plugins
+from .project_migrations import migrate_project_document
 
 PADS_PER_BANK = 16
 BANKS = 4
@@ -527,6 +528,7 @@ class Project:
     def from_dict(cls, d: dict) -> "Project":
         if not isinstance(d, dict):
             raise ValueError("project root must be a JSON object")
+        d = migrate_project_document(d, target_version=PROJECT_FORMAT_VERSION)
 
         def mapping(name: str) -> dict:
             value = d.get(name)
