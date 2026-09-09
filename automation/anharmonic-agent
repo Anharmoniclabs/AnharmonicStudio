@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-exec /usr/bin/python3 /home/al/Projects/mpc-lab/automation/anharmonic_agent.py "$@"

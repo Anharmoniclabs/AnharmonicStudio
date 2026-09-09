@@ -6,7 +6,7 @@ import sys
 import pytest
 
 from mpclab import runtime_paths
-from mpclab.install_bundle import install_bundle
+from mpclab.install_bundle import desktop_quote, install_bundle
 
 
 def test_frozen_data_lives_outside_replaceable_application(tmp_path, monkeypatch):
@@ -101,7 +101,7 @@ def test_install_update_keeps_previous_build_and_music(tmp_path):
     assert second != first and desktop == updated_desktop
     assert (first / "AnharmonicStudio").read_bytes() == b"fake executable"
     assert (second / "AnharmonicStudio").read_bytes() == b"updated executable"
-    assert str(second) in desktop.read_text()
+    assert "Exec=" + desktop_quote(second / "AnharmonicStudio") + " %f\n" in desktop.read_text()
     assert music.read_text() == "precious song"
 
 

@@ -26,11 +26,11 @@ Recipients retain the rights provided by the GPL.
 
 - **Sampler:** import audio, trim ranges, detect transients, and map slices to four 4×4 pad banks.
 - **Beats:** program step patterns and control per-hit velocity.
-- **Instruments:** explore factory sounds, shape analog synth patches, and use the arpeggiator.
+- **Instruments:** explore factory sounds, shape analog synth patches, and record arpeggiator notes.
 - **Notes:** write synth parts or play samples chromatically in the piano roll.
 - **Song:** arrange patterns and audio clips, create variations, and automate levels and pan.
 - **Mix:** balance tracks with EQ, saturation, compression, delay, and reverb.
-- **Vocals:** record takes, build comps, and render pitch correction to a new take.
+- **Vocals:** record directly into Song, open recorded clips in Autotune, build comps, and render pitch correction to a new take.
 - **Export:** render the arrangement to a 48 kHz stereo WAV.
 
 The optional stem-separation engine requires extra dependencies and an initial
@@ -76,6 +76,15 @@ uv run --no-sync python scripts/run_tests.py -- -q
 The self-check uses a disposable offscreen session and does not open audio devices.
 Hardware tests are optional and separate from ordinary automated checks.
 
+Run `bash scripts/quality.sh` for the complete source checks, tests, Python audio
+fallback checks, and callback benchmarks. Start with the default 48 kHz /
+512-frame buffer; smaller buffers need more processing headroom.
+
+If saving a recording fails, use **Retry save** in Song or **Retry save take** in
+the vocal editor. Recovery WAVs remain in `projects/recordings/` until the take
+is saved or explicitly discarded; after an interrupted session, import them
+through the Browser. Keep `library/` alongside your source-checkout projects.
+
 Create a source archive:
 
 ```bash
@@ -91,7 +100,9 @@ Windows EXE. Generated bundles and installers stay outside version control.
 The [complete 84-file logo pack](assets/branding/logo-pack) includes outlined SVGs,
 transparent PNGs, light/dark and accent versions, Windows and macOS icons,
 favicons, social artwork, and a four-page usage guide.
-See the [branding index](assets/branding/README.md) for the app and website asset mapping.
+The desktop uses `assets/branding/anharmonic-studios.svg` for its icon and
+`assets/branding/anharmonic-header.svg` for the theme-aware project header.
+The pack's [usage notes](assets/branding/logo-pack/README.txt) cover its formats.
 
 ## Repository contents
 
@@ -115,5 +126,5 @@ and [THIRD_PARTY.md](THIRD_PARTY.md).
 
 The public source remains GPL-2.0-or-later. Official Linux, macOS and Windows
 binaries are intended for paid distribution; checkout/paywall integration is
-not enabled yet. See [the candidate build guide](docs/CROSS_PLATFORM_RELEASE.md).
+not enabled yet. See [the candidate build guide](packaging/RELEASE.md).
 Release CI uploads encrypted candidate artifacts, never plaintext paid installers.

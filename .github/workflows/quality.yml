@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: source-checks-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -36,7 +40,52 @@ jobs:
           bash scripts/build-native.sh
       - name: Check source syntax
         run: uv run --no-sync python -m compileall -q mpclab scripts tests
+      - name: Lint and formatting
+        run: |
+          uv run --no-sync ruff check mpclab tests scripts
+          uv run --no-sync ruff format --check mpclab tests scripts
       - name: Check application startup and export offscreen
         run: uv run --no-sync python -m mpclab --self-check
       - name: Run tests with a memory limit
-        run: uv run --no-sync python scripts/run_tests.py -- -q -o faulthandler_timeout=30
+        run: >-
+          uv run --no-sync python scripts/run_tests.py --report /tmp/anharmonic-ci/memory.json
+          -- -q -o faulthandler_timeout=30 --junitxml=/tmp/anharmonic-ci/tests.xml
+      - name: Preserve test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: /tmp/anharmonic-ci/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Python DSP fallback
+        run: >-
+          MPC_NATIVE_DSP=0 uv run --no-sync python scripts/run_tests.py -- -q
+          -o faulthandler_timeout=30 tests/test_sample_instruments.py tests/test_synth.py
+          tests/test_engine_synth.py tests/test_engine_fx.py tests/test_convolution_scratch.py
+      - name: Callback benchmarks
+        run: |
+          uv run --no-sync python scripts/bench_callback.py --seconds 0.5 --blocks 512 256
+          uv run --no-sync python scripts/soak_callback.py --seconds 2 --blocksize 512 --voices 8 --max-late-fraction 0.2
+          uv run --no-sync python scripts/bench_production.py --seconds 0.5 --rates 48000 --frames 512 --workloads piano mixed --max-p99-load 1.0 --max-late-fraction 0.05
+
+  linux-bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libsndfile1 libportaudio2
+          uv sync --locked
+          uv pip install --python .venv/bin/python -r requirements-build.txt
+      - name: Build and check the installed application
+        run: uv run --no-sync python scripts/build_linux_bundle.py dist/linux-ci
+      # Validate locally in CI; official installers are distributed separately.
