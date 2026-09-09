@@ -328,8 +328,15 @@ class PremiumWorkflowController(QObject):
             "Mixer",
             "Ctrl+Alt+F",
         )
-        spec("track.unfreeze", "Unfreeze selected mixer track", self.unfreeze_selected_track, "Mixer")
-        spec("track.bounce", "Bounce selected mixer track to library", self.bounce_selected_track, "Mixer")
+        spec(
+            "track.unfreeze", "Unfreeze selected mixer track", self.unfreeze_selected_track, "Mixer"
+        )
+        spec(
+            "track.bounce",
+            "Bounce selected mixer track to library",
+            self.bounce_selected_track,
+            "Mixer",
+        )
         spec(
             "track.new_take_lane",
             "Create and arm new take lane",
@@ -762,8 +769,7 @@ class PremiumWorkflowController(QObject):
 
     def sidechain_dialog(self):
         tracks = [
-            f"{index + 1}: {track.name}"
-            for index, track in enumerate(self.window.project.tracks)
+            f"{index + 1}: {track.name}" for index, track in enumerate(self.window.project.tracks)
         ]
         source, ok = QInputDialog.getItem(
             self.window,
