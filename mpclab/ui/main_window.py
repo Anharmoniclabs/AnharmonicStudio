@@ -101,7 +101,7 @@ from .audio_setup import AudioSetupDialog
 from .waveform import WaveformView, NavStrip
 from .color_picker import TonePickerDialog
 from .transport_meters import TransportMeters
-from .visual_assets import owner_icon
+from .visual_assets import brand_pixmap
 
 # Numeric keypad → local pad index, matching PAD_KEYS. Every entry is matched
 # only when Qt.KeypadModifier is set, so the number row and the main Enter,
@@ -445,7 +445,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
     def __init__(self, root: Path, *, restore_session: bool = True):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose, True)
-        self.setWindowIcon(owner_icon())
         self.export_job = None
         self.project_path: Path | None = None
         self._recorded_notes = {}
@@ -579,7 +578,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         project_layout.setContentsMargins(14, 7, 14, 7)
         project_layout.setSpacing(10)
         project_widgets = [
-            self.brand_mark,
             self.logo,
             self.proj_name,
             *self.project_action_buttons.values(),
@@ -1011,15 +1009,11 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         lay.setContentsMargins(12, 7, 12, 7)
         lay.setSpacing(9)
 
-        self.brand_mark = QLabel()
-        self.brand_mark.setPixmap(owner_icon().pixmap(38, 38))
-        self.brand_mark.setAccessibleName("Anharmonic owner logo")
-        lay.addWidget(self.brand_mark)
         self.transport_meters = TransportMeters()
         lay.addWidget(self.transport_meters)
         self.logo = QLabel()
         self.logo.setObjectName("logo")
-        self.logo.setTextFormat(Qt.RichText)
+        self.logo.setFixedSize(218, 44)
         self.logo.setAccessibleName(APP_NAME)
         self.logo.setAccessibleDescription(f"Offline music workstation by {ORGANIZATION_NAME}")
         self.logo.setToolTip(f"{APP_NAME} · by {ORGANIZATION_NAME} · offline music workstation")
@@ -1266,12 +1260,11 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.logo.setFont(theme.label_font(12.0, bold=True))
         self.tabs.setFont(theme.label_font(9.5, bold=True))
         self.counter.setFont(theme.mono_font(15.0, tracking=112.0))
-        brand, separator_, product = APP_NAME.upper().partition(" ")
-        self.logo.setText(
-            f"{brand}<span style='color:{C['dim']}; font-weight:500'>"
-            f"{'&nbsp;' + product if separator_ else ''}</span>"
-        )
-        self.logo.setMinimumWidth(self.logo.sizeHint().width())
+        signature = brand_pixmap(self.logo.devicePixelRatioF())
+        if signature.isNull():
+            self.logo.setText(APP_NAME)
+        else:
+            self.logo.setPixmap(signature)
         self.project_bar.setMinimumWidth(self.project_bar.sizeHint().width())
         self.btn_theme.setText("DARK" if theme.is_light() else "LIGHT")
         self.browser.refresh_separation_status()

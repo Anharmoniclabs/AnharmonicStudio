@@ -1,4 +1,4 @@
-# Anharmonic Studios website
+# Anharmonic Studio website
 
 A responsive, self-contained landing page for GitHub Pages. It includes the completed one-minute commercial, six actual app screenshots, a feature explainer, an open-source section, download options, and a native FAQ. No build step, external fonts, analytics, or JavaScript framework is required.
 
@@ -47,3 +47,8 @@ workspace tabs, keyboard navigation, EXE pack controls, and local asset links we
 The included video and screenshots are from the isolated “Neon Current” demonstration session. The instrumental commercial uses an original soundtrack; its captions reproduce the on-screen feature copy.
 
 The website uses the Anharmonic Studio waveform signature with ink (`#111315`), paper (`#F6F3ED`), white, and signal blue (`#427BFF`). The logo assets are scalable SVGs; `assets/social.svg` is the editable source for the PNG sharing card.
+
+The header, footer, open-source signature, favicons, and sharing image use the
+[complete logo pack](../assets/branding/logo-pack). Logo lettering is outlined,
+so it renders consistently without external fonts. The native app also uses
+these masters; its in-app signature follows the selected project accent.

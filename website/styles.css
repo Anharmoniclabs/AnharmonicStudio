@@ -28,3 +28,11 @@
 @media(max-width:380px){.brand img{width:32px;height:30px}.brand>span{font-size:10px;letter-spacing:1.5px}.brand small{font-size:6px;letter-spacing:4px}.nav-cta{gap:9px;padding-inline:10px}}
 
 .source-link,.workspace-description .eyebrow,.tour-tabs button[aria-selected="true"]{color:var(--accent-soft)}
+
+/* Outlined logo-pack lockups keep the app, header, and footer consistent. */
+.brand img.brand-lockup{width:232px;height:auto;max-width:none}
+.site-footer .brand img.brand-lockup{width:200px}
+.source-signature.source-lockup{width:min(360px,90%);height:auto}
+@media(max-width:1100px){.brand img.brand-lockup{width:205px}}
+@media(max-width:760px){.brand img.brand-lockup{width:180px}.source-signature.source-lockup{width:300px}}
+@media(max-width:380px){.brand img.brand-lockup{width:158px}}

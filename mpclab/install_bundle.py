@@ -36,10 +36,19 @@ def install_bundle(source, prefix):
         desktop_dir = prefix / "share/applications"
         desktop_dir.mkdir(parents=True, exist_ok=True)
         desktop = desktop_dir / "anharmonic-studio.desktop"
+        # PyInstaller 6 places resources under _internal; retain support for
+        # flat bundles. Absolute paths keep each launcher on its own build.
+        icon_line = ""
+        for resources in (installed / "_internal", installed):
+            icon = resources / "assets/branding/anharmonic-studios.svg"
+            if icon.is_file():
+                icon_line = "Icon=" + str(icon).replace("\\", "\\\\") + "\n"
+                break
         content = (
             "[Desktop Entry]\nType=Application\nName=Anharmonic Studio\n"
             "Comment=Sampler, sequencer and music workstation\n"
             f"Exec={desktop_quote(installed / 'AnharmonicStudio')} %f\n"
+            f"{icon_line}"
             "Terminal=false\nCategories=AudioVideo;Audio;\nStartupNotify=false\n"
         )
         fd, temporary = tempfile.mkstemp(prefix=".anharmonic-", dir=desktop_dir)

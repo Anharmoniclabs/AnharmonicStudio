@@ -1,6 +1,7 @@
 """Local vector artwork for the native studio; no network or audio work."""
 
 from functools import lru_cache
+from math import ceil
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QEvent, QObject, QRectF, QSize, Qt
@@ -9,6 +10,7 @@ from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QWidget
 
 from . import theme
+from ..runtime_paths import RESOURCE_ROOT
 
 ASSET_ROOT = Path(__file__).resolve().parents[2] / "assets/studio/interface"
 ASSET_NAMES = frozenset(
@@ -51,6 +53,35 @@ INSTRUMENT_ICONS = {
 }
 
 
+@lru_cache(maxsize=1)
+def _brand_source() -> bytes:
+    try:
+        return (RESOURCE_ROOT / "assets/branding/anharmonic-header.svg").read_bytes()
+    except OSError:
+        return b""
+
+
+@lru_cache(maxsize=32)
+def _brand_pixmap(foreground: str, accent: str, ratio: float) -> QPixmap:
+    source = _brand_source().replace(b"#FFFFFF", foreground.encode("ascii"))
+    source = source.replace(b"#427BFF", accent.encode("ascii"))
+    renderer = QSvgRenderer(QByteArray(source))
+    if not renderer.isValid():
+        return QPixmap()
+    image = QPixmap(ceil(218 * ratio), ceil(44 * ratio))
+    image.setDevicePixelRatio(ratio)
+    image.fill(Qt.transparent)
+    painter = QPainter(image)
+    renderer.render(painter, QRectF(0, 0, 218, 44))
+    painter.end()
+    return image
+
+
+def brand_pixmap(device_pixel_ratio: float = 1.0) -> QPixmap:
+    """Render the outlined signature in the current project accent and UI palette."""
+    return QPixmap(_brand_pixmap(theme.C["fg"], theme.C["accent"], max(1.0, device_pixel_ratio)))
+
+
 @lru_cache(maxsize=16)
 def _source(name: str) -> bytes:
     if name not in ASSET_NAMES:
@@ -86,15 +117,8 @@ def _icon(name: str, normal: str, accent: str, disabled: str) -> QIcon:
     return result
 
 
-def owner_icon() -> QIcon:
-    """The supplied logo, bundled unchanged so installations never need Downloads."""
-    return QIcon(str(ASSET_ROOT.parents[1] / "branding/owner-mark.png"))
-
-
 def studio_icon(name: str) -> QIcon:
     """Return theme-aware cached artwork. Call only on the GUI thread."""
-    if name == "identity":
-        return owner_icon()
     return QIcon(_icon(name, theme.C["dim"], theme.C["accent"], theme.C["dim2"]))
 
 
