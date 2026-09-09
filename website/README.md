@@ -38,14 +38,15 @@ Installed versions keep working without recurring payments.
 
 `config.js` enables the verified $1 one-time Stripe test Payment Link.
 The button and release status explicitly identify test mode. Live sales and donations
-stay closed; test checkout does not sell or deliver an installer.
+stay closed. `deliveryReady` remains false until the private service below has been
+deployed and a real Stripe sandbox purchase has downloaded its selected installer.
 Every unavailable offer opens an information dialog or links to the visible release
 status without JavaScript. Checkout runs on Stripe; the website does not collect
 payment details.
 
 To test the standard download, set an active `https://buy.stripe.com/test_…` URL in
 `links.download` and enable `testCheckoutOpen`. The site labels the button and release
-status as testing, with no real charge or installer purchase. Payment Links do not
+status as testing, with no real charge. Payment Links do not
 use the publishable key; no Stripe secret belongs in the site.
 
 To open live offers later, change `paymentMode` to `live`, configure their real HTTPS
@@ -56,6 +57,67 @@ trusted from browser state. The provider must enforce those on its server.
 
 Keep installers in private delivery storage, not in `website/`, GitHub Pages, or public
 Releases. Never place secrets in this config. See the [delivery integration steps](../DISTRIBUTION.md#connect-checkout-and-private-delivery).
+
+## Private installer service
+
+`delivery/server.py` runs separately on a Python/container host with HTTPS and persistent
+private storage. The storefront sends the selected platform to Stripe using
+`client_reference_id=as_v1_windows` (or `mac-arm`, `mac-intel`, `linux`). The service
+retrieves the Checkout Session from Stripe, verifies the configured Payment Link and
+price, $1 USD subtotal, one-time mode, completed payment, and test/live mode. Taxes
+may increase the total. Refunds and disputes block even previously issued links.
+
+Prepare the four decrypted native release directories in one private folder, using
+the process in `packaging/RELEASE.md`, then run:
+
+```sh
+python delivery/prepare_catalog.py /private/release
+```
+
+This verifies build checksums and matching versions/source commits, creates source
+and notice packages, and writes `catalog.json`. The service validates all files at
+startup; it refuses missing or corrupt installers. Keep this directory outside Pages.
+
+Set these variables in the host's secret/environment settings, never in Git or chat:
+
+- `STRIPE_SECRET_KEY`: the Stripe sandbox secret key for the account owning the link.
+- `STRIPE_WEBHOOK_SECRET`: the signing secret for this service's webhook endpoint.
+- `STRIPE_PAYMENT_LINK_ID`: the link's `plink_…` ID from Stripe, not its public URL.
+- `STRIPE_PRICE_ID`: the link's $1 one-time `price_…` ID.
+- `DOWNLOAD_SIGNING_KEY`: a separately generated random secret of at least 32 characters.
+- `PAYMENT_MODE=test`.
+- `DELIVERY_CATALOG`: absolute path to the private `catalog.json`.
+- `DELIVERY_DB`: a writable, persistent SQLite file path for purchase records.
+
+Install `delivery/requirements.txt` and run `gunicorn --bind 0.0.0.0:8080 --workers 2
+--threads 4 --timeout 120 'delivery.server:create_app()'` from the repository root.
+Alternatively build with `docker build -f delivery/Dockerfile -t anharmonic-delivery .`.
+The container expects a private volume mounted at `/data`, readable by UID 10001,
+with its database directory writable by that user. Back up the purchase database.
+Expose it through HTTPS; disable query-string logging at the proxy because the
+purchase reference grants download access. Gunicorn access logging is off by default.
+Apply request limits at the host/proxy before opening public traffic.
+
+In the Stripe Dashboard, edit the existing test Payment Link's **After payment**
+setting to redirect to `https://YOUR-DELIVERY-HOST/download-success?session_id={CHECKOUT_SESSION_ID}`.
+Add a webhook at `https://YOUR-DELIVERY-HOST/webhook`, subscribing to
+`checkout.session.completed` and `checkout.session.async_payment_succeeded`, and
+store its signing secret above. The webhook and return page both record a purchase
+idempotently. Downloads recheck Stripe; a redirect or browser flag alone grants nothing.
+
+Make a sandbox purchase for each platform and confirm the correct file starts
+downloading. The page includes manual buttons, expiring links that can be refreshed,
+resumable downloads, checksums, and matching source/notices. Older paid sessions
+without a platform reference show all four choices. Their Checkout Session ID can
+be opened at the same success URL; changing the redirect does not reopen old receipts.
+Do not share a customer's success URL. Once the hosted flow passes, set
+`deliveryReady: true` in `config.js`. This flag changes wording only, never authorization.
+
+Run service checks with `python -m pytest -q delivery/test_server.py` after installing
+its requirements and pytest. These checks also run in the dedicated delivery workflow.
+The current service covers the configured standard-download price and one major
+version. Supporter offers remain disabled. Customer email/account recovery and
+multi-major-version catalogs are not implemented; do not open those offers until they are.
 
 ## GitHub Pages
 

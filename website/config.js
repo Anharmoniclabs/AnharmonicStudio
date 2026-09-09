@@ -4,6 +4,7 @@
 window.ANHARMONIC_CONFIG = Object.freeze({
   paymentMode: 'test',
   testCheckoutOpen: true, // Verified $1 one-time Stripe sandbox checkout.
+  deliveryReady: false, // Enable only after a hosted, verified purchase downloads an installer.
   salesOpen: false,
   donationsOpen: false,
   links: Object.freeze({

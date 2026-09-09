@@ -1,0 +1,21 @@
+name: Private download service checks
+on:
+  push:
+    branches: [main]
+    paths: ['delivery/**', '.github/workflows/delivery.yml']
+  pull_request:
+    paths: ['delivery/**', '.github/workflows/delivery.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r delivery/requirements.txt pytest ruff
+      - run: ruff check delivery
+      - run: ruff format --check delivery
+      - run: python -m pytest -q delivery/test_server.py

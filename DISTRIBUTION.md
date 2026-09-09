@@ -73,5 +73,8 @@ consistent with this document and the website copy.
 
 For Stripe testing, use `paymentMode: "test"` and an active one-time Payment Link
 priced at 100 cents USD. Set `testCheckoutOpen: true` after verifying that link.
-Test checkout is labeled separately and does not sell or deliver a paid installer.
+Test checkout is labeled separately and never charges real money. Installer delivery
+requires the separate private service and Stripe redirect/webhook configuration in
+[website/README.md](website/README.md#private-installer-service). Keep `deliveryReady`
+false until a hosted sandbox purchase successfully downloads the selected file.
 Stripe Payment Links do not require a publishable API key in the website.

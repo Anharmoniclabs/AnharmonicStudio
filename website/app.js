@@ -66,6 +66,11 @@
   document.querySelectorAll('[name="platform"]').forEach(input => {
     input.addEventListener('change', () => {
       document.querySelector('#platform-detail').textContent = descriptions[input.value];
+      document.querySelectorAll('.commerce-link[data-checkout]').forEach(link => {
+        const url = new URL(link.dataset.checkout);
+        if (link.dataset.offer !== 'donation') url.searchParams.set('client_reference_id', `as_v1_${input.value}`);
+        link.href = url.href;
+      });
     });
   });
 
@@ -96,7 +101,11 @@
       if (enabled && url.protocol === 'https:' && !url.username && !url.password) checkout = url.href;
     } catch { /* An absent or invalid destination keeps this offer closed. */ }
     if (checkout) {
-      link.href = checkout;
+      link.dataset.checkout = checkout;
+      const destination = new URL(checkout);
+      const platform = document.querySelector('[name="platform"]:checked').value;
+      if (offer !== 'donation') destination.searchParams.set('client_reference_id', `as_v1_${platform}`);
+      link.href = destination.href;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       link.firstChild.textContent = testMode ? 'Try $1 test checkout ' : link.dataset.liveLabel + ' ';
@@ -104,7 +113,9 @@
       const badge = card.querySelector('.availability');
       const note = card.querySelector('.price-note');
       if (badge) badge.textContent = testMode ? 'TEST MODE' : 'AVAILABLE';
-      if (note) note.textContent = testMode ? 'Stripe test mode. No real charge or installer purchase.' : 'Payment and download access are handled at secure checkout.';
+      if (note) note.textContent = testMode
+        ? (config.deliveryReady === true ? 'Test mode: no real charge. Your selected installer downloads after payment confirmation.' : 'Stripe test mode. No real charge. Automatic downloads are being connected.')
+        : 'Payment and download access are handled at secure checkout.';
       if (testMode) testCheckoutOpen = true;
       else if (offer === 'donation') document.querySelector('#donation-status').textContent = 'Optional contributions are open. Donations do not include downloads.';
       else downloadsOpen = true;
@@ -120,8 +131,11 @@
   });
   if (testCheckoutOpen) {
     document.querySelector('#release-status-title').textContent = '$1 test checkout';
-    document.querySelector('#release-status-copy').textContent = 'Try the one-time checkout in Stripe test mode. No real money is charged and no paid installer is delivered. Live sales are not open yet.';
-    document.querySelector('#availability-answer').textContent = 'You can try the $1 one-time Stripe test checkout. It is a payment test, not a real purchase or installer download. Live sales are not open yet.';
+    const deliveryStatus = config.deliveryReady === true
+      ? 'After Stripe confirms the test payment, your selected installer starts downloading. Keep the confirmation page for downloads later.'
+      : 'Automatic installer delivery is being connected and is not available yet.';
+    document.querySelector('#release-status-copy').textContent = `Try the one-time checkout in Stripe test mode. No real money is charged. ${deliveryStatus} Live sales are not open yet.`;
+    document.querySelector('#availability-answer').textContent = `You can try the $1 one-time Stripe test checkout. ${deliveryStatus} Live sales are not open yet.`;
     document.querySelector('.hero-note strong').textContent = '$1 test checkout available.';
   } else if (downloadsOpen) {
     document.querySelector('#release-status-title').textContent = 'Official downloads are open';
