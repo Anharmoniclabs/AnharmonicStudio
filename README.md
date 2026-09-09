@@ -24,9 +24,8 @@ not open yet; signing/notarization and hardware acceptance remain before launch.
 | Planned option | Price (USD) | Includes |
 | --- | --- | --- |
 | Source code | **Free** | Full source; build it yourself without an account or purchase |
-| Official download | **$1 minimum**, pay what you can | Current major version and its updates, on all supported platforms |
+| Official download | **$1**, one time | Current major version and its updates, on all supported platforms |
 | Supporter download | **$45 or more**, one time | Current and next major version and their updates |
-| Monthly support | **$1 / $4 / $10 / $50** | Official releases while subscribed; keep using downloaded versions afterward |
 | Optional donation | **Any amount** | Development support only; no download entitlement |
 
 These are planned launch prices, not live offers. See [downloads and pricing on the

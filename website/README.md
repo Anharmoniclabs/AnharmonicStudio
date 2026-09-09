@@ -29,21 +29,28 @@ Keep generated screenshots and local browser tooling outside the public reposito
 The full source is free under GPL-2.0-or-later. Planned official download prices and
 update access are defined in [DISTRIBUTION.md](../DISTRIBUTION.md):
 
-- $1 minimum, pay what you can: current major version and its updates.
+- $1 USD, one time: current major version and its updates.
 - $45 or more: current and next major version and their updates.
-- $1, $4, $10, or $50 monthly: official releases while subscribed.
 - Optional donation of any amount: development support only, with no download access.
 
 All paid download plans include Linux, Windows, Intel Mac, and Apple Silicon Mac.
-Installed versions keep working after monthly support ends.
+Installed versions keep working without recurring payments.
 
-`config.js` starts with `salesOpen: false`, `donationsOpen: false`, and no hosted URLs.
+`config.js` enables the verified $1 one-time Stripe test Payment Link.
+The button and release status explicitly identify test mode. Live sales and donations
+stay closed; test checkout does not sell or deliver an installer.
 Every unavailable offer opens an information dialog or links to the visible release
-status without JavaScript. No checkout is simulated, and no payments are taken.
+status without JavaScript. Checkout runs on Stripe; the website does not collect
+payment details.
 
-To open an offer, configure its real HTTPS hosted checkout URL and explicitly enable
-sales or donations. Each offer is checked independently. An invalid or missing URL
-stays closed even if other offers are enabled. URLs containing credentials or using
+To test the standard download, set an active `https://buy.stripe.com/test_…` URL in
+`links.download` and enable `testCheckoutOpen`. The site labels the button and release
+status as testing, with no real charge or installer purchase. Payment Links do not
+use the publishable key; no Stripe secret belongs in the site.
+
+To open live offers later, change `paymentMode` to `live`, configure their real HTTPS
+hosted checkout URLs, and explicitly enable sales or donations. Each offer is checked
+independently. An invalid or missing URL stays closed even if other offers are enabled. URLs containing credentials or using
 non-HTTPS schemes are rejected. No price, payment status, or download entitlement is
 trusted from browser state. The provider must enforce those on its server.
 

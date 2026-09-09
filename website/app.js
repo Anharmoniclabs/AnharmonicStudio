@@ -77,31 +77,36 @@
     if (event.target === dialog && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) dialog.close();
   });
   const details = {
-    download: ['OFFICIAL DESKTOP DOWNLOADS', 'Official Linux, Windows, and Mac downloads are planned from $1, including the current major version and its updates. Checkout is not open yet.'],
+    download: ['OFFICIAL DESKTOP DOWNLOADS', 'The standard download costs $1 USD once, including the current major version and its updates on Linux, Windows, and Mac. Checkout is not open yet.'],
     supporter: ['SUPPORTER DOWNLOAD', 'The planned $45-or-more supporter download includes the current and next major version and their updates, on all supported platforms. Checkout is not open yet.'],
-    subscription: ['MONTHLY SUPPORT', 'Monthly support is planned at $1, $4, $10, or $50. Access releases while subscribed; keep using your installed version after cancellation. Subscriptions are not open yet.'],
     donation: ['OPTIONAL DONATION', 'Donations will support development without including downloads or update access. Donation payments are not open yet. No payment is being collected.']
   };
   let downloadsOpen = false;
+  let testCheckoutOpen = false;
+  const testMode = config.paymentMode === 'test';
   document.querySelectorAll('.commerce-link').forEach(link => {
     const offer = link.dataset.offer;
     let checkout;
     try {
       const url = new URL(config.links?.[offer]);
-      const enabled = offer === 'donation' ? config.donationsOpen === true : config.salesOpen === true;
+      const stripeTestLink = url.hostname === 'buy.stripe.com' && url.pathname.startsWith('/test_') && !url.port;
+      const enabled = testMode
+        ? config.testCheckoutOpen === true && offer === 'download' && stripeTestLink
+        : config.paymentMode === 'live' && !stripeTestLink && (offer === 'donation' ? config.donationsOpen === true : config.salesOpen === true);
       if (enabled && url.protocol === 'https:' && !url.username && !url.password) checkout = url.href;
     } catch { /* An absent or invalid destination keeps this offer closed. */ }
     if (checkout) {
       link.href = checkout;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
-      link.firstChild.textContent = link.dataset.liveLabel + ' ';
+      link.firstChild.textContent = testMode ? 'Try $1 test checkout ' : link.dataset.liveLabel + ' ';
       const card = link.closest('article');
       const badge = card.querySelector('.availability');
       const note = card.querySelector('.price-note');
-      if (badge) badge.textContent = 'AVAILABLE';
-      if (note) note.textContent = 'Payment and download access are handled at secure checkout.';
-      if (offer === 'donation') document.querySelector('#donation-status').textContent = 'Optional contributions are open. Donations do not include downloads.';
+      if (badge) badge.textContent = testMode ? 'TEST MODE' : 'AVAILABLE';
+      if (note) note.textContent = testMode ? 'Stripe test mode. No real charge or installer purchase.' : 'Payment and download access are handled at secure checkout.';
+      if (testMode) testCheckoutOpen = true;
+      else if (offer === 'donation') document.querySelector('#donation-status').textContent = 'Optional contributions are open. Donations do not include downloads.';
       else downloadsOpen = true;
     } else {
       link.addEventListener('click', event => {
@@ -113,7 +118,12 @@
       });
     }
   });
-  if (downloadsOpen) {
+  if (testCheckoutOpen) {
+    document.querySelector('#release-status-title').textContent = '$1 test checkout';
+    document.querySelector('#release-status-copy').textContent = 'Try the one-time checkout in Stripe test mode. No real money is charged and no paid installer is delivered. Live sales are not open yet.';
+    document.querySelector('#availability-answer').textContent = 'You can try the $1 one-time Stripe test checkout. It is a payment test, not a real purchase or installer download. Live sales are not open yet.';
+    document.querySelector('.hero-note strong').textContent = '$1 test checkout available.';
+  } else if (downloadsOpen) {
     document.querySelector('#release-status-title').textContent = 'Official downloads are open';
     document.querySelector('#release-status-copy').textContent = 'Choose an available option below. Confirm pricing and update access at hosted checkout. Options still marked planned are not open yet.';
     document.querySelector('#availability-answer').textContent = 'Yes, for options marked available. Follow an available checkout link to confirm release details and payment. Other options remain planned. The source is always available for free.';

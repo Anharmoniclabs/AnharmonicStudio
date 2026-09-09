@@ -7,7 +7,7 @@ Purchasing an official download does not replace or restrict the recipient's GPL
 Official packages for Linux x86_64, Windows x86_64, Intel Mac, and Apple Silicon Mac
 are intended for paid distribution. There are no feature tiers, subscription checks,
 or activation requirements in the application. An installed version continues working
-when monthly support ends.
+without recurring payments.
 
 ## Planned launch pricing
 
@@ -17,19 +17,12 @@ not currently purchasable products.
 | Option | Planned price | Official download access |
 | --- | --- | --- |
 | Source code | Free | Build the full application yourself; no payment or account required |
-| Official download | Pay what you can, $1 minimum | All supported platforms for the current major version and its updates |
+| Official download | $1, one time | All supported platforms for the current major version and its updates |
 | Supporter download | $45 or more, one time | All supported platforms for the current and next major version and their updates |
-| Monthly support | $1, $4, $10, or $50 per month | Official releases while subscribed; downloaded versions continue working after cancellation |
 | Donation | Any amount, optional | Development support only; does not grant downloads or update access |
 
-The pay-what-you-can download is the option for someone who wants to contribute an
-amount of their choice and receive a build. The separate donation option must not be
-presented as a purchase. No tax-deductibility claim is made for contributions.
-
-This structure follows the separation of free source, paid builds, and optional support
-in [Ardour's FAQ](https://ardour.org/faq.html) and
-[subscription options](https://community.ardour.org/subscribe), checked September 9, 2026.
-Anharmonic Studio is an independent project, not an Ardour product or affiliate.
+The standard download costs $1 USD once. The separate donation option does not
+include a download and must not be presented as a purchase.
 
 ## Developer source and supported distribution
 
@@ -63,18 +56,22 @@ Before opening an offer:
    provider collect payment details; this static site collects none.
 2. Verify completed payment on the server/provider, including amount, currency, product,
    and payment status. A return URL or browser flag is not proof of purchase.
-3. Grant download access by product, major-version coverage, and subscription status.
+3. Grant download access by product and major-version coverage.
    Make payment events idempotent and handle failed payments, refunds, cancellation,
    and redownloads. Donation events grant no download entitlement.
 4. Deliver short-lived links or authenticated downloads from private storage. Provide
    the matching source archive, license/dependency notices, and checksums alongside builds.
 5. Test purchase, cancellation, refund, and expired-link paths in the provider's test mode.
-   Confirm an ended subscription never changes the installed application's behavior.
-6. Set the public hosted URLs in `website/config.js`. Set `salesOpen: true` only after
-   delivery and release checks are complete. Donations have a separate `donationsOpen`
+6. Set the public hosted URLs in `website/config.js`. Use `paymentMode: "live"` and
+   `salesOpen: true` only after delivery and release checks are complete. Donations have a separate `donationsOpen`
    flag. Unconfigured or invalid offer URLs stay closed, even if other offers are open.
 
 The checkout provider is responsible for authoritative pricing, buyer notices, payment
 verification, receipts, and download entitlements. Links in `config.js` are routing only.
 Changing that file does not implement access control. Keep checkout and donation settings
 consistent with this document and the website copy.
+
+For Stripe testing, use `paymentMode: "test"` and an active one-time Payment Link
+priced at 100 cents USD. Set `testCheckoutOpen: true` after verifying that link.
+Test checkout is labeled separately and does not sell or deliver a paid installer.
+Stripe Payment Links do not require a publishable API key in the website.
