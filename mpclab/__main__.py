@@ -40,6 +40,7 @@ def main() -> int:
         action="store_true",
         help="test a disposable session without opening audio devices",
     )
+    parser.add_argument("--self-check-report", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--export-worker", type=Path, help=argparse.SUPPRESS)
     parser.add_argument(
         "--install", action="store_true", help="install a Linux bundle for this user"
@@ -73,7 +74,7 @@ def main() -> int:
     if args.self_check:
         from .release_check import main as check_main
 
-        return check_main()
+        return check_main(args.self_check_report)
     missing = [name for name in ("ffmpeg", "ffprobe") if not media_tool(name)]
     if missing:
         print(

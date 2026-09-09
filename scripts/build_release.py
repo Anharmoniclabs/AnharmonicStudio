@@ -39,16 +39,16 @@ def run(command, **kwargs):
 
 def check(executable, directory, report):
     result = run(
-        [executable, "--self-check"],
+        [executable, "--self-check", "--self-check-report", report],
         cwd=directory,
         env=dict(os.environ, QT_QPA_PLATFORM="offscreen", OPENBLAS_NUM_THREADS="1"),
         capture_output=True,
         text=True,
         timeout=240,
     )
-    report.write_text(result.stdout + result.stderr, encoding="utf-8")
-    # A successful exit is insufficient if a broken GUI entry bypasses the test.
-    if '"subprocess_export": true' not in result.stdout:
+    # GUI bootloaders have no stdout on Windows. Require an explicit report
+    # from the actual installed GUI executable as well as a successful exit.
+    if not report.is_file() or not json.loads(report.read_text())["subprocess_export"]:
         raise RuntimeError(f"Self-check did not report a successful export: {result.stdout}")
 
 
@@ -122,7 +122,7 @@ app = BUNDLE(coll, name={NAME + ".app"!r}, icon={icon!r},
 
 def executable_in(bundle):
     if sys.platform == "win32":
-        return bundle / (NAME + "-worker.exe")
+        return bundle / (NAME + ".exe")
     if sys.platform == "darwin":
         return bundle / "Contents/MacOS" / NAME
     return bundle / NAME
@@ -141,11 +141,11 @@ def package_windows(bundle, stage, output, version):
         f'''
 [Setup]
 AppId=AnharmonicLabs.Studio
-AppName=Anharmonic Studios
+AppName=Anharmonic Studio
 AppVersion={version}
 AppPublisher=Anharmonic Labs
 DefaultDirName={{localappdata}}\\Programs\\AnharmonicStudio
-DefaultGroupName=Anharmonic Studios
+DefaultGroupName=Anharmonic Studio
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -160,7 +160,7 @@ LicenseFile={ROOT / "LICENSE"}
 [Files]
 Source: "{bundle}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
-Name: "{{group}}\\Anharmonic Studios"; Filename: "{{app}}\\AnharmonicStudio.exe"
+Name: "{{group}}\\Anharmonic Studio"; Filename: "{{app}}\\AnharmonicStudio.exe"
 ''',
         encoding="utf-8",
     )
@@ -262,7 +262,7 @@ def main():
             result = run([tool, "-version"], capture_output=True, text=True)
             (ready / (Path(tool).stem + "-build.txt")).write_text(result.stdout, encoding="utf-8")
         (ready / "README.txt").write_text(
-            f"Anharmonic Studios {args.version} — unsigned release candidate\n\n"
+            f"Anharmonic Studio {args.version} — unsigned release candidate\n\n"
             "Paid official binary candidate; do not upload installers to public Releases.\n"
             "Python, Qt, native DSP and FFmpeg are bundled. Keep notices and matching source.\n"
             "Windows: use the setup EXE. macOS: copy the app from the DMG to Applications.\n"
@@ -286,7 +286,7 @@ def main():
                     "hdiutil",
                     "create",
                     "-volname",
-                    "Anharmonic Studios",
+                    "Anharmonic Studio",
                     "-srcfolder",
                     image_root,
                     "-format",

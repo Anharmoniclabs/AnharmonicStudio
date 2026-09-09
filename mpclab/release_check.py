@@ -9,7 +9,7 @@ from unittest.mock import patch
 import weakref
 
 
-def main():
+def main(report=None):
     # This command creates only offscreen Qt objects in its own process.
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
     import numpy as np
@@ -106,7 +106,10 @@ def main():
             result.update(
                 project_roundtrip=True, subprocess_export=True, ffmpeg=True, ui_lifetime=True
             )
-    print(json.dumps(result, indent=2))
+    rendered = json.dumps(result, indent=2) + "\n"
+    if report is not None:
+        Path(report).write_text(rendered, encoding="utf-8")
+    print(rendered)
     return 0
 
 
