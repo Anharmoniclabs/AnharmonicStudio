@@ -91,13 +91,16 @@
   const testMode = config.paymentMode === 'test';
   document.querySelectorAll('.commerce-link').forEach(link => {
     const offer = link.dataset.offer;
+    const testOffer = testMode && offer !== 'donation';
     let checkout;
     try {
       const url = new URL(config.links?.[offer]);
       const stripeTestLink = url.hostname === 'buy.stripe.com' && url.pathname.startsWith('/test_') && !url.port;
-      const enabled = testMode
-        ? config.testCheckoutOpen === true && offer === 'download' && stripeTestLink
-        : config.paymentMode === 'live' && !stripeTestLink && (offer === 'donation' ? config.donationsOpen === true : config.salesOpen === true);
+      const enabled = offer === 'donation'
+        ? config.donationsOpen === true && !stripeTestLink
+        : testMode
+          ? config.testCheckoutOpen === true && offer === 'download' && stripeTestLink
+          : config.paymentMode === 'live' && !stripeTestLink && config.salesOpen === true;
       if (enabled && url.protocol === 'https:' && !url.username && !url.password) checkout = url.href;
     } catch { /* An absent or invalid destination keeps this offer closed. */ }
     if (checkout) {
@@ -108,18 +111,20 @@
       link.href = destination.href;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
-      link.firstChild.textContent = testMode ? 'Try $1 test checkout ' : link.dataset.liveLabel + ' ';
+      link.firstChild.textContent = testOffer ? 'Try $1 test checkout ' : link.dataset.liveLabel + ' ';
       const card = link.closest('article');
       const badge = card.querySelector('.availability');
       const note = card.querySelector('.price-note');
-      if (badge) badge.textContent = testMode ? 'TEST MODE' : 'AVAILABLE';
-      if (note) note.textContent = testMode
+      if (badge) badge.textContent = testOffer ? 'TEST MODE' : 'AVAILABLE';
+      if (note) note.textContent = testOffer
         ? (config.deliveryReady === true ? 'Test mode: no real charge. Your selected installer downloads after payment confirmation.' : 'Stripe test mode. No real charge. Automatic downloads are being connected.')
         : 'Payment and download access are handled at secure checkout.';
-      if (testMode) testCheckoutOpen = true;
+      if (testOffer) testCheckoutOpen = true;
       else if (offer === 'donation') document.querySelector('#donation-status').textContent = 'Optional contributions are open. Donations do not include downloads.';
       else downloadsOpen = true;
     } else {
+      link.href = '#release-status';
+      if (offer === 'donation') document.querySelector('#donation-status').textContent = 'Donations are not open yet.';
       link.addEventListener('click', event => {
         if (typeof dialog.showModal !== 'function') return;
         event.preventDefault();
