@@ -139,10 +139,7 @@ def consolidate_selected_audio(app) -> Clip:
     clips = _selected_audio(app)
     if not clips:
         raise ValueError("select one or more audio clips to consolidate")
-    rows = {
-        id(app.playlist.row_for_clip(clip)): app.playlist.row_for_clip(clip)
-        for clip in clips
-    }
+    rows = {id(app.playlist.row_for_clip(clip)): app.playlist.row_for_clip(clip) for clip in clips}
     rows.pop(id(None), None)
     if len(rows) != 1:
         raise ValueError("consolidate requires selected audio clips on one playlist row")
@@ -159,9 +156,7 @@ def consolidate_selected_audio(app) -> Clip:
         audio = arranged_clip_audio(app, clip)
         if audio.shape[1] == 1:
             audio = np.repeat(audio, 2, axis=1)
-        offset = int(
-            round((clip.start_beat - start_beat) * 60.0 / app.project.bpm * sr)
-        )
+        offset = int(round((clip.start_beat - start_beat) * 60.0 / app.project.bpm * sr))
         take = min(len(audio), total_frames - offset)
         if take > 0:
             mixed[offset : offset + take] += audio[:take, :2]
@@ -259,9 +254,7 @@ def freeze_mixer_track(app, track_index: int) -> Clip:
     app.snapshot()
     rendered = app.library.add_audio(audio, f"{track.name} freeze", kind="render")
     pad_state = {
-        str(index): pad.gain
-        for index, pad in enumerate(project.pads)
-        if pad.track == track_index
+        str(index): pad.gain for index, pad in enumerate(project.pads) if pad.track == track_index
     }
     clip_state = {
         clip.id: clip.mute
@@ -404,11 +397,7 @@ def launch_scene(app, scene_id: str) -> None:
 
 def new_take_lane(app, source_row=None) -> Row:
     source = source_row or next(
-        (
-            row
-            for row in app.project.rows
-            if row.id == getattr(app.track_capture, "armed_id", "")
-        ),
+        (row for row in app.project.rows if row.id == getattr(app.track_capture, "armed_id", "")),
         None,
     )
     if source is None:
