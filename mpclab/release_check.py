@@ -3,6 +3,7 @@
 import gc
 import json
 import os
+import sys
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
@@ -12,6 +13,11 @@ import weakref
 def main(report=None):
     # This command creates only offscreen Qt objects in its own process.
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    # The Windows offscreen plugin uses FreeType, not the native font database.
+    if sys.platform == "win32":
+        os.environ.setdefault(
+            "QT_QPA_FONTDIR", os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts")
+        )
     import numpy as np
     import soundfile as sf
     from PySide6.QtCore import QCoreApplication, QEvent, QSettings

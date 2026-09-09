@@ -1,7 +1,6 @@
 """Recording and visual tuning remain separate, with reversible Song edits."""
 
 import time
-import json
 from dataclasses import replace
 
 import numpy as np
@@ -9,7 +8,7 @@ import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QFontInfo
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication
 
 from mpclab.model import Clip, VocalSettings
 from mpclab.ui.vocal_pitch import VocalPitchView, correction_guide
@@ -201,31 +200,10 @@ def test_comp_panel_does_not_force_pitch_editor_horizontal_overflow(window):  # 
     window.show_tab(5)
     QApplication.processEvents()
     scroller = window.vocal_panel.workspace_scroller
-    assert scroller.horizontalScrollBar().maximum() == 0, json.dumps(
-        {
-            "font": QFontInfo(window.vocal_panel.record_in_song.font()).family(),
-            "font_pixels": QFontInfo(window.vocal_panel.record_in_song.font()).pixelSize(),
-            "viewport": scroller.viewport().width(),
-            "body_minimum": scroller.widget().minimumSizeHint().width(),
-            "wide_widgets": [
-                (
-                    type(widget).__name__,
-                    getattr(widget, "text", lambda: "")()[:60],
-                    widget.minimumSizeHint().width(),
-                    widget.minimumWidth(),
-                    widget.isHidden(),
-                )
-                for widget in scroller.widget().findChildren(QWidget)
-                if widget.minimumSizeHint().width() > 150
-            ],
-            "rows": [
-                (i, window.vocal_panel.edit_tabs.widget(0).layout().itemAt(i).minimumSize().width())
-                for i in range(window.vocal_panel.edit_tabs.widget(0).layout().count())
-            ],
-            "keys": [
-                (key.text(), key.minimumWidth(), key.minimumSizeHint().width())
-                for key in window.vocal_panel.root_keys.values()
-            ],
-        },
-        indent=2,
-    )
+    info = QFontInfo(window.vocal_panel.record_in_song.font())
+    assert info.family() and info.pixelSize() > 0, "Layout checks require real fonts"
+    assert scroller.horizontalScrollBar().maximum() == 0, {
+        "font": info.family(),
+        "viewport": scroller.viewport().width(),
+        "body_minimum": scroller.widget().minimumSizeHint().width(),
+    }

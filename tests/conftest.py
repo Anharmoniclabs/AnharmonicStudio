@@ -6,10 +6,16 @@ on which module pytest happens to import first.
 """
 
 import os
+import sys
 
 # The developer desktop normally exports ``wayland;xcb``. Tests must override
 # it, not merely provide a default, because CI and sandbox runs have no display.
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
+# The Windows offscreen plugin uses FreeType, not the native font database.
+if sys.platform == "win32":
+    os.environ.setdefault(
+        "QT_QPA_FONTDIR", os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts")
+    )
 
 # Keep one strong reference for the full test session. Creating QApplication
 # in an individual test and then letting Python collect the wrapper can destroy
