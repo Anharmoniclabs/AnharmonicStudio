@@ -9,6 +9,12 @@ Dependency versions and their upstream packages are recorded in `uv.lock`.
 Preserve the upstream licenses and notices when distributing dependencies.
 The optional separation engine and downloaded weights retain their own terms.
 
+External plugin hosting uses Spotify's Pedalboard 0.9.24 (GPL-3.0), including
+its native host and accompanying third-party notices. MIDI input uses
+python-rtmidi and RtMidi; preserve their accompanying licenses. The Linux
+packager retains these packages' metadata and license files in `notices/`.
+Third-party VST instruments, effects, and their presets are not bundled.
+
 `library/`, user projects, imported songs, exports, and downloaded sample packs
 are user assets, not part of the application's source license. In particular,
 the MusicRadar trap pack is linked locally for music production and must not

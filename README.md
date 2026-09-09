@@ -44,9 +44,41 @@ and Pages site. Source access stays free; recipients retain their GPL rights.
 - **Mix:** balance tracks with EQ, saturation, compression, delay, and reverb.
 - **Vocals:** record directly into Song, open recorded clips in Autotune, build comps, and render pitch correction to a new take.
 - **Export:** render the arrangement to a 48 kHz stereo WAV.
+- **Devices:** automatically connect MIDI inputs, remember controller mappings, and load external VST3 instruments and effects.
 
 The optional stem-separation engine requires extra dependencies and an initial
 model download. The core studio works locally after installation.
+
+## MIDI controllers and plugins
+
+Open **Tools → Devices & Plugins**. MIDI inputs are checked every second and
+reconnected automatically. Choose **Keys**, **Pads**, or the combined mode
+(keys plus pads on MIDI channel 10). Use **MIDI Learn** to assign unfamiliar
+pad layouts, transport buttons, knobs, and faders. Mappings are remembered;
+unplugging a controller releases its held notes. MPK/MPC compatibility depends
+on the device exposing a standard MIDI input; proprietary modes may require
+the manufacturer's driver or a MIDI/controller-mode setting.
+
+The plugin scanner checks standard installation folders and folders you add.
+Load one VST3 instrument for synth notes and one master effect. Parameters and
+presets save with the project and are used during WAV export. Pitch bend and
+unmapped MIDI CCs reach the external instrument during live playing. Native
+plugin windows, MIDI output/clock synchronization, and recording expression
+automation are not implemented yet. Plugin controls use the studio's parameter
+panel; applying changes reloads that plugin.
+
+Plugins must match your operating system and processor. VST2, CLAP, and LV2
+are listed but cannot be loaded by this host. Audio Unit support is available
+through the host on macOS; this integration has only been tested on Linux.
+Linux checks include the Nekobi instrument and MVerb effect; other plugins may
+need different bus layouts or host features. Each plugin runs in a separate
+process. A failed instrument is silenced and a failed effect is bypassed;
+failed exports report the error. Live monitoring adds two audio buffers per
+loaded plugin (about 21 ms each at 48 kHz / 512 frames).
+
+The Audio interfaces tab refreshes available outputs, including Linux PipeWire
+devices. Choose the desired routing in Audio setup; connecting hardware does
+not automatically change your recording input or output.
 
 ## Free source for developers
 

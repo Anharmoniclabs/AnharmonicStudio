@@ -28,6 +28,7 @@ from .model import Project, Pad, NTRACKS, NPADS
 from .music import Note, automation_values
 from .synth import ArpState, SynthVoice
 from .orchestra import prepare_patch
+from .external_dsp import ExternalDSP, OfflinePlugins
 
 FADE = 0.004  # seconds, used for chokes and panics
 MAX_SYNTH_VOICES = 8
@@ -341,6 +342,7 @@ class Engine:
         self._arp_samples_until = 0.0
         # Song note takes receive the same generated notes as the live arp.
         self.arp_note_capture: tuple[list[Note], float] | None = None
+        self.external = ExternalDSP()
 
         # transport
         self.playing = False
@@ -899,6 +901,9 @@ class Engine:
         live_trigger: bool = True,
     ) -> None:
         voices = self.synth_voices if voices is None else voices
+        if voices is self.synth_voices and self.external.instrument is not None:
+            self.external.note_on(note, velocity, offset, gate_frames, live_trigger)
+            return
         patch = self.project.synth
         # Retrigger within the same performance source. Playing along must not
         # release the backing pattern (or the held live note at its next event).
@@ -936,6 +941,8 @@ class Engine:
         )
 
     def _release_synth(self, note: int) -> None:
+        if self.external.instrument is not None:
+            self.external.note_off(note)
         for voice in self.synth_voices:
             if voice.note == note and voice.live_trigger and not voice.dead:
                 voice.note_off(self.project.synth.release)
@@ -1272,7 +1279,12 @@ class Engine:
             except queue.Empty:
                 break
             kind = cmd[0]
-            if kind == "pad":
+            if kind in ("panic", "synthpanic", "stopt", "seek"):
+                self.external.panic()
+            if kind == "midiexpression":
+                if self.external.instrument is not None:
+                    self.external.events.append((cmd[1], 0))
+            elif kind == "pad":
                 idx, vel = cmd[1], cmd[2]
                 self._spawn(proj.pads[idx], idx, vel, 0)
                 if self.recording and self.playing:
@@ -1488,6 +1500,10 @@ class Engine:
             if self.synth_voices[index].dead:
                 del self.synth_voices[index]
 
+        self.external.render_instrument(
+            tbuf[max(0, min(NTRACKS - 1, proj.synth.track))], frames, self.sr
+        )
+
         # 4 ─ inserts → track buses → sends → master
         any_solo = False
         for track in proj.tracks:
@@ -1574,6 +1590,7 @@ class Engine:
         # never changes how hard the bus compressor is working.
         if proj.master_fx.active:
             rack.master.process(master, proj.master_fx, prepared_only=True)
+        self.external.render_effect(master)
         master_gain = (
             proj.master
             if automation_beats is None
@@ -1799,6 +1816,7 @@ class Engine:
         total = self._offline_frame_count(mode, repeats, tail)
 
         saved_mode, self.mode = self.mode, mode
+        plugins = None
         try:
             notes, audio = self._collect(0.0, length_beats)
             synth_events = sorted(
@@ -1811,6 +1829,8 @@ class Engine:
             )
             synth_voices = []
             next_synth = 0
+            if proj.plugins:
+                plugins = OfflinePlugins(proj.plugins, self.sr, synth_events)
             voices: list[tuple[int, PadVoice]] = []
             for event in notes:
                 item = self._offline_pad_event(*event, spb)
@@ -1899,18 +1919,23 @@ class Engine:
 
                 while next_synth < len(synth_events) and synth_events[next_synth][0] < stop:
                     at, pitch, velocity, gate = synth_events[next_synth]
-                    self._spawn_synth(
-                        pitch,
-                        velocity,
-                        max(0, at - start),
-                        gate,
-                        voices=synth_voices,
-                        live_trigger=False,
-                    )
+                    if plugins is None or plugins.instrument is None:
+                        self._spawn_synth(
+                            pitch,
+                            velocity,
+                            max(0, at - start),
+                            gate,
+                            voices=synth_voices,
+                            live_trigger=False,
+                        )
                     next_synth += 1
                 for voice in synth_voices:
                     voice.render(tracks[voice.track], proj.synth)
                 synth_voices[:] = [v for v in synth_voices if not v.dead]
+                if plugins is not None:
+                    plugins.render_instrument(
+                        tracks[max(0, min(NTRACKS - 1, proj.synth.track))], start, n
+                    )
                 automation_beats = self._automation_beats(mode, start / (spb * self.sr), n)
                 delay_send = reverb_send = None
                 if run_sends:
@@ -1939,6 +1964,8 @@ class Engine:
                         block += rack.reverb.process(reverb_send, proj.reverb_fx)
                 if proj.master_fx.active:
                     rack.master.process(block, proj.master_fx)
+                if plugins is not None:
+                    plugins.render_effect(block)
                 gain = (
                     proj.master
                     if automation_beats is None
@@ -1950,6 +1977,8 @@ class Engine:
                     progress(stop / max(1, total))
                 yield block.copy()
         finally:
+            if plugins is not None:
+                plugins.close()
             self.mode = saved_mode
         if progress:
             progress(1.0)

@@ -1,13 +1,17 @@
-"""Conservative plugin discovery metadata for LV2/CLAP/VST3 hosts.
+"""Filesystem discovery, compatibility hints and saved external-plugin settings.
 
-Discovery is filesystem-only and never loads third-party code. A future host can
-consume the registry after validating plugins in an isolated scanner process.
+Discovery never loads third-party code. The isolated host validates a selected
+plugin before installing it in the live audio graph.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 import json
+import base64
+import math
+import os
+import platform
 from pathlib import Path
 from typing import Iterable
 
@@ -16,7 +20,103 @@ PLUGIN_SUFFIXES = {
     "lv2": ".lv2",
     "clap": ".clap",
     "vst3": ".vst3",
+    "vst2": ".dll",
+    "au": ".component",
 }
+
+
+def default_plugin_paths() -> list[Path]:
+    home = Path.home()
+    if platform.system() == "Windows":
+        return [
+            Path(os.environ.get("COMMONPROGRAMFILES", "C:/Program Files/Common Files")) / "VST3"
+        ]
+    if platform.system() == "Darwin":
+        return [
+            base / kind
+            for base in (home / "Library/Audio/Plug-Ins", Path("/Library/Audio/Plug-Ins"))
+            for kind in ("VST3", "Components")
+        ]
+    return [
+        home / ".vst3",
+        home / ".lv2",
+        home / ".clap",
+        Path("/usr/lib/vst3"),
+        Path("/usr/local/lib/vst3"),
+        Path("/usr/lib/lv2"),
+        Path("/usr/lib/clap"),
+    ]
+
+
+def compatibility(candidate: "PluginCandidate") -> str:
+    if candidate.format == "au":
+        return "Ready to load" if platform.system() == "Darwin" else "Requires macOS"
+    if candidate.format != "vst3":
+        return "Discovered; this plugin format is not hosted yet"
+    path = Path(candidate.path)
+    contents = path / "Contents"
+    if contents.is_dir():
+        if platform.system() == "Linux":
+            architecture = platform.machine().lower()
+            folder = {"amd64": "x86_64", "arm64": "aarch64"}.get(
+                architecture, architecture
+            ) + "-linux"
+            if not (contents / folder).is_dir():
+                return "Needs a Linux build for this computer"
+        elif platform.system() == "Darwin" and not (contents / "MacOS").is_dir():
+            return "Needs a macOS build"
+    return "Ready to load"
+
+
+def validate_project_plugins(value) -> dict:
+    if not isinstance(value, dict) or set(value) - {"instrument", "effect"}:
+        raise ValueError("project plugins must contain instrument/effect slots")
+    result = {}
+    for slot, spec in value.items():
+        if not isinstance(spec, dict):
+            raise ValueError("project plugin must be an object")
+        path = spec.get("path")
+        if (
+            not isinstance(path, str)
+            or len(path) > 4096
+            or Path(path).suffix.casefold() not in {".vst3", ".component"}
+        ):
+            raise ValueError("project plugin path must identify a VST3 or Audio Unit")
+        parameters = spec.get("parameters", {})
+        if not isinstance(parameters, dict) or len(parameters) > 512:
+            raise ValueError("project plugin parameters must be a bounded object")
+        for key, number in parameters.items():
+            if (
+                not isinstance(key, str)
+                or len(key) > 256
+                or type(number) not in (int, float)
+                or not math.isfinite(number)
+                or not 0 <= number <= 1
+            ):
+                raise ValueError("project plugin parameters must be normalized finite numbers")
+        state = spec.get("state", "")
+        if not isinstance(state, str) or len(state) > 2_800_000:
+            raise ValueError("project plugin state is too large")
+        try:
+            if len(base64.b64decode(state, validate=True)) > 2 * 1024 * 1024:
+                raise ValueError("project plugin state is too large")
+        except ValueError as exc:
+            raise ValueError("project plugin state is invalid") from exc
+        name = spec.get("plugin_name", "")
+        if (
+            not isinstance(name, str)
+            or len(name) > 512
+            or type(spec.get("bypass", False)) is not bool
+        ):
+            raise ValueError("project plugin name or bypass is invalid")
+        result[slot] = {
+            "path": path,
+            "plugin_name": name,
+            "parameters": dict(parameters),
+            "state": state,
+            "bypass": spec.get("bypass", False),
+        }
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,18 +136,31 @@ class PluginCandidate:
 def discover_plugins(paths: Iterable[Path]) -> list[PluginCandidate]:
     """Discover plugin bundles/files without importing or executing them."""
     candidates: dict[str, PluginCandidate] = {}
-    for root in paths:
+    pending = [(Path(root).expanduser(), 0) for root in paths]
+    seen = set()
+    inspected = 0
+    while pending and inspected < 20_000:
+        root, depth = pending.pop()
         root = Path(root).expanduser()
         if not root.exists() or not root.is_dir():
             continue
         try:
+            resolved_root = root.resolve()
+            if resolved_root in seen:
+                continue
+            seen.add(resolved_root)
             entries = sorted(root.iterdir(), key=lambda p: p.name.casefold())
         except OSError:
             continue
         for entry in entries:
+            inspected += 1
+            if inspected > 20_000:
+                break
             suffix = entry.suffix.casefold()
             fmt = next((name for name, ext in PLUGIN_SUFFIXES.items() if ext == suffix), None)
             if fmt is None:
+                if depth < 4 and entry.is_dir() and not entry.is_symlink():
+                    pending.append((entry, depth + 1))
                 continue
             resolved = str(entry.resolve())
             candidate = PluginCandidate(

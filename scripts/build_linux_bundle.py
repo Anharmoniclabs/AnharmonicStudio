@@ -49,6 +49,8 @@ def main():
         "soundfile",
         "cffi",
         "pycparser",
+        "python-rtmidi",
+        "pedalboard",
     )
     with tempfile.TemporaryDirectory(prefix="linux-build-", dir=output.parent) as temporary:
         stage = Path(temporary)
@@ -75,6 +77,10 @@ def main():
             f"{root / 'mpclab/native/dsp.c'}:mpclab/native",
             "--add-binary",
             f"{native}:.native",
+            "--collect-all",
+            "pedalboard",
+            "--collect-all",
+            "rtmidi",
         ]
         for name in (
             "torch",

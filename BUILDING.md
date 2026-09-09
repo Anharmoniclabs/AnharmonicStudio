@@ -45,6 +45,8 @@ required to build an unsigned local package.
 
 Install Git, [uv](https://docs.astral.sh/uv/getting-started/installation/), a Python 3.12
 runtime, FFmpeg with ffprobe, and the platform's compiler/runtime prerequisites.
+The locked environment also installs python-rtmidi and Pedalboard for MIDI/plugin
+hosting. Third-party plugins are separate installs and must match your OS and CPU.
 Use the locked dependency versions for the checkout being built. Initial dependency
 installation requires network access.
 

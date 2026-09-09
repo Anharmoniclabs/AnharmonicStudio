@@ -30,6 +30,8 @@ PACKAGES = (
     "soundfile",
     "cffi",
     "pycparser",
+    "python-rtmidi",
+    "pedalboard",
 )
 
 
@@ -90,12 +92,19 @@ def make_spec(stage, native, ffmpeg, ffprobe):
     ]
     icon = str(ROOT / "assets/branding/anharmonic-studios.png") if windows or mac else None
     specification = f"""
-from PyInstaller.utils.hooks import copy_metadata
+from PyInstaller.utils.hooks import copy_metadata, collect_all
 metadata = []
+plugin_data, plugin_binaries, plugin_imports = [], [], []
+for module in ("pedalboard", "rtmidi"):
+    data, binaries, hidden = collect_all(module)
+    plugin_data += data
+    plugin_binaries += binaries
+    plugin_imports += hidden
 for package in {PACKAGES!r}:
     metadata += copy_metadata(package)
 a = Analysis([{str(ROOT / "scripts/frozen_entry.py")!r}], pathex=[{str(ROOT)!r}],
-    binaries={binaries!r}, datas={datas!r} + metadata, excludes={excluded!r})
+    binaries={binaries!r} + plugin_binaries, datas={datas!r} + metadata + plugin_data,
+    hiddenimports=plugin_imports, excludes={excluded!r})
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name={NAME!r},
     console={not (windows or mac)!r}, strip=False, upx=False, icon={icon!r})
