@@ -46,10 +46,12 @@ def project_format_version(document: dict) -> int:
 
 
 def migrate_project_document(document: dict, *, target_version: int) -> dict:
-    """Return an upgraded copy without ever mutating the caller's document.
+    """Upgrade legacy documents without mutating the caller's data.
 
+    Current-format documents are returned directly because no migration can
+    mutate them.  Legacy documents are deep-copied before the first migration,
+    so future schema transforms can safely edit nested structures in place.
     Newer documents fail closed so an older build cannot silently discard fields.
-    Every intermediate version must have an explicit migration entry.
     """
     if type(target_version) is not int or target_version < 0:
         raise ValueError("target project format must be a non-negative integer")
@@ -59,6 +61,8 @@ def migrate_project_document(document: dict, *, target_version: int) -> dict:
         raise ValueError(
             f"project format {version} is newer than this build supports ({target_version})"
         )
+    if version == target_version:
+        return document
 
     migrated = deepcopy(document)
     while version < target_version:
