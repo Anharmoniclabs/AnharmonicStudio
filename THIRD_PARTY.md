@@ -1,7 +1,7 @@
 # Source and media licensing
 
 The original Anharmonic Studio application source and documentation are
-distributed under the [GNU General Public License v2.0 or later](LICENSE).
+distributed under the [GNU General Public License v3.0 or later](LICENSE).
 This does not relicense Python dependencies, optional models, external programs,
 or imported media.
 

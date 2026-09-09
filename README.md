@@ -85,7 +85,7 @@ not automatically change your recording input or output.
 
 ## Free source for developers
 
-The full application source is free under **GPL-2.0-or-later**, including the scripts
+The full application source is free under **GPL-3.0-or-later**, including the scripts
 used to compile and install it. No purchase is required to study, build, modify, or
 share it under that license.
 

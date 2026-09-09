@@ -2,7 +2,7 @@
 
 The canonical public source repository is
 https://github.com/Anharmoniclabs/AnharmonicStudio. Source remains free under
-GPL-2.0-or-later; official ready-to-run binaries are intended for paid distribution.
+GPL-3.0-or-later; official ready-to-run binaries are intended for paid distribution.
 There is no activation or subscription gate in the app. Prices and the
 checkout/delivery contract are in [DISTRIBUTION.md](../DISTRIBUTION.md).
 The public Pages site offers the standard $1 USD release-candidate download, plus

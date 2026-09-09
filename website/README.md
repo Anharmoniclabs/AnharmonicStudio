@@ -31,7 +31,7 @@ and closed/test/live checkout configurations. Keep browser evidence outside Git.
 
 ## Public source and paid packages
 
-All source and platform build scripts are public in this repository under GPL-2.0-or-later.
+All source and platform build scripts are public in this repository under GPL-3.0-or-later.
 [Matching release source and license notices](https://github.com/Anharmoniclabs/AnharmonicStudio/releases/tag/v0.1.0-rc.1-source)
 are public GitHub release assets, accessible without payment. Cloudflare R2 stores only
 the compiled Windows EXE, two Mac DMGs, and Linux tar.gz package. The private bucket's

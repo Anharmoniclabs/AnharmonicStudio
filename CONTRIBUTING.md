@@ -1,6 +1,6 @@
 # Work on the free source
 
-Anharmonic Studio's full application source is GPL-2.0-or-later. Official paid downloads
+Anharmonic Studio's full application source is GPL-3.0-or-later. Official paid downloads
 fund development; a purchase is not required to build the app or contribute.
 
 Self-compiled installations and local toolchain configuration are not covered by

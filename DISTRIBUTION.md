@@ -1,6 +1,6 @@
 # Free source, paid official builds
 
-Anharmonic Studio's application source remains free under GPL-2.0-or-later.
+Anharmonic Studio's application source remains free under GPL-3.0-or-later.
 Anyone can obtain, build, study, modify, and share the code under that license.
 Purchasing an official download does not replace or restrict the recipient's GPL rights.
 

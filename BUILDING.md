@@ -6,7 +6,7 @@ Unsigned release-candidate installers for Linux, Windows, Intel Mac, and Apple S
 Mac are available for $1 USD once, plus applicable tax. Their source remains free.
 
 The complete application source and build/installation scripts are free under
-GPL-2.0-or-later. You may build and modify them without purchasing a package.
+GPL-3.0-or-later. You may build and modify them without purchasing a package.
 **We do not provide installation or configuration troubleshooting for self-compiled
 copies.** Developers are responsible for their dependencies, audio configuration,
 and local validation. Reproducible application bug reports and patches are welcome;

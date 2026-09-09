@@ -2,7 +2,7 @@
 name = "anharmonic-studio"
 version = "0.1.0"
 description = "Offline sampler, stem separator, synthesizer, sequencer and arranger"
-license = "GPL-2.0-or-later"
+license = "GPL-3.0-or-later"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "PySide6>=6.7",

@@ -1,4 +1,4 @@
-/* GPL-2.0-or-later hot loops. No allocation, locks, I/O, or Python API calls. */
+/* GPL-3.0-or-later hot loops. No allocation, locks, I/O, or Python API calls. */
 #include <stddef.h>
 #include <stdint.h>
 #include <math.h>
