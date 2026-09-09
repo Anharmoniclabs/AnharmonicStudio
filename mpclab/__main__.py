@@ -114,7 +114,7 @@ def main() -> int:
     app.setApplicationName(APP_SLUG)
     app.setApplicationDisplayName(APP_NAME)
     app.setOrganizationName(ORGANIZATION_NAME)
-    app.setDesktopFileName("anharmonic-studios")
+    app.setDesktopFileName(APP_SLUG)
     app.setWindowIcon(QIcon(str(ROOT / "assets/branding/anharmonic-studios.svg")))
     QFontDatabase.systemFont(QFontDatabase.FixedFont)
 
@@ -124,7 +124,7 @@ def main() -> int:
         QMessageBox.information(
             None,
             APP_NAME,
-            "Anharmonic Studios is already running, or its session lock is unavailable. "
+            f"{APP_NAME} is already running, or its session lock is unavailable. "
             "Use the existing window to protect your recovery files.",
         )
         return 0

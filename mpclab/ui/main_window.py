@@ -101,6 +101,7 @@ from .typing_keyboard import TypingKeyboardWindow
 from .audio_setup import AudioSetupDialog
 from .waveform import WaveformView, NavStrip
 from .color_picker import TonePickerDialog
+from .visual_assets import brand_pixmap
 
 # Numeric keypad → local pad index, matching PAD_KEYS. Every entry is matched
 # only when Qt.KeypadModifier is set, so the number row and the main Enter,
@@ -1007,7 +1008,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
         self.logo = QLabel()
         self.logo.setObjectName("logo")
-        self.logo.setTextFormat(Qt.RichText)
+        self.logo.setFixedSize(218, 44)
         self.logo.setAccessibleName(APP_NAME)
         self.logo.setAccessibleDescription(f"Offline music workstation by {ORGANIZATION_NAME}")
         self.logo.setToolTip(f"{APP_NAME} · by {ORGANIZATION_NAME} · offline music workstation")
@@ -1254,11 +1255,11 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.logo.setFont(theme.label_font(12.0, bold=True))
         self.tabs.setFont(theme.label_font(9.5, bold=True))
         self.counter.setFont(theme.mono_font(15.0, tracking=112.0))
-        brand, separator_, product = APP_NAME.upper().partition(" ")
-        self.logo.setText(
-            f"{brand}<span style='color:{C['dim']}; font-weight:500'>"
-            f"{'&nbsp;' + product if separator_ else ''}</span>"
-        )
+        signature = brand_pixmap(self.logo.devicePixelRatioF())
+        if signature.isNull():
+            self.logo.setText(APP_NAME)
+        else:
+            self.logo.setPixmap(signature)
         self.btn_theme.setText("DARK" if theme.is_light() else "LIGHT")
         self.browser.refresh_separation_status()
         self.browser.refresh()

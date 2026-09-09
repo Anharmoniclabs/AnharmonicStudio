@@ -43,6 +43,7 @@ def main():
         raise RuntimeError(f"Native audio helper did not load: {STATUS}")
     for asset in (
         "branding/anharmonic-studios.svg",
+        "branding/anharmonic-header.svg",
         "orchestra/manifest.json",
         "ui/check-dark.svg",
     ):

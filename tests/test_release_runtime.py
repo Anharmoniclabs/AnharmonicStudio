@@ -65,6 +65,18 @@ def test_install_update_keeps_previous_build_and_music(tmp_path):
     assert music.read_text() == "precious song"
 
 
+@pytest.mark.parametrize("resource_folder", ["_internal", "."])
+def test_installed_launcher_icon_points_into_its_build(tmp_path, resource_folder):
+    source = bundle_fixture(tmp_path / "bundle")
+    icon = source / resource_folder / "assets/branding/anharmonic-studios.svg"
+    icon.parent.mkdir(parents=True)
+    icon.write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+    installed, desktop = install_bundle(source, tmp_path / "user prefix")
+    expected = installed / resource_folder / "assets/branding/anharmonic-studios.svg"
+    assert f"Icon={expected}\n" in desktop.read_text()
+    assert expected.read_bytes() == icon.read_bytes()
+
+
 def test_failed_install_keeps_working_launcher(tmp_path, monkeypatch):
     source = bundle_fixture(tmp_path / "bundle")
     prefix = tmp_path / "user"
