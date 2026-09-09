@@ -2,8 +2,9 @@
 
 Official released binaries are Anharmonic Studio's supported distribution for musicians.
 Support covers those published builds on their documented platforms. Release candidates
-remain evaluation builds until release acceptance is complete; paid downloads and their
-customer delivery/support channel are not open yet.
+remain evaluation builds until release acceptance is complete. The standard $1 download
+is open through the website, with private installer delivery after payment confirmation.
+Signing/notarization and physical-device acceptance remain unfinished.
 
 ## Self-compiled copies
 

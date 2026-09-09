@@ -3,9 +3,10 @@
 The canonical public source repository is
 https://github.com/Anharmoniclabs/AnharmonicStudio. Source remains free under
 GPL-2.0-or-later; official ready-to-run binaries are intended for paid distribution.
-There is no activation or subscription gate in the app. Planned prices and the
-future checkout/delivery contract are in [DISTRIBUTION.md](../DISTRIBUTION.md).
-The public Pages site advertises the plans with checkout disabled until delivery is ready.
+There is no activation or subscription gate in the app. Prices and the
+checkout/delivery contract are in [DISTRIBUTION.md](../DISTRIBUTION.md).
+The public Pages site offers the standard $1 USD release-candidate download, plus
+applicable tax. Stripe confirms payment before Cloudflare grants installer access.
 
 ## Build outputs
 
@@ -73,7 +74,10 @@ openssl cms -decrypt -binary -inform DER -in linux-x86_64.enc \
 Keep a secure backup of the private key. Public source users can compile their
 own builds; encryption controls access to these official compiled artifacts.
 The decrypted directory includes the installer, exact source ZIP, notices,
-checksums and validation logs for later delivery through the paid download system.
+checksums and validation logs. Publish the matching source/notices packages to a public
+GitHub source release. Upload only the compiled installers to private Cloudflare R2;
+source access must not require payment. Preserve the source release corresponding to
+each installer, even when the default branch changes.
 
 Build-system references: [PyInstaller platform requirements](https://pyinstaller.org/en/stable/operating-mode.html),
 [PyInstaller subprocess handling](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html),

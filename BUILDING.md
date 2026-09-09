@@ -2,8 +2,8 @@
 
 This guide is for developers maintaining their own toolchain and runtime environment.
 For the musician-facing distribution, use the [official download page](https://anharmoniclabs.github.io/AnharmonicStudio/#download).
-Official downloads are planned for Linux, Windows, Intel Mac, and Apple Silicon Mac;
-checkout is not open yet.
+Unsigned release-candidate installers for Linux, Windows, Intel Mac, and Apple Silicon
+Mac are available for $1 USD once, plus applicable tax. Their source remains free.
 
 The complete application source and build/installation scripts are free under
 GPL-2.0-or-later. You may build and modify them without purchasing a package.
@@ -149,11 +149,11 @@ backend in Audio setup. Start with 48 kHz and a 512-frame buffer, then measure b
 reducing buffer sizes. Device/driver behavior remains your responsibility in a
 self-built copy.
 
-Linux developers can still use `./run.sh` after provisioning system dependencies.
-It maintains the locked environment and rebuilds native DSP when necessary. This
-convenience launcher remains part of the source; it is not the customer installation
-or update channel. If native compilation fails, its Python fallback can require more
-buffer headroom.
+Linux developers can use `./run.sh` after completing the dependency, native compilation,
+and validation steps above. It launches the existing `.venv` only; it does not install
+dependencies, create an environment, or compile code. After changing native source,
+explicitly rerun `scripts/build_native.py`. The Python DSP fallback remains available
+for development and can require more buffer headroom.
 
 Optional neural stem separation needs additional dependencies and model downloads.
 The Linux developer helper is `./install-separation.sh`. It is not bundled in these
