@@ -138,6 +138,7 @@ class BlockConvolver:
         self.m = len(self.ir)
         self._plans.clear()
         self.tail = np.zeros((max(1, self.m - 1), self.channels), dtype=np.float32)
+        self._next_tail = np.zeros_like(self.tail)
 
     def reset(self) -> None:
         self.tail.fill(0.0)
@@ -177,11 +178,12 @@ class BlockConvolver:
         full[:overlap] += self.tail[:overlap]
         block[:] = full[:n]
         carry = full[n : n + self.m - 1]
-        tail = np.zeros_like(self.tail)
+        tail = self._next_tail
+        tail.fill(0.0)
         tail[: len(carry)] = carry
         if self.m - 1 > n:
             tail[: self.m - 1 - n] += self.tail[n:]
-        self.tail = tail
+        self._next_tail, self.tail = self.tail, tail
         return block
 
 
@@ -224,7 +226,7 @@ class OnePole:
     @staticmethod
     def coefficient(seconds: float, sr: int = SR) -> float:
         """Pole for a time constant, clamped away from 0 and 1."""
-        return float(np.clip(np.exp(-1.0 / max(1e-5, seconds * sr)), 0.0, 0.999999))
+        return float(min(max(np.exp(-1.0 / max(1e-5, seconds * sr)), 0.0), 0.999999))
 
     def _plan(self, b: float, n: int):
         key = (round(b, 7), n)
@@ -243,7 +245,7 @@ class OnePole:
         n = len(block)
         if n == 0:
             return block
-        b = float(np.clip(b, 0.0, 0.999999))
+        b = float(min(max(b, 0.0), 0.999999))
         if (
             NATIVE is not None
             and block.dtype == np.float32
@@ -280,7 +282,7 @@ class DelayLine:
 
     def read(self, n: int, delay: int) -> np.ndarray:
         """The n samples that were written `delay` samples ago."""
-        delay = int(np.clip(delay, 1, self.size - 1))
+        delay = int(min(max(delay, 1), self.size - 1))
         return self._slice(self.pos - delay, n).copy()
 
     def write(self, block: np.ndarray) -> None:
@@ -471,13 +473,13 @@ class DelaySend:
         seconds = beats * 60.0 / max(20.0, bpm)
         # A line shorter than the block would have to read what it is about to
         # write.  Musical divisions never get that short; clamping is a guard.
-        return int(np.clip(seconds * SR, max(block, 64), self.line.size - 2))
+        return int(min(max(seconds * SR, max(block, 64)), self.line.size - 2))
 
     def process(self, send: np.ndarray, fx, bpm: float) -> np.ndarray:
         n = len(send)
         delayed = self.line.read(n, self.delay_samples(fx, bpm, n))
         fed = self.damp.process(delayed.copy(), 0.15 + 0.8 * fx.damping)
-        fed *= np.float32(np.clip(fx.feedback, 0.0, 0.95))
+        fed *= np.float32(min(max(fx.feedback, 0.0), 0.95))
         if fx.ping_pong:
             fed = fed[:, ::-1].copy()
         self.line.write(send + fed)
@@ -525,8 +527,8 @@ class ReverbSend:
         source = self.predelay.read(n, pre) if pre > n else send
         source = source * np.float32(0.11)
 
-        feedback = np.float32(0.70 + 0.28 * np.clip(fx.size, 0.0, 1.0))
-        damping = 0.05 + 0.9 * float(np.clip(fx.damping, 0.0, 1.0))
+        feedback = np.float32(0.70 + 0.28 * min(max(fx.size, 0.0), 1.0))
+        damping = 0.05 + 0.9 * float(min(max(fx.damping, 0.0), 1.0))
         for i, (line, damp) in enumerate(zip(self.combs, self.damps, strict=True)):
             delay = self.COMBS[i]
             # One channel runs a few samples longer so the two sides decorrelate.
@@ -541,7 +543,7 @@ class ReverbSend:
         for ap in self.allpass:
             ap.process(wet)
 
-        width = float(np.clip(fx.width, 0.0, 1.0))
+        width = float(min(max(fx.width, 0.0), 1.0))
         if width < 0.999:
             mid = (wet[:, 0] + wet[:, 1]) * 0.5
             wet[:, 0] = mid + (wet[:, 0] - mid) * width
@@ -602,7 +604,7 @@ class MasterChain:
             self.tone.process(block, prepared_only=prepared_only)
         saturate(block, fx.drive)
         if fx.glue:
-            amount = float(np.clip(fx.glue_amount, 0.0, 1.0))
+            amount = float(min(max(fx.glue_amount, 0.0), 1.0))
             self.glue.process(
                 block, -18.0 + 6.0 * (1 - amount), 2.0 + 2.0 * amount, 0.012, 0.24, 2.5 * amount
             )

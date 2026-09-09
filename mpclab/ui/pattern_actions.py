@@ -249,6 +249,10 @@ class PatternActionsMixin:
         self.place_box.clear()
         for pat in self.project.patterns:
             self.place_box.addItem(f"▦  {pat.name}", ("pattern", pat.id))
+        # With placeholder text Qt leaves a freshly populated combo at -1.
+        # New projects still need a drawable default pattern; only an explicit
+        # audio selection should leave the pattern picker unselected.
+        self.place_box.setCurrentIndex(0 if self.place_box.count() else -1)
         if sample_selected:
             self.place_box.setCurrentIndex(-1)
         elif current:

@@ -114,6 +114,48 @@ def test_synth_and_sample_notes_keep_off_grid_timing_in_song(window):
     assert not window.project.rows[2].clips
 
 
+@pytest.mark.parametrize("song", [False, True])
+def test_recording_arp_stores_generated_notes_instead_of_held_chord(window, song):
+    engine = window.engine
+    window.project.bpm = 120
+    window.project.arp.enabled = True
+    window.project.arp.rate_beats = 0.25
+    window.project.arp.gate = 0.5
+    if song:
+        row = arm(window, source="notes")
+        engine.beat = 1.125
+        window.btn_rec.click()
+    else:
+        window.set_mode("pattern")
+        window.btn_rec.click()
+        window._record_count_deadline = 0
+        window._advance_record_count()
+    engine._process_commands()
+    for pitch in (60, 64, 67):
+        window.play_synth_note(pitch, 0.7)
+    assert not window._recorded_notes
+    assert not window.track_capture.held
+    output = np.zeros((engine.blocksize, 2), np.float32)
+    for _ in range(int(engine.sr * 0.6 / engine.blocksize)):
+        engine._callback(output, len(output), None, False)
+    for pitch in (60, 64, 67):
+        window.release_synth_note(pitch)
+    window.stop_all()
+    if song:
+        assert row.clips[0].start_beat == 1.125
+        pattern = next(p for p in window.project.patterns if p.id == row.clips[0].ref)
+    else:
+        pattern = window.project.pattern()
+    assert [n.pitch for n in pattern.notes] == [60, 64, 67, 60, 64]
+    assert [n.start for n in pattern.notes] == pytest.approx([0, 0.25, 0.5, 0.75, 1])
+    assert [n.duration for n in pattern.notes] == pytest.approx([0.125] * 5)
+    assert engine.arp_note_capture is None
+    saved = window.project.to_dict()
+    window.undo()
+    window.redo()
+    assert window.project.to_dict() == saved
+
+
 def test_cancelled_count_in_does_not_open_input_or_add_history(window, monkeypatch):
     _, calls = mock_audio(window, monkeypatch)
     arm(window)
@@ -179,6 +221,72 @@ def test_row_arm_button_does_not_toggle_mute_solo_or_add_history(window):
     assert window.track_inspector.row_id == row.id
     assert not row.mute and not row.solo
     assert not window._undo
+
+
+def test_track_selection_and_recording_preserve_visible_pads(window):
+    window.show()
+    window.show_tab(2)
+    window.select_pad(5)
+    QApplication.processEvents()
+    assert window.pads.isVisible()
+    pad_parent = window.pads.parentWidget()
+    row = arm(window, source="notes")
+    QApplication.processEvents()
+    assert window.song_track_mount.isVisible()
+    assert window.pads.isVisible()
+    assert window.pads.selected == 5
+    assert window.pads.parentWidget() is pad_parent
+    window.track_controls_button.click()
+    assert window.song_track_mount.isHidden()
+    window.track_inspector.select_row(row)
+    assert not window.song_track_mount.isHidden()
+    assert window.pads.isVisible()
+    window.show_tab(1)
+    assert window.pads.isVisible()
+    assert not window.track_inspector.isVisible()
+
+
+def test_input_settings_expand_and_collapse_without_clipping(window):
+    window.show()
+    window.show_tab(2)
+    arm(window)
+    QApplication.processEvents()
+    compact = window.track_controls_scroll.height()
+    window.track_inspector.details_button.click()
+    for _ in range(3):
+        QApplication.processEvents()
+    assert window.track_controls_scroll.height() > compact
+    assert window.track_inspector.gain.isVisible()
+    window.track_inspector.details_button.click()
+    for _ in range(3):
+        QApplication.processEvents()
+    assert window.track_controls_scroll.height() == compact
+
+
+def test_top_meters_follow_engine_and_ignore_stale_recording_input(window, monkeypatch):
+    window.engine.master_meter[:] = (0.25, 0.5)
+    window.engine.master_peak = 1.05
+    window.engine.cpu = 0.42
+    recorder = window.track_capture.recorder
+    recorder.input_peak = 0.75
+    window._tick()
+    meters = window.transport_meters
+    assert meters.levels == (0.25, 0.5)
+    assert meters.held_peak == 1.05
+    assert meters.cpu == 0.42
+    assert meters.input_peak == 0 and not meters.input_active
+    with monkeypatch.context() as patch:
+        patch.setattr(type(recorder), "recording", property(lambda self: self is recorder))
+        window._tick()
+        assert meters.input_peak == 0.75 and meters.input_active
+    window.engine.master_peak = 0.2
+    window._tick()
+    assert meters.held_peak == 1.05
+    QTest.keyClick(meters, Qt.Key_Return)
+    window._tick()
+    assert meters.held_peak == 0.2
+    assert meters.position(0.001) == pytest.approx(0.0)
+    assert meters.position(0.1) == pytest.approx(2 / 3)
 
 
 def test_theme_and_navigation_keep_color_and_editor_owner(window):

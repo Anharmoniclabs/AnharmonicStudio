@@ -86,6 +86,7 @@ class StudioPanel(QWidget):
             (6, "Notes"),
             (0, "Sampler"),
             (4, "Instruments"),
+            (5, "Autotune"),
             (3, "Mix"),
         ):
             button = QPushButton(title)
@@ -111,7 +112,7 @@ class StudioPanel(QWidget):
         self.more_button.setObjectName("workspaceTool")
         self.more_button.setMinimumHeight(30)
         menu = QMenu(self.more_button)
-        menu.addAction("Takes, comp & tuning", lambda: self._workspace_clicked(5))
+        menu.addAction("Record vocals in Song", self._record_vocals)
         menu.addAction("Automation", lambda: self._workspace_clicked(7))
         menu.addAction("Master output", self._master_clicked)
         menu.addAction("Musical typing", self._toggle_typing)
@@ -287,6 +288,11 @@ class StudioPanel(QWidget):
         if app is not None:
             app.toggle_typing_keyboard()
 
+    def _record_vocals(self):
+        app = self._app()
+        if app is not None:
+            app.prepare_vocal_recording()
+
     def _workspace_clicked(self, index):
         """User navigation may change playback context; programmatic select() may not."""
         self.select(index)
@@ -300,6 +306,10 @@ class StudioPanel(QWidget):
         elif index == 1:
             app.set_mode("pattern")
             app.status.showMessage("BEAT · current pattern playback", 2200)
+        elif index == 5:
+            clip = app.playlist.selected_clip
+            if clip is not None and clip.kind == "audio":
+                app.open_vocal_clip(clip)
 
     def _master_clicked(self):
         self.select(3)
@@ -359,7 +369,7 @@ class StudioPanel(QWidget):
                 6: "Performance · compose sample or synth notes in the piano roll.",
                 2: "Song · Arrange owns the complete record: sections, patterns, vocals and audio clips.",
                 3: "Mix · balance tracks, effects, sends and the master output.",
-                5: "Takes · edit, comp and tune recorded performances. Arm tracks in Song to record.",
+                5: "Autotune · shape the pitch of an existing recording. Record dry vocals in Song.",
                 7: "Automation · draw song-level movement for gain and pan.",
             }[index]
         )

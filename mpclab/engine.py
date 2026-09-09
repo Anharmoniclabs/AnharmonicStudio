@@ -25,7 +25,7 @@ from .audio_kernel import (
 from .fx import MasterChain, MixRack, TrackChain
 from .linux_audio import LinuxAudioRuntime
 from .model import Project, Pad, NTRACKS, NPADS
-from .music import automation_values
+from .music import Note, automation_values
 from .synth import ArpState, SynthVoice
 from .orchestra import prepare_patch
 
@@ -339,6 +339,8 @@ class Engine:
         self._variant_patch = None
         self.arp_state = ArpState()
         self._arp_samples_until = 0.0
+        # Song note takes receive the same generated notes as the live arp.
+        self.arp_note_capture: tuple[list[Note], float] | None = None
 
         # transport
         self.playing = False
@@ -938,7 +940,7 @@ class Engine:
             if voice.note == note and voice.live_trigger and not voice.dead:
                 voice.note_off(self.project.synth.release)
 
-    def _schedule_arp(self, frames: int) -> None:
+    def _schedule_arp(self, frames: int, start_beat: float) -> None:
         settings = self.project.arp
         if not settings.enabled or not self.arp_state.held:
             self._arp_samples_until = 0.0
@@ -951,8 +953,23 @@ class Engine:
             note = self.arp_state.next_note(settings)
             if note is None:
                 break
+            note = min(127, max(0, note))
             gate = max(1, int(step * min(1.0, max(0.05, settings.gate))))
-            self._spawn_synth(note, 0.92, int(max(0.0, pos)), gate)
+            offset = int(max(0.0, pos))
+            self._spawn_synth(note, 0.92, offset, gate)
+            if self.playing:
+                bps = self.project.bpm / 60.0 / self.sr
+                beat = start_beat + offset * bps
+                duration = gate * bps
+                capture = self.arp_note_capture
+                if capture is not None:
+                    notes, origin = capture
+                    notes.append(Note(note, max(0.0, beat - origin), duration, 0.92))
+                elif self.recording and self.mode == "pattern":
+                    pattern = self.project.pattern()
+                    local = beat % pattern.length_beats
+                    pattern.notes.append(Note(note, local, duration, 0.92))
+                    self.pattern_dirty = True
             pos += step
         self._arp_samples_until = pos - frames
 
@@ -1379,6 +1396,7 @@ class Engine:
 
     def _render_block(self, outdata, frames, monitor=None):
         proj = self.project
+        start_beat = self.beat
         if frames > self._tbuf.shape[1]:  # PortAudio asked for a bigger block
             self._tbuf = np.zeros((NTRACKS, frames, 2), dtype=np.float32)
             self._master = np.zeros((frames, 2), dtype=np.float32)
@@ -1444,7 +1462,7 @@ class Engine:
                     self._click(int(max(0.0, (b - b0) / bps)), b % 4 == 0)
             self.beat = b1
         # 3 ─ voices
-        self._schedule_arp(frames)
+        self._schedule_arp(frames, start_beat)
         preview = None
         for v in self.voices:
             destination = preview_bus if v.pad_index in (AUDITION, METRONOME) else tbuf[v.track]

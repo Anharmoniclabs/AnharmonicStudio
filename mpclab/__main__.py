@@ -115,7 +115,7 @@ def main() -> int:
     app.setApplicationDisplayName(APP_NAME)
     app.setOrganizationName(ORGANIZATION_NAME)
     app.setDesktopFileName("anharmonic-studios")
-    app.setWindowIcon(QIcon(str(ROOT / "assets/branding/anharmonic-studios.svg")))
+    app.setWindowIcon(QIcon(str(ROOT / "assets/branding/owner-mark.png")))
     QFontDatabase.systemFont(QFontDatabase.FixedFont)
 
     lock = QLockFile(str(root / ".anharmonic-studios.lock"))

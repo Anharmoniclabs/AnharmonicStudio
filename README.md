@@ -20,11 +20,11 @@ Recipients retain the rights provided by the GPL.
 
 - **Sampler:** import audio, trim ranges, detect transients, and map slices to four 4×4 pad banks.
 - **Beats:** program step patterns and control per-hit velocity.
-- **Instruments:** explore factory sounds, shape analog synth patches, and use the arpeggiator.
+- **Instruments:** explore factory sounds, shape analog synth patches, and record arpeggiator notes.
 - **Notes:** write synth parts or play samples chromatically in the piano roll.
 - **Song:** arrange patterns and audio clips, create variations, and automate levels and pan.
 - **Mix:** balance tracks with EQ, saturation, compression, delay, and reverb.
-- **Vocals:** record takes, build comps, and render pitch correction to a new take.
+- **Vocals:** record directly into Song, open recorded clips in Autotune, build comps, and render pitch correction to a new take.
 - **Export:** render the arrangement to a 48 kHz stereo WAV.
 
 The optional stem-separation engine requires extra dependencies and an initial
@@ -69,6 +69,15 @@ uv run --no-sync python scripts/run_tests.py -- -q
 
 The self-check uses a disposable offscreen session and does not open audio devices.
 Hardware tests are optional and separate from ordinary automated checks.
+
+Run `bash scripts/quality.sh` for the complete source checks, tests, Python audio
+fallback checks, and callback benchmarks. Start with the default 48 kHz /
+512-frame buffer; smaller buffers need more processing headroom.
+
+If saving a recording fails, use **Retry save** in Song or **Retry save take** in
+the vocal editor. Recovery WAVs remain in `projects/recordings/` until the take
+is saved or explicitly discarded; after an interrupted session, import them
+through the Browser. Keep `library/` alongside your source-checkout projects.
 
 Create a source archive:
 

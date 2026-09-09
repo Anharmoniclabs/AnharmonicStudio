@@ -661,6 +661,7 @@ class PlaylistView(WindowClient, QWidget):
             menu.addAction("Edit pattern", lambda: self.app.open_pattern_clip(clip))
             menu.addAction("Make pattern unique", lambda: self.app.make_pattern_unique(clip))
         if clip.kind == "audio":
+            menu.addAction("Open in Autotune", lambda: self.app.open_vocal_clip(clip))
             menu.addAction(
                 "Write notes with sample", lambda: self.app.sample_workflow.from_arrangement(clip)
             )

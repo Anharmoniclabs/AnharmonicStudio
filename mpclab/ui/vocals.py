@@ -9,10 +9,12 @@ from dataclasses import replace
 import numpy as np
 from .window_client import WindowClient, emit_if_alive
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import QTimer, Signal, Qt
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
+    QHBoxLayout,
+    QTabWidget,
     QGridLayout,
     QLabel,
     QPushButton,
@@ -41,6 +43,7 @@ from ..vocal import (
     render_autotune,
 )
 from .theme import label_font
+from .vocal_pitch import TuningDial, VocalPitchView
 
 
 def _small(text: str) -> QLabel:
@@ -50,7 +53,7 @@ def _small(text: str) -> QLabel:
 
 
 class VocalPanel(WindowClient, QWidget):
-    """A complete take → tune → arrange workflow in one tab."""
+    """Offline tuning and comping of existing recordings; capture lives in Song."""
 
     keyFinished = Signal(int, object, str, str, float)
     keyFailed = Signal(int, str)
@@ -76,8 +79,13 @@ class VocalPanel(WindowClient, QWidget):
         self._tune_job_id = 0
         self._tune_cancel: threading.Event | None = None
         self._render_source_id: str | None = None
+        self._render_project = None
+        self._key_project = None
+        self._key_source_id = None
         self._syncing = True
         self._batch_tune_edit = False
+        self._song_clip_id = None
+        self._song_source_id = None
         self._build()
         self.keyFinished.connect(self._key_finished)
         self.keyFailed.connect(self._key_failed)
@@ -95,33 +103,40 @@ class VocalPanel(WindowClient, QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        scroller = QScrollArea()
+        scroller = self.workspace_scroller = QScrollArea()
         scroller.setWidgetResizable(True)
         body = QWidget()
         layout = QVBoxLayout(body)
         layout.setContentsMargins(14, 12, 14, 18)
         layout.setSpacing(12)
 
-        title = QLabel("TAKES · COMP · TUNING")
+        heading = QHBoxLayout()
+        title = QLabel("AUTOTUNE")
         title.setObjectName("title")
-        title.setFont(label_font(12, bold=True))
-        layout.addWidget(title)
-        layout.addWidget(
-            _small(
-                "Record an unaltered 24-bit take, then render pitch correction to a "
-                "new clip. Your original performance is always kept."
-            )
+        title.setFont(label_font(14, bold=True))
+        heading.addWidget(title)
+        heading.addStretch()
+        self.record_in_song = QPushButton("Record in Song")
+        self.record_in_song.setToolTip("Return to the Song timeline to arm a microphone track.")
+        self.record_in_song.clicked.connect(lambda: self.app.prepare_vocal_recording())
+        heading.addWidget(self.record_in_song)
+        layout.addLayout(heading)
+        help_text = _small(
+            "Choose an existing vocal, shape its tuning, then return the finished take to Song."
         )
-        recording = self._record_group()
-        recording.hide()
-        advanced_capture = QPushButton("Advanced capture settings")
-        advanced_capture.setCheckable(True)
-        advanced_capture.toggled.connect(recording.setVisible)
-        layout.addWidget(advanced_capture)
-        layout.addWidget(recording)
-        layout.addWidget(self._tune_group())
-        layout.addWidget(self._comp_group())
-        layout.addStretch(1)
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
+        # Keep legacy capture state for recovery and old projects, outside the tuning UI.
+        self.legacy_recording = self._record_group()
+        self.legacy_recording.setParent(body)
+        self.legacy_recording.hide()
+        self.edit_tabs = QTabWidget()
+        self.edit_tabs.addTab(self._tune_group(), "Pitch editor")
+        comp_scroll = QScrollArea()
+        comp_scroll.setWidgetResizable(True)
+        comp_scroll.setWidget(self._comp_group())
+        self.edit_tabs.addTab(comp_scroll, "Take comp")
+        layout.addWidget(self.edit_tabs, 1)
         scroller.setWidget(body)
         outer.addWidget(scroller)
 
@@ -237,123 +252,300 @@ class VocalPanel(WindowClient, QWidget):
         grid.addWidget(self.record_status, 7, 0, 1, 5)
         return box
 
-    def _tune_group(self) -> QGroupBox:
-        box = QGroupBox("2 · AUTOTUNE + VOCAL CHAIN")
-        grid = QGridLayout(box)
-        grid.setHorizontalSpacing(9)
-        grid.setVerticalSpacing(8)
-
-        grid.addWidget(_small("SOURCE TAKE"), 0, 0)
+    def _tune_group(self) -> QWidget:
+        box = QWidget()
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+        source_row = QHBoxLayout()
+        source_row.addWidget(_small("RECORDED TAKE"))
         self.take_box = QComboBox()
-        self.take_box.setMinimumWidth(250)
+        self.take_box.setMinimumWidth(130)
+        self.take_box.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.take_box.setMinimumContentsLength(16)
         self.take_box.currentIndexChanged.connect(self._take_selection_changed)
-        grid.addWidget(self.take_box, 0, 1, 1, 3)
-        use_selected = QPushButton("USE BROWSER SELECTION")
-        use_selected.setObjectName("mini")
+        source_row.addWidget(self.take_box, 1)
+        self.use_song_button = QPushButton("Selected Song clip")
+        self.use_song_button.clicked.connect(self.use_song_selection)
+        source_row.addWidget(self.use_song_button)
+        use_selected = QPushButton("From Browser")
         use_selected.clicked.connect(self.use_browser_selection)
-        grid.addWidget(use_selected, 0, 4)
+        source_row.addWidget(use_selected)
+        layout.addLayout(source_row)
 
-        grid.addWidget(_small("PRESET"), 1, 0)
+        self.pitch_view = VocalPitchView()
+        self.pitch_view.selectionChanged.connect(self._listening_selection_changed)
+        layout.addWidget(self.pitch_view, 1)
+        view_row = QHBoxLayout()
+        self.selection_label = _small("Drag on the waveform to select a listening range.")
+        self.selection_label.setWordWrap(True)
+        view_row.addWidget(self.selection_label, 1)
+        view_row.addWidget(_small("PITCH"))
+        for label, factor in (("−", 0.8), ("+", 1.25)):
+            zoom = QPushButton(label)
+            zoom.setFixedWidth(28)
+            zoom.setAccessibleName("Zoom pitch out" if factor < 1 else "Zoom pitch in")
+            zoom.setToolTip(zoom.accessibleName())
+            zoom.clicked.connect(
+                lambda checked=False, scale=factor: self.pitch_view.zoom_pitch(scale)
+            )
+            view_row.addWidget(zoom)
+        fit_pitch = QPushButton("Fit pitch")
+        fit_pitch.clicked.connect(self.pitch_view.fit_pitch)
+        view_row.addWidget(fit_pitch)
+        fit = QPushButton("Fit take")
+        fit.clicked.connect(self.pitch_view.fit)
+        view_row.addWidget(fit)
+        clear = QPushButton("Whole take")
+        clear.clicked.connect(self.pitch_view.clear_selection)
+        view_row.addWidget(clear)
+        layout.addLayout(view_row)
+
+        controls = QGridLayout()
         self.preset = QComboBox()
         self.preset.addItems(["Custom", "Natural vocal", "Modern vocal", "Hard tune", "Rap lead"])
         self.preset.currentTextChanged.connect(self._apply_preset)
-        grid.addWidget(self.preset, 1, 1)
-        grid.addWidget(_small("KEY"), 1, 2)
         self.key_box = QComboBox()
         self.key_box.addItems(NOTE_NAMES)
         self.key_box.currentTextChanged.connect(self._tune_settings_changed)
-        grid.addWidget(self.key_box, 1, 3)
-        self.detect_key_button = QPushButton("DETECT KEY")
-        self.detect_key_button.setObjectName("mini")
-        self.detect_key_button.clicked.connect(self.detect_source_key)
-        grid.addWidget(self.detect_key_button, 1, 4)
-
-        grid.addWidget(_small("SCALE"), 2, 0)
         self.scale_box = QComboBox()
         self.scale_box.addItems(list(SCALES))
         self.scale_box.currentTextChanged.connect(self._tune_settings_changed)
-        grid.addWidget(self.scale_box, 2, 1)
-        grid.addWidget(_small("VOCAL RANGE"), 2, 2)
         self.range_box = QComboBox()
-        self.range_box.addItem("Bass · C2–C4", (36, 60))
-        self.range_box.addItem("Tenor · C3–C5", (48, 72))
-        self.range_box.addItem("Alto · F3–F5", (53, 77))
-        self.range_box.addItem("Soprano · C4–C6", (60, 84))
-        self.range_box.addItem("Wide · C2–C6", (36, 84))
+        for name, notes in (
+            ("Bass · C2–C4", (36, 60)),
+            ("Tenor · C3–C5", (48, 72)),
+            ("Alto · F3–F5", (53, 77)),
+            ("Soprano · C4–C6", (60, 84)),
+            ("Wide · C2–C6", (36, 84)),
+        ):
+            self.range_box.addItem(name, notes)
         self.range_box.currentIndexChanged.connect(self._tune_settings_changed)
-        grid.addWidget(self.range_box, 2, 3)
-        self.autotune_enabled = QCheckBox("AUTOTUNE ON")
+        for col, (text, widget) in enumerate(
+            (
+                ("CHARACTER", self.preset),
+                ("KEY", self.key_box),
+                ("SCALE", self.scale_box),
+                ("VOCAL RANGE", self.range_box),
+            )
+        ):
+            controls.addWidget(_small(text), 0, col)
+            controls.addWidget(widget, 1, col)
+            controls.setColumnStretch(col, 1)
+        layout.addLayout(controls)
+        key_row = QHBoxLayout()
+        self.root_keys = {}
+        for note in NOTE_NAMES:
+            button = QPushButton(note)
+            button.setCheckable(True)
+            button.setMinimumWidth(24)
+            button.setToolTip(f"Set the song key to {note}")
+            button.clicked.connect(
+                lambda checked=False, root=note: self.key_box.setCurrentText(root)
+            )
+            key_row.addWidget(button)
+            self.root_keys[note] = button
+        layout.addLayout(key_row)
+
+        dials = QHBoxLayout()
+        self.strength = self._dial(
+            dials, "CORRECTION", 0, 100, "%", "How strongly notes move toward the scale."
+        )
+        self.retune = self._dial(
+            dials, "RETUNE SPEED", 0, 250, " ms", "Low: tight and fast. High: a gentler transition."
+        )
+        self.humanize = self._dial(
+            dials, "HUMANIZE", 0, 100, "%", "Keep more of the original movement in held notes."
+        )
+        self.mix = self._dial(
+            dials, "TUNED / ORIGINAL", 0, 100, "%", "Blend the tuned vocal with the dry take."
+        )
+        layout.addLayout(dials)
+        options = QHBoxLayout()
+        self.autotune_enabled = QCheckBox("Pitch correction on")
         self.autotune_enabled.toggled.connect(self._tune_settings_changed)
-        grid.addWidget(self.autotune_enabled, 2, 4)
+        options.addWidget(self.autotune_enabled)
+        self.detect_key_button = QPushButton("DETECT KEY")
+        self.detect_key_button.clicked.connect(self.detect_source_key)
+        options.addWidget(self.detect_key_button)
+        options.addStretch()
+        self.tone_toggle = QPushButton("Tone & cleanup")
+        self.tone_toggle.setCheckable(True)
+        options.addWidget(self.tone_toggle)
+        layout.addLayout(options)
+        self.tone_group = QGroupBox("Tone & cleanup")
+        grid = QGridLayout(self.tone_group)
+        self.formant = self._parameter(grid, 3, "FORMANT BODY", 0, 100, "%")
+        self.transpose = self._parameter(grid, 4, "TRANSPOSE", -12, 12, " st")
+        self.gate = self._parameter(grid, 5, "NOISE GATE", -80, -20, " dB")
+        self.highpass = self._parameter(grid, 6, "HIGH-PASS", 20, 300, " Hz")
+        self.deesser = self._parameter(grid, 7, "DE-ESSER", 0, 100, "%")
+        self.compression = self._parameter(grid, 8, "COMPRESSION", 0, 100, "%")
+        self.presence = self._parameter(grid, 9, "PRESENCE", -6, 9, " dB")
+        self.output = self._parameter(grid, 10, "OUTPUT", -18, 12, " dB")
+        self.tone_group.hide()
+        self.tone_toggle.toggled.connect(self.tone_group.setVisible)
+        layout.addWidget(self.tone_group)
 
-        self.strength = self._parameter(grid, 3, "CORRECTION", 0, 100, "%")
-        self.retune = self._parameter(grid, 4, "RETUNE", 0, 250, " ms")
-        self.humanize = self._parameter(grid, 5, "HUMANIZE", 0, 100, "%")
-        self.mix = self._parameter(grid, 6, "WET / DRY", 0, 100, "%")
-        self.formant = self._parameter(grid, 7, "FORMANT BODY", 0, 100, "%")
-        self.transpose = self._parameter(grid, 8, "TRANSPOSE", -12, 12, " st")
-        self.gate = self._parameter(grid, 9, "NOISE GATE", -80, -20, " dB")
-        self.highpass = self._parameter(grid, 10, "HIGH-PASS", 20, 300, " Hz")
-        self.deesser = self._parameter(grid, 11, "DE-ESSER", 0, 100, "%")
-        self.compression = self._parameter(grid, 12, "COMPRESSION", 0, 100, "%")
-        self.presence = self._parameter(grid, 13, "PRESENCE", -6, 9, " dB")
-        self.output = self._parameter(grid, 14, "OUTPUT", -18, 12, " dB")
-
-        self.preview_original = QPushButton("▶ ORIGINAL")
-        self.preview_original.setObjectName("mini")
+        actions = QHBoxLayout()
+        self.preview_original = QPushButton("▶ Hear original")
         self.preview_original.clicked.connect(self.audition_source)
-        grid.addWidget(self.preview_original, 15, 0)
-        self.render_button = QPushButton("✦ TUNE → NEW TAKE")
+        actions.addWidget(self.preview_original)
+        self.render_button = QPushButton("Render tuned take")
         self.render_button.setObjectName("go")
         self.render_button.clicked.connect(self.render_take)
-        grid.addWidget(self.render_button, 15, 1, 1, 2)
-        self.place_button = QPushButton("PLACE TAKE")
-        self.place_button.setObjectName("mini")
-        self.place_button.clicked.connect(self.place_selected_take)
-        grid.addWidget(self.place_button, 15, 3)
-        self.stop_preview = QPushButton("■ STOP PREVIEW")
-        self.stop_preview.setObjectName("mini")
+        actions.addWidget(self.render_button, 1)
+        self.place_button = QPushButton("Use take in Song")
+        self.place_button.clicked.connect(self.apply_to_song)
+        actions.addWidget(self.place_button)
+        self.stop_preview = QPushButton("■ Stop preview")
         self.stop_preview.clicked.connect(self.app.engine.stop_audition)
-        grid.addWidget(self.stop_preview, 15, 4)
-
-        self.rename_take_button = QPushButton("RENAME")
-        self.rename_take_button.setObjectName("mini")
-        self.rename_take_button.clicked.connect(self.rename_selected_take)
-        grid.addWidget(self.rename_take_button, 16, 0)
-        self.duplicate_take_button = QPushButton("DUPLICATE")
-        self.duplicate_take_button.setObjectName("mini")
-        self.duplicate_take_button.clicked.connect(self.duplicate_selected_take)
-        grid.addWidget(self.duplicate_take_button, 16, 1)
-        self.delete_take_button = QPushButton("DELETE")
-        self.delete_take_button.setObjectName("mini")
-        self.delete_take_button.clicked.connect(self.delete_selected_take)
-        grid.addWidget(self.delete_take_button, 16, 2)
-        self.compare_dry_button = QPushButton("A/B DRY")
-        self.compare_dry_button.setObjectName("mini")
-        self.compare_dry_button.clicked.connect(self.audition_related_dry)
-        grid.addWidget(self.compare_dry_button, 16, 3)
-        self.compare_tuned_button = QPushButton("A/B TUNED")
-        self.compare_tuned_button.setObjectName("mini")
-        self.compare_tuned_button.clicked.connect(self.audition_related_tuned)
-        grid.addWidget(self.compare_tuned_button, 16, 4)
-
+        actions.addWidget(self.stop_preview)
+        layout.addLayout(actions)
+        management = QHBoxLayout()
+        for attr, text, callback in (
+            ("rename_take_button", "Rename", self.rename_selected_take),
+            ("duplicate_take_button", "Duplicate", self.duplicate_selected_take),
+            ("delete_take_button", "Delete…", self.delete_selected_take),
+            ("compare_dry_button", "A · Original", self.audition_related_dry),
+            ("compare_tuned_button", "B · Tuned", self.audition_related_tuned),
+        ):
+            button = QPushButton(text)
+            button.clicked.connect(callback)
+            setattr(self, attr, button)
+            management.addWidget(button)
+        layout.addLayout(management)
         self.key_progress = QProgressBar()
         self.key_progress.setRange(0, 100)
         self.key_progress.setValue(0)
         self.key_progress.setFormat("KEY DETECTION READY")
-        grid.addWidget(self.key_progress, 17, 0, 1, 5)
-
+        self.key_progress.hide()
+        layout.addWidget(self.key_progress)
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setFormat("READY")
-        grid.addWidget(self.progress, 18, 0, 1, 5)
+        self.progress.hide()
+        layout.addWidget(self.progress)
         self.analysis_label = _small(
-            "Correction supports chromatic, major, minor and pentatonic scales. "
-            "Use a dry, single-note vocal for the cleanest tracking."
+            "Render creates a separate take. Your original recording stays available for A/B listening."
         )
-        grid.addWidget(self.analysis_label, 19, 0, 1, 5)
+        self.analysis_label.setWordWrap(True)
+        layout.addWidget(self.analysis_label)
         return box
+
+    def _dial(self, row, name, low, high, suffix, tip):
+        card = QWidget()
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(8, 4, 8, 4)
+        title = _small(name)
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        dial = TuningDial()
+        dial.setRange(low, high)
+        dial.setNotchesVisible(True)
+        dial.setFixedSize(70, 70)
+        dial.setAccessibleName(name)
+        dial.setToolTip(tip)
+        layout.addWidget(dial, 0, Qt.AlignHCenter)
+        value = QDoubleSpinBox()
+        value.setRange(low, high)
+        value.setDecimals(1)
+        value.setSuffix(suffix)
+        value.setKeyboardTracking(False)
+        value.setToolTip(tip)
+        value.setAccessibleName(name)
+
+        def update_dial(number):
+            dial.blockSignals(True)
+            dial.setValue(round(number))
+            dial.blockSignals(False)
+
+        value.valueChanged.connect(update_dial)
+        value.valueChanged.connect(self._tune_settings_changed)
+        dial.valueChanged.connect(value.setValue)
+        dial.sliderPressed.connect(self._begin_dial_edit)
+        dial.sliderReleased.connect(self._end_dial_edit)
+        layout.addWidget(value)
+        row.addWidget(card, 1)
+        return value
+
+    def _begin_dial_edit(self):
+        if not self._syncing:
+            self.app.snapshot()
+            self._batch_tune_edit = True
+
+    def _end_dial_edit(self):
+        self._batch_tune_edit = False
+
+    def _listening_selection_changed(self, start, end):
+        if hasattr(self, "selection_label"):
+            self.selection_label.setText(
+                f"Listening range: {start:.2f}–{end:.2f}s · tuning renders the whole take."
+                if end > start
+                else "Drag on the waveform to select a listening range."
+            )
+
+    def open_source(self, clip_id):
+        clip = self.app.library.clips.get(clip_id)
+        if clip is None:
+            return
+        if self.take_box.findData(clip_id) < 0:
+            self.take_box.addItem(f"SOURCE · {clip.name} · {clip.duration:.1f}s", clip_id)
+        self.take_box.setCurrentIndex(self.take_box.findData(clip_id))
+        self._take_selection_changed()
+        self.edit_tabs.setCurrentIndex(0)
+
+    def use_song_selection(self):
+        clip = getattr(self.app.playlist, "selected_clip", None)
+        if clip is None or clip.kind != "audio":
+            self.analysis_label.setText(
+                "Select a recorded audio clip in Song, then open it in Autotune."
+            )
+            return
+        self.open_arranged_take(clip)
+
+    def open_arranged_take(self, clip):
+        self._song_clip_id, self._song_source_id = clip.id, clip.ref
+        self.open_source(clip.ref)
+
+    def apply_to_song(self):
+        selected = self.take_box.currentData()
+        source = self.app.library.clips.get(selected)
+        if source is None:
+            return
+        if self._song_clip_id is None:
+            self.place_selected_take()
+            self.app.show_tab(2)
+            return
+        clip = next(
+            (c for row in self.app.project.rows for c in row.clips if c.id == self._song_clip_id),
+            None,
+        )
+        if clip is None or clip.ref != self._song_source_id:
+            self.analysis_label.setText(
+                "The Song clip changed. Select it again before applying a take."
+            )
+            return
+        dry, _ = self._related_take_ids(selected)
+        previous = self.app.library.clips.get(self._song_source_id)
+        expected_dry = (
+            previous.parent if previous and previous.kind == "vocal-tuned" else self._song_source_id
+        )
+        if dry != expected_dry and selected != self._song_source_id:
+            self.analysis_label.setText(
+                "This take belongs to another recording. Select its Song clip first."
+            )
+            return
+        if clip.ref != selected:
+            self.app.snapshot()
+            clip.ref = selected
+            self._song_source_id = selected
+            self.app.playlist.refresh()
+        self.app.show_tab(2)
+        self.app.status.showMessage(
+            "Updated the Song clip · original take preserved · Undo restores it", 5000
+        )
 
     def _parameter(
         self, grid: QGridLayout, row: int, name: str, minimum: float, maximum: float, suffix: str
@@ -365,12 +557,13 @@ class VocalPanel(WindowClient, QWidget):
         box.setRange(minimum, maximum)
         box.setDecimals(1)
         box.setSuffix(suffix)
+        box.setKeyboardTracking(False)
         box.valueChanged.connect(self._tune_settings_changed)
         grid.addWidget(box, actual_row, column + 1)
         return box
 
     def _comp_group(self) -> QGroupBox:
-        box = QGroupBox("3 · NON-DESTRUCTIVE VOCAL COMP")
+        box = QGroupBox("Build a comp from recorded takes")
         grid = QGridLayout(box)
         grid.setHorizontalSpacing(9)
         grid.setVerticalSpacing(8)
@@ -486,6 +679,8 @@ class VocalPanel(WindowClient, QWidget):
         ):
             widget.setValue(value)
         self._syncing = False
+        self.pitch_view.set_settings(tune)
+        self._sync_root_keys()
         self.refresh_takes()
         self.refresh_comps()
 
@@ -527,7 +722,13 @@ class VocalPanel(WindowClient, QWidget):
         tune.compression = self.compression.value() / 100.0
         tune.presence_db = self.presence.value()
         tune.output_db = self.output.value()
+        self.pitch_view.set_settings(tune)
+        self._sync_root_keys()
         self.app._set_dirty(True)
+
+    def _sync_root_keys(self):
+        for root, button in self.root_keys.items():
+            button.setChecked(root == self.key_box.currentText())
 
     def _apply_preset(self, name: str):
         presets = {
@@ -745,7 +946,7 @@ class VocalPanel(WindowClient, QWidget):
         self.take_box.blockSignals(True)
         self.take_box.clear()
         for clip in self.app.library.ordered():
-            if clip.kind in ("vocal", "vocal-tuned", "recording"):
+            if clip.kind in ("vocal", "vocal-tuned", "recording") or clip.id == wanted:
                 badge = "TUNED" if clip.kind == "vocal-tuned" else "DRY"
                 self.take_box.addItem(f"{badge} · {clip.name} · {clip.duration:.1f}s", clip.id)
         index = self.take_box.findData(wanted)
@@ -762,7 +963,7 @@ class VocalPanel(WindowClient, QWidget):
         if selected.kind == "vocal-tuned":
             dry = selected.parent if selected.parent in self.app.library.clips else None
             return dry, selected.id
-        if selected.kind != "vocal":
+        if selected.kind not in ("vocal", "recording"):
             return selected.id, None
         tuned = sorted(
             (
@@ -778,7 +979,7 @@ class VocalPanel(WindowClient, QWidget):
     def _take_selection_changed(self, *_args):
         clip_id = self.take_box.currentData()
         clip = self.app.library.clips.get(clip_id)
-        manageable = bool(clip and clip.kind in ("vocal", "vocal-tuned"))
+        manageable = bool(clip and clip.kind in ("vocal", "vocal-tuned", "recording"))
         dry, tuned = self._related_take_ids(clip_id)
         for button in (
             self.rename_take_button,
@@ -788,6 +989,13 @@ class VocalPanel(WindowClient, QWidget):
             button.setEnabled(manageable)
         self.compare_dry_button.setEnabled(dry is not None)
         self.compare_tuned_button.setEnabled(tuned is not None)
+        self.pitch_view.set_source(
+            clip_id, self.app.library.audio(clip_id) if clip else None, self.app.engine.sr
+        )
+        for button in (self.preview_original, self.place_button):
+            button.setEnabled(clip is not None)
+        if self._tune_cancel is None:
+            self.render_button.setEnabled(clip is not None)
         if hasattr(self, "comp_source_end") and clip is not None:
             if self.comp_region_box.currentIndex() < 0:
                 self.comp_source_start.setValue(0.0)
@@ -796,7 +1004,7 @@ class VocalPanel(WindowClient, QWidget):
     def rename_selected_take(self):
         clip_id = self.take_box.currentData()
         clip = self.app.library.clips.get(clip_id)
-        if clip is None or clip.kind not in ("vocal", "vocal-tuned"):
+        if clip is None or clip.kind not in ("vocal", "vocal-tuned", "recording"):
             return
         name, accepted = QInputDialog.getText(
             self, "Rename vocal take", "Take name", text=clip.name
@@ -819,7 +1027,7 @@ class VocalPanel(WindowClient, QWidget):
         clip_id = self.take_box.currentData()
         clip = self.app.library.clips.get(clip_id)
         audio = self.app.library.audio(clip_id) if clip is not None else None
-        if clip is None or audio is None or clip.kind not in ("vocal", "vocal-tuned"):
+        if clip is None or audio is None or clip.kind not in ("vocal", "vocal-tuned", "recording"):
             return
         self.app.snapshot()
         try:
@@ -839,7 +1047,7 @@ class VocalPanel(WindowClient, QWidget):
     def delete_selected_take(self):
         clip_id = self.take_box.currentData()
         clip = self.app.library.clips.get(clip_id)
-        if clip is None or clip.kind not in ("vocal", "vocal-tuned"):
+        if clip is None or clip.kind not in ("vocal", "vocal-tuned", "recording"):
             return
         references = sum(
             block.kind == "audio" and block.ref == clip_id
@@ -889,12 +1097,12 @@ class VocalPanel(WindowClient, QWidget):
     def audition_related_dry(self):
         dry, _tuned = self._related_take_ids()
         if dry:
-            self.app.engine.audition(dry, 0.0, 0.0)
+            self.app.engine.audition(dry, *self.pitch_view.selection)
 
     def audition_related_tuned(self):
         _dry, tuned = self._related_take_ids()
         if tuned:
-            self.app.engine.audition(tuned, 0.0, 0.0)
+            self.app.engine.audition(tuned, *self.pitch_view.selection)
 
     # ── non-destructive comping ──────────────────────────
     def _current_comp(self) -> VocalComp | None:
@@ -1111,6 +1319,7 @@ class VocalPanel(WindowClient, QWidget):
             self._place_clip(clip.id, float(self.app.engine.beat))
 
     def use_browser_selection(self):
+        self._song_clip_id = self._song_source_id = None
         clip_id = self.app.current_clip
         if not clip_id or clip_id not in self.app.library.clips:
             self.analysis_label.setText("Select an audio clip in the Browser first.")
@@ -1123,7 +1332,7 @@ class VocalPanel(WindowClient, QWidget):
     def audition_source(self):
         clip_id = self.take_box.currentData()
         if clip_id:
-            self.app.engine.audition(clip_id, 0.0, 0.0)
+            self.app.engine.audition(clip_id, *self.pitch_view.selection)
 
     def detect_source_key(self):
         if self._key_cancel is not None:
@@ -1137,12 +1346,15 @@ class VocalPanel(WindowClient, QWidget):
             self.analysis_label.setText("Choose a source take first.")
             return
         settings = replace(self.app.project.vocal)
+        self._key_source_id = clip_id
+        self._key_project = self.app.project
         self._key_job_id += 1
         job_id = self._key_job_id
         cancel = threading.Event()
         self._key_cancel = cancel
         self.detect_key_button.setText("CANCEL KEY DETECTION")
         self.detect_key_button.setEnabled(True)
+        self.key_progress.show()
         self.key_progress.setValue(0)
         self.key_progress.setFormat("ANALYSING KEY… %p%")
         self.analysis_label.setText("analysing vocal notes…")
@@ -1182,6 +1394,7 @@ class VocalPanel(WindowClient, QWidget):
             return
         source_name = self.app.library.clips[clip_id].name
         settings = replace(self.app.project.vocal)
+        self._render_project = self.app.project
         self._tune_job_id += 1
         job_id = self._tune_job_id
         cancel = threading.Event()
@@ -1189,6 +1402,7 @@ class VocalPanel(WindowClient, QWidget):
         self._render_source_id = clip_id
         self.render_button.setText("CANCEL TUNE")
         self.render_button.setEnabled(True)
+        self.progress.show()
         self.progress.setValue(1)
         self.progress.setFormat("ANALYSING + TUNING… %p%")
 
@@ -1225,6 +1439,12 @@ class VocalPanel(WindowClient, QWidget):
             return
         if self._key_cancel.is_set():
             self._key_failed(job_id, "key detection cancelled")
+            return
+        if self._key_project is not None and (
+            self._key_project is not self.app.project
+            or self._key_source_id != self.take_box.currentData()
+        ):
+            self._key_failed(job_id, "Source changed; run key detection on the selected take.")
             return
         self._key_cancel = None
         self.detect_key_button.setText("DETECT KEY")
@@ -1263,8 +1483,14 @@ class VocalPanel(WindowClient, QWidget):
         if self._tune_cancel.is_set():
             self._tune_failed(job_id, "vocal tuning cancelled")
             return
+        if self._render_project is not None and self._render_project is not self.app.project:
+            self._tune_failed(job_id, "Project changed; render the take again in this project.")
+            return
+        if self._render_source_id not in self.app.library.clips:
+            self._tune_failed(job_id, "The source take is no longer available.")
+            return
         self._tune_cancel = None
-        self.render_button.setText("✦ TUNE → NEW TAKE")
+        self.render_button.setText("Render tuned take")
         self.render_button.setEnabled(True)
         self.app.snapshot()
         try:
@@ -1277,9 +1503,15 @@ class VocalPanel(WindowClient, QWidget):
                 self.app.discard_snapshot()
             self._tune_failed_after_save(str(exc))
             return
+        wanted = (
+            clip.id
+            if self.take_box.currentData() == self._render_source_id
+            else self.take_box.currentData()
+        )
         self._latest_clip = clip.id
         self._render_source_id = None
-        self.refresh_takes(select=clip.id)
+        self._render_project = None
+        self.refresh_takes(select=wanted)
         self.app._library_changed()
         voiced = analysis.confidence > 0.35
         median = (
@@ -1296,6 +1528,7 @@ class VocalPanel(WindowClient, QWidget):
 
     def _tune_failed_after_save(self, message: str):
         self._render_source_id = None
+        self._render_project = None
         self.render_button.setEnabled(True)
         self.progress.setValue(0)
         self.progress.setFormat("FAILED")
@@ -1307,7 +1540,8 @@ class VocalPanel(WindowClient, QWidget):
         cancelled = self._tune_cancel.is_set() or "cancel" in message.lower()
         self._tune_cancel = None
         self._render_source_id = None
-        self.render_button.setText("✦ TUNE → NEW TAKE")
+        self._render_project = None
+        self.render_button.setText("Render tuned take")
         self.render_button.setEnabled(True)
         self.progress.setValue(0)
         self.progress.setFormat("TUNE CANCELLED" if cancelled else "FAILED")
@@ -1359,6 +1593,7 @@ class VocalPanel(WindowClient, QWidget):
         self.record_time.setText(f"{int(minutes):02d}:{seconds:04.1f}")
 
     def shutdown(self):
+        self.pitch_view.shutdown()
         self.meter_timer.stop()
         self._countdown_token += 1
         self._restore_count_in_transport()

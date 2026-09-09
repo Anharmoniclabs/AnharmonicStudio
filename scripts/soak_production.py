@@ -61,8 +61,11 @@ def main():
     engine.synth_voices.clear()
     engine.reset_timing()
     period = args.frames / engine.sr
-    measurements, lateness = [], []
+    measurements, cpu_measurements, lateness = [], [], []
+    slow_blocks = []
     invalid = 0
+    callback_errors = []
+    stream_stayed_active = True
     rss_start = rss_mib()
     rss_peak = rss_start
     if args.live:
@@ -86,12 +89,19 @@ def main():
         def silent_callback(output, frames, time_info, status):
             nonlocal invalid
             start = time.perf_counter()
+            cpu_start = time.thread_time()
             try:
                 render(output, frames, time_info, status)
                 invalid += int(not np.isfinite(output).all())
+            except Exception as exc:
+                # PortAudio otherwise prints callback exceptions and can leave
+                # a short, apparently successful measurement behind.
+                if not callback_errors:
+                    callback_errors.append(f"{type(exc).__name__}: {exc}")
             finally:
                 output.fill(0)  # test audio never reaches speakers/headphones
             measurements.append(time.perf_counter() - start)
+            cpu_measurements.append(time.thread_time() - cpu_start)
 
         engine._callback = silent_callback
         engine.start(device="pipewire")
@@ -99,6 +109,9 @@ def main():
         try:
             deadline = time.perf_counter() + args.seconds
             while time.perf_counter() < deadline:
+                if not engine.stream.active:
+                    stream_stayed_active = False
+                    break
                 current_rss = rss_mib()
                 if current_rss is not None:
                     rss_peak = max(rss_peak or 0, current_rss)
@@ -111,8 +124,22 @@ def main():
             time.sleep(max(0, deadline - time.perf_counter()))
             start = time.perf_counter()
             lateness.append(max(0, start - deadline))
+            beat_before = engine.beat
+            cpu_start = time.thread_time()
             engine._callback(out, args.frames, None, False)
-            measurements.append(time.perf_counter() - start)
+            elapsed = time.perf_counter() - start
+            cpu_elapsed = time.thread_time() - cpu_start
+            measurements.append(elapsed)
+            cpu_measurements.append(cpu_elapsed)
+            if elapsed >= period and len(slow_blocks) < 32:
+                slow_blocks.append(
+                    dict(
+                        block=index,
+                        wall_ms=elapsed * 1000,
+                        thread_cpu_ms=cpu_elapsed * 1000,
+                        loop_wrap=engine.beat < beat_before,
+                    )
+                )
             invalid += int(not np.isfinite(out).all())
             if index % max(1, int(1 / period)) == 0:
                 current_rss = rss_mib()
@@ -127,8 +154,8 @@ def main():
         seconds=args.seconds,
         blocks=len(values),
         period_ms=period * 1000,
-        p99_ms=float(np.percentile(values, 99)),
-        worst_ms=float(values.max()),
+        p99_ms=float(np.percentile(values, 99)) if len(values) else None,
+        worst_ms=float(values.max()) if len(values) else None,
         dsp_over_budget=int(np.count_nonzero(values >= period * 1000)),
         xruns=engine.underruns if args.live else None,
         nonfinite_blocks=invalid,
@@ -139,11 +166,21 @@ def main():
         rss_start_mib=rss_start,
         rss_peak_mib=rss_peak,
         rss_growth_mib=max(0, rss_peak - rss_start) if rss_start is not None else None,
+        thread_cpu_p99_ms=float(np.percentile(cpu_measurements, 99) * 1000)
+        if cpu_measurements
+        else None,
+        thread_cpu_worst_ms=float(max(cpu_measurements) * 1000) if cpu_measurements else None,
+        first_slow_blocks=slow_blocks,
+        callback_errors=callback_errors,
+        stream_stayed_active=stream_stayed_active if args.live else None,
     )
     result["late_fraction"] = result["dsp_over_budget"] / max(1, len(values))
     result["passed"] = bool(
         len(values) > 0
         and invalid == 0
+        and not callback_errors
+        and stream_stayed_active
+        and (not args.live or len(values) >= int(args.seconds / period * 0.98))
         and (not args.live or engine.underruns == 0)
         and result["late_fraction"] <= args.max_late_fraction
         and result["p99_ms"] <= result["period_ms"] * args.max_p99_load

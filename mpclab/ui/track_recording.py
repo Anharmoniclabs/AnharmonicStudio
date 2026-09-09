@@ -6,11 +6,12 @@ import math
 
 from .window_client import WindowClient
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QEvent, Qt
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QComboBox,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QProgressBar,
     QMessageBox,
+    QScrollArea,
 )
 
 from ..model import Clip, Pattern
@@ -119,6 +121,8 @@ class TrackCapture(WindowClient, QObject):
         self.previous_loop = app.engine.loop_song
         app.engine.loop_song = False
         app.engine.set_position(self.start_beat)
+        if self.target.record_source == "notes":
+            app.engine.arp_note_capture = (self.notes, self.start_beat)
         app.engine.play()
         self.message = f"Recording · {self.target.name} · Stop saves the take"
         app.status.showMessage(self.message)
@@ -156,6 +160,7 @@ class TrackCapture(WindowClient, QObject):
             return
         if not self.active:
             return
+        self.app.engine.arp_note_capture = None
         for pitch, pad in tuple(self.held):
             self.note_off(pitch, pad)
         self.active = False
@@ -286,26 +291,33 @@ class TrackInspector(WindowClient, QWidget):
         self.app = app
         self.row_id = None
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 14, 12, 12)
-        layout.setSpacing(12)
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(4)
         self.title = QLabel("Track inspector")
         self.title.setObjectName("title")
-        layout.addWidget(self.title)
+        self.title.hide()
+        primary = QHBoxLayout()
+        primary.setSpacing(6)
+        layout.addLayout(primary)
         self.name = QPushButton("Select a track")
+        self.name.setMaximumWidth(180)
         self.name.clicked.connect(self.rename)
-        layout.addWidget(self.name)
-        form = QFormLayout()
+        primary.addWidget(self.name)
+        self.details = QWidget()
+        form = QFormLayout(self.details)
         form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.source = QComboBox()
-        self.source.addItem("Audio input · mic / instrument", "audio")
-        self.source.addItem("Instrument / sample notes", "notes")
+        self.source.addItem("Audio input", "audio")
+        self.source.addItem("Instrument / sample", "notes")
         self.source.currentIndexChanged.connect(self.source_changed)
-        form.addRow("Record", self.source)
+        primary.addWidget(QLabel("Source"))
+        primary.addWidget(self.source)
         self.output = QComboBox()
         for index, track in enumerate(app.project.tracks):
             self.output.addItem(f"{index + 1} · {track.name}", index)
         self.output.currentIndexChanged.connect(self.output_changed)
-        form.addRow("Audio to", self.output)
+        primary.addWidget(QLabel("To"))
+        primary.addWidget(self.output)
         self.input_button = QPushButton("Audio input setup…")
         self.input_button.clicked.connect(app.show_audio_setup)
         form.addRow("Input", self.input_button)
@@ -324,44 +336,67 @@ class TrackInspector(WindowClient, QWidget):
         self.monitor.setToolTip("Listen to the input while recording. Use headphones.")
         self.monitor.toggled.connect(self.settings_changed)
         form.addRow(self.monitor)
-        layout.addLayout(form)
+
         self.arm = QPushButton("Arm track")
         self.arm.setCheckable(True)
         self.arm.setObjectName("rec")
         self.arm.clicked.connect(self.toggle_arm)
-        layout.addWidget(self.arm)
+        primary.addWidget(self.arm)
+        self.details_button = QPushButton("Input settings ▾")
+        self.details_button.setCheckable(True)
+        self.details_button.toggled.connect(self.details.setVisible)
+        primary.addWidget(self.details_button)
+        primary.addStretch(1)
         self.meter = QProgressBar()
         self.meter.setRange(0, 100)
         self.meter.setFormat("Input %p%")
         self.meter.setValue(0)
-        layout.addWidget(self.meter)
+        form.addRow(self.meter)
+        layout.addWidget(self.details)
+        self.details.hide()
         self.state = QLabel()
         self.state.setWordWrap(True)
-        layout.addWidget(self.state)
+        secondary = QHBoxLayout()
+        layout.addLayout(secondary)
+        secondary.addWidget(self.state, 1)
         self.retry = QPushButton("Retry save take")
         self.retry.clicked.connect(app.track_capture.save_take)
-        layout.addWidget(self.retry)
+        secondary.addWidget(self.retry)
         self.discard = QPushButton("Discard unsaved take…")
         self.discard.clicked.connect(app.track_capture.discard_take)
-        layout.addWidget(self.discard)
+        secondary.addWidget(self.discard)
         self.notes_help = QLabel(
             "Play the selected instrument or sample using Notes or musical typing. Synth notes share the current instrument sound."
         )
         self.notes_help.setWordWrap(True)
-        layout.addWidget(self.notes_help)
-        takes = QPushButton("Takes, comp & tuning…")
-        takes.clicked.connect(lambda: app.show_tab(5))
-        layout.addWidget(takes)
-        layout.addStretch(1)
+        form.addRow(self.notes_help)
+        self.record_song = QPushButton("Record in Song")
+        self.record_song.setObjectName("rec")
+        self.record_song.clicked.connect(self.record_in_song)
+        secondary.addWidget(self.record_song)
+        self.tune_clip = QPushButton("Open selected clip in Autotune")
+        self.tune_clip.clicked.connect(lambda: app.open_vocal_clip())
+        secondary.addWidget(self.tune_clip)
         app.track_capture.changed.connect(self.sync)
         self.sync()
+
+    def event(self, event):
+        result = super().event(event)
+        if event.type() == QEvent.LayoutRequest:
+            viewport = self.parentWidget()
+            scroll = viewport.parentWidget() if viewport else None
+            if isinstance(scroll, QScrollArea):
+                self.setMinimumWidth(self.sizeHint().width())
+                scroll.setFixedHeight(min(300, self.sizeHint().height() + 11))
+                scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        return result
 
     def row(self):
         return next((r for r in self.app.project.rows if r.id == self.row_id), None)
 
     def select_row(self, row):
         self.row_id = row.id
-        self.app.side_pages.setCurrentIndex(0)
+        self.app.track_controls_button.setChecked(True)
         self.sync()
 
     def rename(self):
@@ -373,6 +408,18 @@ class TrackInspector(WindowClient, QWidget):
         if self.row() is not None:
             self.app.track_capture.arm(self.row())
         self.sync()
+
+    def record_in_song(self):
+        self.app.show_tab(2)
+        if self.app.track_capture.active or self.app.track_capture.pending:
+            self.app.stop_all()
+            return
+        row = self.row()
+        if row is None:
+            return
+        if self.app.track_capture.armed_id != row.id:
+            self.app.track_capture.arm(row)
+        self.app.btn_rec.setChecked(True)
 
     def source_changed(self):
         row = self.row()
@@ -422,6 +469,12 @@ class TrackInspector(WindowClient, QWidget):
                 widget.setChecked(value)
             widget.blockSignals(False)
         self.arm.setText("Armed · press Record" if self.arm.isChecked() else "Arm track")
+        self.record_song.setText(
+            "Stop & save take" if capture.active or capture.pending else "Record in Song"
+        )
+        self.record_song.setEnabled(
+            bool(row) and not (capture.unsaved is not None or capture.recovery_pending)
+        )
         self.state.setText(capture.message)
         self.retry.setVisible(capture.unsaved is not None or capture.recovery_pending)
         self.discard.setVisible(capture.unsaved is not None or capture.recovery_pending)

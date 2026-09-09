@@ -27,7 +27,7 @@
 /evidence/
 
 # Environments, caches, logs, and build output
-.venv/
+.venv
 .deps/
 __pycache__/
 .pytest_cache/
