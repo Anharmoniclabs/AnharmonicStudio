@@ -110,6 +110,13 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication, QMessageBox
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QFontDatabase, QIcon
+    from .premium_workflows import attach_premium_workflows, install_premium_runtime
+    from .workflow_compat import restore_unmanaged_legacy_shortcuts
+
+    # Project persistence must know about optional workflow metadata before the
+    # MainWindow restores the autosaved session.  The controller itself is
+    # attached only after the stable window has finished constructing.
+    install_premium_runtime()
     from .ui.main_window import MainWindow
 
     app = QApplication([sys.argv[0], *qt_args])
@@ -134,6 +141,8 @@ def main() -> int:
         return 0
 
     win = MainWindow(root, restore_session=args.project is None)
+    controller = attach_premium_workflows(win)
+    restore_unmanaged_legacy_shortcuts(controller)
     if args.project is not None:
         if not win.load_project_path(args.project, clear_session=False):
             return 2
