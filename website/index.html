@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111412">
+  <meta name="description" content="Meet Anharmonic Studios: an open-source desktop music studio for sampling, beatmaking, synthesis, arranging, and mixing. Free source code. Official Windows EXE packs starting at $2.00.">
+  <meta property="og:title" content="Anharmonic Studios — Your sound. No ceiling.">
+  <meta property="og:description" content="One idea. An entire studio. Explore the app, watch the film, and make something only you can. Free source code. EXE packs from $2.00.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://anharmoniclabs.github.io/AnharmonicStudio/assets/social.png">
+  <title>Anharmonic Studios — Your sound. No ceiling.</title>
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script src="config.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <svg class="symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="arrow" viewBox="0 0 24 24"><path d="M5 19 19 5M5 5h14v14"/></symbol>
+    <symbol id="play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z"/></symbol>
+    <symbol id="wave" viewBox="0 0 32 32"><path d="M2 16h5l4-10 6 21 5-17 3 6h5"/></symbol>
+    <symbol id="code" viewBox="0 0 24 24"><path d="m8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="windows" viewBox="0 0 24 24"><path d="M3 4h7v7H3zm11 0h7v7h-7zM3 15h7v7H3zm11 0h7v7h-7z"/></symbol>
+  </svg>
+
+  <header class="site-header wrap">
+    <a class="brand" href="#" aria-label="Anharmonic Studios home"><img src="assets/logo.svg" width="39" height="39" alt=""><span>ANHARMONIC<small>STUDIOS</small></span></a>
+    <nav aria-label="Main navigation"><a href="#studio">The studio</a><a href="#film">Watch the film <span class="nav-dot"></span></a><a href="#open-source">Open source</a></nav>
+    <a class="nav-cta" href="#download">Get the app <svg><use href="#arrow"/></svg></a>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="live-dot"></span> MADE FOR THE WAY YOU CREATE</p>
+        <h1 id="hero-title">Your sound.<br><em>No ceiling.</em></h1>
+        <p class="hero-description">Turn a little inspiration into something entirely yours. A desktop studio for sampling, beatmaking, and everything that comes next.</p>
+        <div class="hero-actions"><a class="button button-amber" href="#download">Find your studio <svg><use href="#arrow"/></svg></a><a class="text-link" href="#studio">Take a look inside <span>↓</span></a></div>
+        <div class="hero-note"><svg><use href="#code"/></svg><span>Free source code. EXE packs from <strong>$2.00.</strong></span></div>
+      </div>
+
+      <div class="hero-visual" id="film">
+        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+        <div class="film-heading"><span><span class="live-dot"></span> THIS IS ANHARMONIC</span><span>01:00 <span class="film-slash">/</span> SOUND ON</span></div>
+        <div class="film-player">
+          <video id="commercial" controls playsinline preload="none" poster="assets/song.png" aria-label="Anharmonic Studios one-minute commercial" aria-describedby="film-description">
+            <source src="assets/commercial.mp4" type="video/mp4">
+            <track kind="captions" src="assets/captions.vtt" srclang="en" label="English">
+            Your browser does not support embedded video. <a href="assets/commercial.mp4">Download the commercial.</a>
+          </video>
+          <button class="film-overlay" id="film-play" hidden aria-label="Play the one-minute commercial with sound">
+            <span class="film-label">ONE IDEA.<br>AN ENTIRE STUDIO.</span>
+            <span class="play-circle"><svg><use href="#play"/></svg></span>
+            <span class="film-bottom"><span>MEET YOUR NEXT SESSION</span><span>PLAY FILM ↗</span></span>
+          </button>
+        </div>
+        <p id="film-description" class="film-description"><span>Real app. Original sound. Endless possibilities.</span><a href="assets/commercial.mp4" download>Download film <span>↘</span></a></p>
+        <p id="video-status" class="status" role="status"></p>
+        <div class="sound-strip" aria-hidden="true"><span>128.00 <small>BPM</small></span><div class="sound-bars"></div><span>MAKE IT YOURS.</span></div>
+      </div>
+    </section>
+
+    <div class="capability-strip"><div class="wrap"><span><svg><use href="#wave"/></svg> SAMPLE ANY SPARK</span><i>✦</i><span>BUILD YOUR RHYTHM</span><i>✦</i><span>SHAPE YOUR SOUND</span><i>✦</i><span>FINISH YOUR TRACK</span></div></div>
+
+    <section class="studio-section wrap section-space" id="studio" aria-labelledby="studio-title">
+      <div class="section-intro"><div><p class="eyebrow">01 / MEET THE SYSTEM</p><h2 id="studio-title">From the first chop<br>to the <em>final bounce.</em></h2></div><p>Anharmonic Studios brings a sampler, drum sequencer, playable instruments, piano roll, arranger, and mixer into one native desktop app. Your ideas stay connected from the first sound to the finished WAV.</p></div>
+      <div class="tour">
+        <div class="tour-tabs" role="tablist" aria-label="Explore studio workspaces">
+          <button id="tab-sample" role="tab" aria-selected="true" aria-controls="workspace-panel" tabindex="0" data-workspace="sample"><span>01</span> Sampler</button>
+          <button id="tab-beats" role="tab" aria-selected="false" aria-controls="workspace-panel" tabindex="-1" data-workspace="beats"><span>02</span> Beats</button>
+          <button id="tab-synth" role="tab" aria-selected="false" aria-controls="workspace-panel" tabindex="-1" data-workspace="synth"><span>03</span> Instruments</button>
+          <button id="tab-notes" role="tab" aria-selected="false" aria-controls="workspace-panel" tabindex="-1" data-workspace="notes"><span>04</span> Notes</button>
+          <button id="tab-song" role="tab" aria-selected="false" aria-controls="workspace-panel" tabindex="-1" data-workspace="song"><span>05</span> Song</button>
+          <button id="tab-mix" role="tab" aria-selected="false" aria-controls="workspace-panel" tabindex="-1" data-workspace="mix"><span>06</span> Mix</button>
+        </div>
+        <div class="workspace-panel" id="workspace-panel" role="tabpanel" aria-labelledby="tab-sample" tabindex="0">
+          <div class="workspace-image"><img id="workspace-image" src="assets/sample.png" width="1776" height="804" alt="The actual Anharmonic sampler displaying a drum-break waveform, trim controls, and pad mapping." loading="lazy"></div>
+          <div class="workspace-description" aria-live="polite"><div><span id="workspace-kicker" class="eyebrow">FIND THE MOMENT</span><h3 id="workspace-title">A whole new life for any sound.</h3></div><p id="workspace-copy">Import audio, find the part that moves you, and turn it into playable slices. Trim by hand, detect transients, or map your cuts across four banks of pads.</p><span class="workspace-count" id="workspace-count">01 / 06</span></div>
+        </div>
+      </div>
+      <p class="tour-footnote"><span class="live-dot"></span> Actual application screens · Explore a workspace above.</p>
+    </section>
+
+    <section class="details-section wrap" aria-labelledby="details-title">
+      <div class="details-heading"><p class="eyebrow">SMALL IDEAS. BIG SESSIONS.</p><h2 id="details-title">Keep following<br>the feeling.</h2><p>Cut it up. Play it differently. Let it grow.<br>The next move is yours.</p></div>
+      <div class="detail-grid">
+        <article><span class="detail-icon">↗</span><h3>A sample becomes an instrument.</h3><p>Send a sound to Notes to play it chromatically, or drop it into Beats and give it a rhythm. One sound can lead in a hundred directions.</p></article>
+        <article><span class="detail-icon">≋</span><h3>Go deeper into the source.</h3><p>The optional local stem engine separates a track into parts so you can explore the drums, bass, music, and vocals. Additional setup and model download required.</p></article>
+        <article><span class="detail-icon">◉</span><h3>Leave room for your voice.</h3><p>Record takes, build a vocal comp, and explore pitch correction. Render a tuned take while keeping the original performance.</p></article>
+        <article><span class="detail-icon">⌁</span><h3>Bring it all together.</h3><p>Layer clips in the song timeline, shape levels and effects in the mixer, and export the arrangement as a stereo WAV.</p></article>
+      </div>
+    </section>
+
+    <section class="open-source-section" id="open-source" aria-labelledby="source-title">
+      <div class="wrap source-layout"><div class="source-art" aria-hidden="true"><span class="source-bracket">{</span><svg><use href="#wave"/></svg><span class="source-bracket">}</span><span class="source-art-label">OPEN BY DESIGN.</span></div><div><p class="eyebrow">02 / YOUR STUDIO. IN THE OPEN.</p><h2 id="source-title">The code is open.<br><em>So is the possibility.</em></h2><p>Anharmonic Studios is open source. Explore the code, build the app yourself, and make it your own. The source is free under GPL-2.0-or-later.</p><p>The small paywall is for the official packaged EXE. It gives you a convenient way to get the ready-to-run build while supporting the project. The source code stays free.</p><a class="text-link source-link" href="https://github.com/Anharmoniclabs/AnharmonicStudio" target="_blank" rel="noopener noreferrer">Explore the source on GitHub <svg><use href="#arrow"/></svg></a></div></div>
+    </section>
+
+    <section class="pricing-section" id="download" aria-labelledby="pricing-title">
+      <div class="wrap"><div class="pricing-heading"><p class="eyebrow">03 / TWO WAYS IN. ONE STUDIO.</p><h2 id="pricing-title">A little less setup.<br>A lot more <em>making.</em></h2><p>Build it yourself for free, or choose the official EXE pack.</p></div>
+        <div class="pricing-grid">
+          <article class="price-card source-card"><div class="price-top"><svg><use href="#code"/></svg><span>FOR THE CURIOUS & THE BUILDERS</span></div><h3>The source code</h3><div class="price">Free<span>always open</span></div><p>The entire studio, in source form.<br>Bring your tools. Make it your own.</p><ul><li><svg><use href="#check"/></svg> Full application source code</li><li><svg><use href="#check"/></svg> Build, study, and modify</li><li><svg><use href="#check"/></svg> GPL-2.0-or-later license</li></ul><a class="button button-outline" href="https://github.com/Anharmoniclabs/AnharmonicStudio" target="_blank" rel="noopener noreferrer">Get the source <svg><use href="#arrow"/></svg></a><p class="price-note">Source installation requires dependencies and setup.</p></article>
+          <article class="price-card pack-card"><div class="price-top"><svg><use href="#windows"/></svg><span>THE OFFICIAL WINDOWS PACK</span><span class="availability" data-availability>COMING SOON</span></div><h3>Skip to the good part.</h3><div class="price"><small>from</small> $2.00<span>USD · EXE pack</span></div><p>A small price for the convenience<br>of the official packaged build.</p><ul><li><svg><use href="#check"/></svg> Official Windows executable pack</li><li><svg><use href="#check"/></svg> Ready-to-run packaging</li><li><svg><use href="#check"/></svg> Supports the studio’s development</li></ul><a class="button button-dark pack-link" href="#pack-info">EXE pack — coming soon <svg><use href="#arrow"/></svg></a><p class="price-note">The paywall covers the pack. The source remains free.</p></article>
+        </div>
+        <div class="pack-info" id="pack-info"><span class="live-dot"></span><p id="pack-status">The official EXE pack will start at $2.00 USD. Sales are not open yet. You can explore the free source code today.</p></div>
+      </div>
+    </section>
+
+    <section class="faq-section wrap section-space" aria-labelledby="faq-title"><div><p class="eyebrow">A FEW GOOD QUESTIONS</p><h2 id="faq-title">Before you<br>press play.</h2></div><div class="faq-list">
+      <details><summary>What exactly is Anharmonic Studios?<svg><use href="#plus"/></svg></summary><p>It’s a native desktop music workstation. Import and chop audio, play samples on pads or as notes, design synth sounds, sequence patterns, arrange a song, mix your tracks, and export to WAV.</p></details>
+      <details><summary>Is the source code really free?<svg><use href="#plus"/></svg></summary><p>Yes. The application source is available under GPL-2.0-or-later. You can download, build, modify, and run a source build without buying the official EXE pack.</p></details>
+      <details><summary>What does the $2.00 starting price cover?<svg><use href="#plus"/></svg></summary><p>It’s the starting price for access to the official Windows executable pack: the convenience of a packaged build. It does not charge you for access to the source code. Final pack options and pricing will appear at checkout when sales open.</p></details>
+      <details><summary>Does the studio need an internet connection?<svg><use href="#plus"/></svg></summary><p>The core studio is designed to run locally after installation. Optional stem separation needs additional dependencies and an initial model download. Your creative session runs on your machine.</p></details>
+      <details><summary>Can I get the Windows EXE pack now?<svg><use href="#plus"/></svg></summary><p id="availability-answer">The official EXE pack is coming soon. For now, you can explore the free repository and follow its source installation instructions.</p></details>
+    </div></section>
+
+    <section class="closing wrap"><svg aria-hidden="true"><use href="#wave"/></svg><p>One idea. Every possibility.</p><h2>Make something<br><em>only you can.</em></h2><a class="button button-amber" href="#download">Make your next move <svg><use href="#arrow"/></svg></a></section>
+  </main>
+
+  <footer class="site-footer wrap"><a class="brand" href="#" aria-label="Anharmonic Studios home"><img src="assets/logo.svg" width="32" height="32" alt=""><span>ANHARMONIC<small>STUDIOS</small></span></a><p>Independent tools. Individual sound.</p><div><a href="https://github.com/Anharmoniclabs/AnharmonicStudio" target="_blank" rel="noopener noreferrer">GitHub ↗</a><a href="https://github.com/Anharmoniclabs/AnharmonicStudio/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License ↗</a><a href="#film">Watch the film ↑</a></div><small>© 2026 Anharmonic Labs</small></footer>
+
+  <dialog id="pack-dialog" aria-labelledby="pack-dialog-title"><button class="dialog-close" aria-label="Close pack information">×</button><p class="eyebrow">OFFICIAL WINDOWS EXE PACK</p><h2 id="pack-dialog-title">Good things<br>are taking shape.</h2><p>The official pack is coming soon, starting at <strong>$2.00 USD</strong>. Checkout isn’t open yet.</p><p>You can explore and build the open-source studio today.</p><a class="button button-amber" href="https://github.com/Anharmoniclabs/AnharmonicStudio" target="_blank" rel="noopener noreferrer">Explore the free source <svg><use href="#arrow"/></svg></a></dialog>
+</body>
+</html>

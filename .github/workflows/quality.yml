@@ -1,0 +1,42 @@
+name: Source checks
+
+on:
+  push:
+    paths-ignore: ['website/**']
+  pull_request:
+    paths-ignore: ['website/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      QT_QPA_PLATFORM: offscreen
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential cmake pkg-config ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libsndfile1 libportaudio2 portaudio19-dev libasound2-dev liblilv-dev
+      - name: Install Python dependencies
+        run: uv sync --locked --group dev
+      - name: Build native helpers
+        run: |
+          uv run --no-sync python scripts/build_native.py
+          bash scripts/build-native.sh
+      - name: Check source syntax
+        run: uv run --no-sync python -m compileall -q mpclab scripts tests
+      - name: Check application startup and export offscreen
+        run: uv run --no-sync python -m mpclab --self-check
+      - name: Run tests with a memory limit
+        run: uv run --no-sync python scripts/run_tests.py -- -q -o faulthandler_timeout=30

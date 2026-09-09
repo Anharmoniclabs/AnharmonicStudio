@@ -1,0 +1,57 @@
+[project]
+name = "anharmonic-studio"
+version = "0.1.0"
+description = "Offline sampler, stem separator, synthesizer, sequencer and arranger"
+license = "GPL-2.0-or-later"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "PySide6>=6.7",
+    "sounddevice>=0.4.7",
+    "soundfile>=0.12",
+    "numpy>=1.24,<2.3",
+]
+
+[project.optional-dependencies]
+# Kept optional so the core workstation stays light. This machine already has
+# the extra; clean installs can add it with ./install-separation.sh.
+separate = [
+    "torch==2.4.1",
+    "torchaudio==2.4.1",
+    "demucs==4.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.12",
+]
+
+[tool.uv]
+package = false
+
+# CPU-only wheels avoid pulling several gigabytes of unused CUDA libraries.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchaudio = { index = "pytorch-cpu" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["library", "projects", ".deps"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B"]
+ignore = ["E741"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*.py" = ["E402"]
+"tests/*.py" = ["E402"]

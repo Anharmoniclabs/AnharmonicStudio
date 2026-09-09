@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="2048" viewBox="0 0 256 256">
+<title>Anharmonic Studios</title>
+<rect width="256" height="256" rx="52" fill="#11151e"/>
+<path d="M38 211 106 45H150L218 211H170L157 177H96L83 211ZM110 140H144L127 94Z" fill="#f5f7ff"/>
+<path d="M51 149H89L100 132 115 163 133 120 149 150H203" fill="none" stroke="#11151e" stroke-width="17" stroke-linejoin="round"/>
+<path d="M51 149H89L100 132 115 163 133 120 149 150H203" fill="none" stroke="#7292ff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
