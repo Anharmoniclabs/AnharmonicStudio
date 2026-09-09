@@ -28,6 +28,8 @@ jobs:
         with:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
       - name: Install system dependencies
         run: |
           sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
@@ -81,6 +83,8 @@ jobs:
         with:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
       - name: Install build dependencies
         run: |
           sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
