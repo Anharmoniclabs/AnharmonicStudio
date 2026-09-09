@@ -12,7 +12,9 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "numpy" },
+    { name = "pedalboard" },
     { name = "pyside6" },
+    { name = "python-rtmidi" },
     { name = "sounddevice" },
     { name = "soundfile" },
 ]
@@ -36,7 +38,9 @@ dev = [
 requires-dist = [
     { name = "demucs", marker = "extra == 'separate'", specifier = "==4.0.1" },
     { name = "numpy", specifier = ">=1.24,<2.3" },
+    { name = "pedalboard", specifier = "==0.9.24" },
     { name = "pyside6", specifier = ">=6.7" },
+    { name = "python-rtmidi", specifier = ">=1.5.8,<2" },
     { name = "sounddevice", specifier = ">=0.4.7" },
     { name = "soundfile", specifier = ">=0.12" },
     { name = "torch", marker = "extra == 'separate'", specifier = "==2.4.1", index = "https://download.pytorch.org/whl/cpu" },
@@ -303,6 +307,24 @@ wheels = [
 ]
 
 [[package]]
+name = "pedalboard"
+version = "0.9.24"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e1/38/cb7e2f5c82a17728ced8fc90ec01f408385af9123a8a506368613ea37928/pedalboard-0.9.24-cp312-cp312-macosx_10_14_universal2.whl", hash = "sha256:230f31a6de76ab1653ecf5bcd2f76271d056c6fe0e02991b722bf84b60a652d5", size = 4749034, upload-time = "2026-07-08T19:38:54.291Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/81/0c7a797aae8676f0a03ca19ddcab24d2e5073260a13369d311835316621a/pedalboard-0.9.24-cp312-cp312-macosx_10_14_x86_64.whl", hash = "sha256:35d58d6022532e34d595ca14183507eb26883cceeeea2dcbd9f696874c13089f", size = 2643461, upload-time = "2026-07-08T19:38:55.553Z" },
+    { url = "https://files.pythonhosted.org/packages/37/03/397ff2c3fca9b8fd53f8a1e74fbbe64a32961f4863f627b6d8ff534f39aa/pedalboard-0.9.24-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:b7dadf85c44e9d3f2571686efadc8d060f56cb2f032f7847a188bd345f623a6d", size = 2445946, upload-time = "2026-07-08T19:38:56.99Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/df/8e9028b66feeb9b1b2584ceb9c0d6dd438f4a69b1c5cba9a5068ca4c87b7/pedalboard-0.9.24-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:9f9e14023f1df3d9a6a15ef9168af4092e0a9e4e136fa87bf9db01bf8a781c56", size = 4878436, upload-time = "2026-07-08T19:38:58.524Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/db/ed766261fe0a1251aa15f2ad9efa50f9daaa6d42f40da64341be14f8b8da/pedalboard-0.9.24-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:954fdea21d4c32e18856f57084a235e1213140d5b72afadf714b8d10787d5752", size = 5078294, upload-time = "2026-07-08T19:38:59.898Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/72/3c0833ca2f98d17209eeee986f36d85e2a01a31ddaefb0f12d387c00efba/pedalboard-0.9.24-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:3a3e2397e1b50636751cb64afb41a5c5ca1dd4a0aafc0ad83e59160d7fad9c38", size = 5909043, upload-time = "2026-07-08T19:39:01.256Z" },
+    { url = "https://files.pythonhosted.org/packages/09/01/b3182790706eb2452ed1d83298ca46fab6cfe325e97b23330540f84856fb/pedalboard-0.9.24-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:f6fc0b3e551a6d72cac02b465bee8fc933eb80408760d20f7cd5bbba081b8072", size = 6100095, upload-time = "2026-07-08T19:39:02.557Z" },
+    { url = "https://files.pythonhosted.org/packages/39/47/90df0a0f77ee7698ef72d1f0a3259bca34bb5b8dd29fdb95159fbe10bb58/pedalboard-0.9.24-cp312-cp312-win_amd64.whl", hash = "sha256:27ba467a7e0b5b6b8b060c34532ab629732343860d6a2f40af41543ce981b8f0", size = 3681319, upload-time = "2026-07-08T19:39:04.117Z" },
+]
+
+[[package]]
 name = "pluggy"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -391,6 +413,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e4/47/b9efed96c114afcfa3c9d3fe98a76a1d14c74a9e266d397cf6eb64be5e01/pytest-9.1.1.tar.gz", hash = "sha256:1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313", size = 1636369, upload-time = "2026-06-19T10:58:32.857Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl", hash = "sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c", size = 386536, upload-time = "2026-06-19T10:58:31.347Z" },
+]
+
+[[package]]
+name = "python-rtmidi"
+version = "1.5.8"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/dd/ee/0f91965dcc471714c69df21e5ca3d94dc81411b7dee2d31ff1184bea07c9/python_rtmidi-1.5.8.tar.gz", hash = "sha256:7f9ade68b068ae09000ecb562ae9521da3a234361ad5449e83fc734544d004fa", size = 368130, upload-time = "2023-11-20T21:55:02.192Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/51/27/887b0378e0a907489a07bdeb808fa5ed349675245c6ee14d9f6d00304f96/python_rtmidi-1.5.8-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:5443634597eb340cdec0734f76267a827c2d366f00a6f9195141c78828016ac2", size = 158861, upload-time = "2023-11-20T21:54:39.549Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/ec/57cecde253daab896ce53778520cd41eb062641862ebdb0ee6f97511b1d9/python_rtmidi-1.5.8-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:29d9c9d9f82ce679fecad7bb4cb79f3a24574ea84600e377194b4cc1baacec0e", size = 153416, upload-time = "2023-11-20T21:54:40.835Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/5b/dc19c53d9d512b74dc2cca3725591cc612b9465645695a0696352a8c8b54/python_rtmidi-1.5.8-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:25f5a5db7be98911c41ca5bebb262fcf9a7c89600b88fd3c207ceafd3101e721", size = 305696, upload-time = "2023-11-20T21:54:42.037Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/92/5a60f56dfb2740e644e932233928947423cd2101895319b331f84527eb31/python_rtmidi-1.5.8-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:cec30924e305f55284594ccf35a71dee7216fd308dfa2dec1b3ed03e6f243803", size = 315579, upload-time = "2023-11-20T21:54:43.339Z" },
+    { url = "https://files.pythonhosted.org/packages/93/46/6af077d262f521ea2bf1ab60b8aad72f34fe6dd55af739176605369d449c/python_rtmidi-1.5.8-cp312-cp312-win_amd64.whl", hash = "sha256:052c89933cae4fca354012d8ca7248f4f9e1e3f062471409d48415a7f7d7e59e", size = 129755, upload-time = "2023-11-20T21:54:44.935Z" },
 ]
 
 [[package]]

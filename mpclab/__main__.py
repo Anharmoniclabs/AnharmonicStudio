@@ -15,6 +15,9 @@ ROOT = RESOURCE_ROOT
 
 
 def main() -> int:
+    from multiprocessing import freeze_support
+
+    freeze_support()
     from .production_runtime import configure
 
     configure()

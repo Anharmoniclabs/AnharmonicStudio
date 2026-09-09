@@ -9,6 +9,24 @@ from unittest.mock import patch
 import weakref
 
 
+def plugin_runtime_probe(connection, specification, sample_rate):
+    """Exercise the shipped host libraries and spawned audio pipe without hardware."""
+    import numpy as np
+    import pedalboard_native
+    import rtmidi
+    from .plugin_host import receive_packet, send_packet
+
+    try:
+        gain = pedalboard_native.Gain(gain_db=-6.020599913)
+        send_packet(connection, {"effect": True, "midi_apis": rtmidi.get_compiled_api()})
+        request, raw = receive_packet(connection)
+        audio = np.frombuffer(raw, dtype="<f4").reshape(request["frames"], 2)
+        output = gain.process(audio.T.copy(), sample_rate)
+        send_packet(connection, {"frames": len(audio)}, output.T)
+    finally:
+        connection.close()
+
+
 def main():
     # This command creates only offscreen Qt objects in its own process.
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
@@ -24,6 +42,7 @@ def main():
     from .model import Project
     from .native_dsp import NATIVE, STATUS
     from .runtime_paths import RESOURCE_ROOT
+    from .plugin_host import IsolatedPlugin
     from .ui import main_window
 
     class IsolatedSettings:
@@ -52,6 +71,15 @@ def main():
 
     app = QApplication.instance() or QApplication([])
     result = {"native_dsp": STATUS, "qt_platform": app.platformName(), "audio_devices_opened": 0}
+    host = IsolatedPlugin({}, worker=plugin_runtime_probe)
+    try:
+        output = host.render(np.ones((128, 2), np.float32), 128)
+        if not np.allclose(output, 0.5, atol=1e-5):
+            raise RuntimeError("Isolated plugin runtime produced invalid audio")
+        result["isolated_plugin_runtime"] = True
+        result["midi_apis"] = host.info["midi_apis"]
+    finally:
+        host.close()
     with tempfile.TemporaryDirectory(prefix="anharmonic-self-check-") as directory:
         root = Path(directory)
         with (

@@ -102,6 +102,7 @@ from .waveform import WaveformView, NavStrip
 from .color_picker import TonePickerDialog
 from .transport_meters import TransportMeters
 from .visual_assets import brand_pixmap
+from .devices import DevicesController
 
 # Numeric keypad → local pad index, matching PAD_KEYS. Every entry is matched
 # only when Qt.KeypadModifier is set, so the number row and the main Enter,
@@ -562,6 +563,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self._autosave_timer = QTimer(self)
         self._autosave_timer.timeout.connect(self._autosave_session)
         self._autosave_timer.start(15000)
+        self.devices = DevicesController(self)
 
     # ── construction ─────────────────────────────────────────
     def _build(self):
@@ -728,6 +730,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
                     ("Add pattern to arrangement", self.append_pattern_to_arrangement),
                     ("Print synth to pad", self.print_synth_to_pad),
                     ("Audio setup…", self.show_audio_setup),
+                    ("Devices & Plugins…", self.show_devices),
                 ),
             ),
             ("Help", (("Keyboard shortcuts\tF1", self.show_shortcuts),)),
@@ -736,6 +739,9 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             menu = bar.addMenu(title)
             for label, callback in actions:
                 menu.addAction(label, callback)
+
+    def show_devices(self):
+        self.devices.show()
 
     def _build_audio_menu(self):
         """Install a single repair-and-routing menu above the workstation."""
@@ -2740,6 +2746,8 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             return
         self._audio_start_error = None
         self.settings.setValue("audio/buffer_frames", frames)
+        if hasattr(self, "devices") and self.project.plugins:
+            self.devices.sync_project()
         self.status.showMessage(
             f"audio · {frames} frames · {self.engine.period_ms:.1f} ms block", 4000
         )
@@ -4009,6 +4017,8 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.track_inspector.sync()
         self._ensure_playlist_rows()
         self.engine.project = project
+        if hasattr(self, "devices"):
+            self.devices.sync_project()
         self.engine.reset_fx()
         self.engine.prepare_fx(project)
         self.bpm_box.setValue(project.bpm)
@@ -4431,6 +4441,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
                 return
         self._ui_timer.stop()
         self._autosave_timer.stop()
+        self.devices.shutdown()
         app = QApplication.instance()
         if app is not None:
             app.removeEventFilter(self)

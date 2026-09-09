@@ -12,6 +12,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 from .music import Note, AutomationLane, read_notes, read_automation
+from .plugin_registry import validate_project_plugins
 
 PADS_PER_BANK = 16
 BANKS = 4
@@ -31,7 +32,7 @@ PAD_KEYS = ["0", ".", "/", "*", "1", "2", "3", "⏎", "4", "5", "6", "+", "7", "
 DISPLAY_ORDER = [12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3]
 
 MODES = ("one-shot", "gate", "loop")
-PROJECT_FORMAT_VERSION = 3
+PROJECT_FORMAT_VERSION = 4
 _UNSAFE_FILENAME = re.compile(r"[^\w .()-]+", re.UNICODE)
 
 
@@ -457,6 +458,7 @@ class Project:
     vocal_comps: list[VocalComp] = field(default_factory=list)
     current_vocal_comp: str = ""
     automation: list[AutomationLane] = field(default_factory=list)
+    plugins: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.current_pattern and self.patterns:
@@ -595,6 +597,7 @@ class Project:
             master_fx=_from_dict(MasterFX, mapping("master_fx")),
             vocal=_from_dict(VocalSettings, mapping("vocal")),
             vocal_record=_from_dict(VocalRecordSettings, mapping("vocal_record")),
+            plugins=validate_project_plugins(mapping("plugins")),
         )
         pads = [Pad(**{k: v for k, v in p.items() if k in Pad.__annotations__}) for p in pads_data]
         for field_name in ("sample_source", "sample_layer"):

@@ -87,7 +87,7 @@ def test_roundtrip_and_legacy_notes(audio_project, tmp_path):
     path = tmp_path / "song.json"
     project.save(path)
     assert Project.load(path).to_dict() == project.to_dict()
-    assert project.to_dict()["format_version"] == 3
+    assert project.to_dict()["format_version"] == 4
     legacy = Project.from_dict({"format_version": 2, "patterns": [{"notes": [{"pitch": 67}]}]})
     assert legacy.pattern().notes[0].pad is None and legacy.pads[0].root_note == 60
 
