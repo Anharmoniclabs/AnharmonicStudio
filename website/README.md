@@ -1,6 +1,6 @@
 # Anharmonic Studios website
 
-A responsive, self-contained landing page for GitHub Pages. It includes the completed one-minute commercial, six actual app screenshots, a feature explainer, an open-source section, pricing, and a native FAQ. No build step, external fonts, analytics, or JavaScript framework is required.
+A responsive, self-contained landing page for GitHub Pages. It includes the completed one-minute commercial, six actual app screenshots, a feature explainer, an open-source section, download options, and a native FAQ. No build step, external fonts, analytics, or JavaScript framework is required.
 
 ## Preview
 
@@ -14,7 +14,7 @@ Visit http://127.0.0.1:8765. Opening `index.html` also works for the core page; 
 
 ## EXE pack and checkout
 
-The page says the source code is free and open under GPL-2.0-or-later. The official Windows EXE pack starts at **$2.00 USD**.
+The page says the source code is free and open under GPL-2.0-or-later. The official Windows EXE pack is coming soon; no price is announced.
 
 No payment destination was supplied, so the page deliberately shows **Coming soon**. It does not collect payment details or pretend to take orders. Source links work immediately.
 
@@ -42,6 +42,6 @@ The workflow follows GitHub's [custom Pages workflow documentation](https://docs
 
 The local headless browser test harness and captured validation reports are kept
 outside the public repository. Desktop/mobile layout, video playback, captions,
-workspace tabs, keyboard navigation, pricing controls, and local asset links were checked.
+workspace tabs, keyboard navigation, EXE pack controls, and local asset links were checked.
 
 The included video and screenshots are from the isolated “Neon Current” demonstration session. The instrumental commercial uses an original soundtrack; its captions reproduce the on-screen feature copy.

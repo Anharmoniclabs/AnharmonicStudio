@@ -6,16 +6,15 @@ build a rhythm, write notes, arrange a song, and export a stereo WAV.
 
 [Explore the studio and watch the film](https://anharmoniclabs.github.io/AnharmonicStudio/)
 
-## Open source, optional paid pack
+## Open source and the Windows pack
 
 The application source code is free under **GPL-2.0-or-later**. Download, build,
 modify, and run the source without buying an official installer.
 
-The official Windows EXE pack is planned to start at **$2.00 USD**. Payment is
-for the convenience of the official packaged build; source access remains free.
-Checkout is not open yet. Paid installers are distributed separately and are
-not stored in this public repository. Recipients retain the rights provided
-by the GPL.
+The official Windows EXE pack is coming soon. Release details will be announced
+on the website; no price is announced yet. Source access remains free.
+Packaged installers are distributed separately from this public repository.
+Recipients retain the rights provided by the GPL.
 
 ## What is inside
 

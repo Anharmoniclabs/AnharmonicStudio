@@ -72,7 +72,7 @@
   document.querySelectorAll('.pack-link').forEach(link => {
     if (checkout) {
       link.href = checkout; link.target = '_blank'; link.rel = 'noopener noreferrer';
-      link.firstChild.textContent = 'Get the EXE pack — from $2.00 ';
+      link.firstChild.textContent = 'Get the EXE pack ';
     } else {
       link.addEventListener('click', event => {
         if (typeof dialog.showModal === 'function') { event.preventDefault(); dialog.showModal(); }
@@ -81,7 +81,7 @@
   });
   if (checkout) {
     document.querySelector('[data-availability]').textContent = 'AVAILABLE';
-    document.querySelector('#pack-status').textContent = 'Official Windows EXE packs start at $2.00 USD. See the available packs and final pricing at checkout.';
-    document.querySelector('#availability-answer').textContent = 'Yes. Use the EXE pack link above to visit our checkout provider for pack details and pricing.';
+    document.querySelector('#pack-status').textContent = 'The official Windows EXE pack is available. Follow the pack link for release details.';
+    document.querySelector('#availability-answer').textContent = 'Yes. Use the EXE pack link above to see the available pack and release details.';
   }
 })();
