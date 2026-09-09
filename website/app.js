@@ -57,31 +57,66 @@
     bars.append(bar);
   }
 
-  const dialog = document.querySelector('#pack-dialog');
-  const close = () => dialog.close();
-  dialog.querySelector('.dialog-close').addEventListener('click', close);
+  const descriptions = {
+    windows: 'Windows: a per-user installer with a Start menu shortcut and uninstaller.',
+    'mac-arm': 'Apple Silicon Mac: a native ARM64 app in a DMG. Copy the app to Applications.',
+    'mac-intel': 'Intel Mac: a native x86_64 app in a DMG. Copy the app to Applications.',
+    linux: 'Linux: an executable folder in a tar.gz, with an optional per-user install command.'
+  };
+  document.querySelectorAll('[name="platform"]').forEach(input => {
+    input.addEventListener('change', () => {
+      document.querySelector('#platform-detail').textContent = descriptions[input.value];
+    });
+  });
+
+  const config = window.ANHARMONIC_CONFIG || {};
+  const dialog = document.querySelector('#download-dialog');
+  dialog.querySelector('.dialog-close').addEventListener('click', () => dialog.close());
   dialog.addEventListener('click', event => {
     const rect = dialog.getBoundingClientRect();
-    if (event.target === dialog && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) close();
+    if (event.target === dialog && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) dialog.close();
   });
-  let checkout;
-  try {
-    const url = new URL(window.ANHARMONIC_CONFIG?.checkoutUrl);
-    if (url.protocol === 'https:' && !url.username && !url.password) checkout = url.href;
-  } catch { /* No checkout configured: preserve the honest coming-soon state. */ }
-  document.querySelectorAll('.pack-link').forEach(link => {
+  const details = {
+    download: ['OFFICIAL DESKTOP DOWNLOADS', 'Official Linux, Windows, and Mac downloads are planned from $1, including the current major version and its updates. Checkout is not open yet.'],
+    supporter: ['SUPPORTER DOWNLOAD', 'The planned $45-or-more supporter download includes the current and next major version and their updates, on all supported platforms. Checkout is not open yet.'],
+    subscription: ['MONTHLY SUPPORT', 'Monthly support is planned at $1, $4, $10, or $50. Access releases while subscribed; keep using your installed version after cancellation. Subscriptions are not open yet.'],
+    donation: ['OPTIONAL DONATION', 'Donations will support development without including downloads or update access. Donation payments are not open yet. No payment is being collected.']
+  };
+  let downloadsOpen = false;
+  document.querySelectorAll('.commerce-link').forEach(link => {
+    const offer = link.dataset.offer;
+    let checkout;
+    try {
+      const url = new URL(config.links?.[offer]);
+      const enabled = offer === 'donation' ? config.donationsOpen === true : config.salesOpen === true;
+      if (enabled && url.protocol === 'https:' && !url.username && !url.password) checkout = url.href;
+    } catch { /* An absent or invalid destination keeps this offer closed. */ }
     if (checkout) {
-      link.href = checkout; link.target = '_blank'; link.rel = 'noopener noreferrer';
-      link.firstChild.textContent = 'Get the EXE pack ';
+      link.href = checkout;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.firstChild.textContent = link.dataset.liveLabel + ' ';
+      const card = link.closest('article');
+      const badge = card.querySelector('.availability');
+      const note = card.querySelector('.price-note');
+      if (badge) badge.textContent = 'AVAILABLE';
+      if (note) note.textContent = 'Payment and download access are handled at secure checkout.';
+      if (offer === 'donation') document.querySelector('#donation-status').textContent = 'Optional contributions are open. Donations do not include downloads.';
+      else downloadsOpen = true;
     } else {
       link.addEventListener('click', event => {
-        if (typeof dialog.showModal === 'function') { event.preventDefault(); dialog.showModal(); }
+        if (typeof dialog.showModal !== 'function') return;
+        event.preventDefault();
+        document.querySelector('#dialog-kicker').textContent = details[offer][0];
+        document.querySelector('#dialog-copy').textContent = details[offer][1];
+        dialog.showModal();
       });
     }
   });
-  if (checkout) {
-    document.querySelector('[data-availability]').textContent = 'AVAILABLE';
-    document.querySelector('#pack-status').textContent = 'The official Windows EXE pack is available. Follow the pack link for release details.';
-    document.querySelector('#availability-answer').textContent = 'Yes. Use the EXE pack link above to see the available pack and release details.';
+  if (downloadsOpen) {
+    document.querySelector('#release-status-title').textContent = 'Official downloads are open';
+    document.querySelector('#release-status-copy').textContent = 'Choose an available option below. Confirm pricing and update access at hosted checkout. Options still marked planned are not open yet.';
+    document.querySelector('#availability-answer').textContent = 'Yes, for options marked available. Follow an available checkout link to confirm release details and payment. Other options remain planned. The source is always available for free.';
+    document.querySelector('.hero-note strong').textContent = 'Official downloads available.';
   }
 })();

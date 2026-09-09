@@ -11,16 +11,28 @@ build a rhythm, write notes, arrange a song, and export a stereo WAV.
 
 [Explore the studio and watch the film](https://anharmoniclabs.github.io/AnharmonicStudio/)
 
-## Open source and official app downloads
+## Get Anharmonic Studio
 
-The application source code is free under **GPL-2.0-or-later**. Download, build,
-modify, and run the source without buying an official installer.
+Official **Linux, Windows, Intel Mac, and Apple Silicon Mac downloads** fund development.
+Official released binaries are the supported distribution for musicians: download,
+install, and open the studio. They bundle the runtime and dependencies, with no compiler
+setup or subscription requirement to keep using your installed version.
 
-Official Windows, macOS and Linux builds are intended for paid distribution.
-The payment/download service is not enabled yet. Release details will be announced
-on the website; no price is announced yet. Source access remains free.
-Packaged installers are distributed separately from this public repository.
-Recipients retain the rights provided by the GPL.
+The current packages are release candidates. Payment and private download delivery are
+not open yet; signing/notarization and hardware acceptance remain before launch.
+
+| Planned option | Price (USD) | Includes |
+| --- | --- | --- |
+| Source code | **Free** | Full source; build it yourself without an account or purchase |
+| Official download | **$1 minimum**, pay what you can | Current major version and its updates, on all supported platforms |
+| Supporter download | **$45 or more**, one time | Current and next major version and their updates |
+| Monthly support | **$1 / $4 / $10 / $50** | Official releases while subscribed; keep using downloaded versions afterward |
+| Optional donation | **Any amount** | Development support only; no download entitlement |
+
+These are planned launch prices, not live offers. See [downloads and pricing on the
+website](https://anharmoniclabs.github.io/AnharmonicStudio/#download) and the
+[distribution plan](DISTRIBUTION.md). Paid installers stay outside this public repository
+and Pages site. Source access stays free; recipients retain their GPL rights.
 
 ## What is inside
 
@@ -36,64 +48,27 @@ Recipients retain the rights provided by the GPL.
 The optional stem-separation engine requires extra dependencies and an initial
 model download. The core studio works locally after installation.
 
-## Run from source on Linux
+## Free source for developers
 
-Requires Python 3.12, [uv](https://astral.sh/uv), FFmpeg (including ffprobe),
-a C compiler, and the system libraries needed by Qt and PortAudio.
+The full application source is free under **GPL-2.0-or-later**, including the scripts
+used to compile and install it. No purchase is required to study, build, modify, or
+share it under that license.
 
-```bash
-git clone https://github.com/Anharmoniclabs/AnharmonicStudio.git
-cd AnharmonicStudio
-./run.sh
-```
+Source builds are intended for developers who maintain their own toolchain,
+dependencies, and audio configuration. **We do not provide installation or configuration
+troubleshooting for self-compiled copies.** A source checkout does not include a signed
+official installer or managed update channel. Reproducible application bug reports and
+patches are welcome.
 
-The launcher installs the locked Python environment and builds the native DSP
-helper. For system dependencies on Debian/Ubuntu:
+- [Developer build guide](BUILDING.md): prerequisites, native compilation, validation,
+  and packaging for Linux, Windows, Apple Silicon Mac, and Intel Mac.
+- [Support scope](SUPPORT.md): official builds and self-compiled copies.
+- [Contributing](CONTRIBUTING.md): development workflow and bug reports.
+- [Native packaging](packaging/RELEASE.md): release checks and corresponding source.
 
-```bash
-sudo apt-get install build-essential ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libportaudio2 libsndfile1
-```
-
-To install the optional stem engine:
-
-```bash
-./install-separation.sh
-```
-
-To build the additional native engine, install CMake, pkg-config,
-PortAudio development files, ALSA development files, and Lilv development files,
-then run `bash scripts/build-native.sh`.
-
-## Validate or build a package
-
-```bash
-uv sync --locked --group dev
-uv run --no-sync python scripts/build_native.py
-uv run --no-sync python -m mpclab --self-check
-uv run --no-sync python scripts/run_tests.py -- -q
-```
-
-The self-check uses a disposable offscreen session and does not open audio devices.
-Hardware tests are optional and separate from ordinary automated checks.
-
-Run `bash scripts/quality.sh` for the complete source checks, tests, Python audio
-fallback checks, and callback benchmarks. Start with the default 48 kHz /
-512-frame buffer; smaller buffers need more processing headroom.
-
-If saving a recording fails, use **Retry save** in Song or **Retry save take** in
-the vocal editor. Recovery WAVs remain in `projects/recordings/` until the take
-is saved or explicitly discarded; after an interrupted session, import them
-through the Browser. Keep `library/` alongside your source-checkout projects.
-
-Create a source archive:
-
-```bash
-uv run --no-sync python scripts/build_source_bundle.py dist/AnharmonicStudio-source.zip
-```
-
-The Linux packaging script uses `requirements-build.txt` and is intended for a
-separate build environment. It creates a local, unsigned Linux bundle, not a
-Windows EXE. Generated bundles and installers stay outside version control.
+Linux developers can continue using `run.sh` after provisioning their environment;
+its usage is documented in the developer guide. All build and installation tools
+remain in this repository.
 
 ## Logo pack
 
@@ -111,7 +86,12 @@ The pack's [usage notes](assets/branding/logo-pack/README.txt) cover its formats
 - `assets/`: application artwork and licensed factory instrument recordings.
 - `scripts/`: build, installation, and validation tools.
 - `tests/`: automated tests.
-- `website/`: the public landing page and one-minute commercial.
+- `website/`: the public landing page, pricing, and one-minute commercial.
+- `packaging/`: native release instructions and the public encryption certificate.
+- [BUILDING.md](BUILDING.md): platform-specific developer build instructions.
+- [CONTRIBUTING.md](CONTRIBUTING.md): source development and contribution guide.
+- [SUPPORT.md](SUPPORT.md): support scope for official and self-compiled builds.
+- [DISTRIBUTION.md](DISTRIBUTION.md): free-source and paid-download model.
 
 Personal libraries, songs, recordings, exports, development docs, agent automation,
 credentials, caches, and compiled builds are excluded. This repository starts
@@ -122,9 +102,12 @@ assets. Other dependencies and media keep their own licenses. See [LICENSE](LICE
 and [THIRD_PARTY.md](THIRD_PARTY.md).
 
 
-## Native release candidates
+## Release candidates
 
-The public source remains GPL-2.0-or-later. Official Linux, macOS and Windows
-binaries are intended for paid distribution; checkout/paywall integration is
-not enabled yet. See [the candidate build guide](packaging/RELEASE.md).
-Release CI uploads encrypted candidate artifacts, never plaintext paid installers.
+Native 0.1.0-rc.1 candidates passed 227 regression tests per target, frozen-app checks,
+and platform packaging checks. The [validated native build run](https://github.com/Anharmoniclabs/AnharmonicStudio/actions/runs/34325465683)
+covers Linux, Windows, Intel Mac, and Apple Silicon Mac. Signing/notarization and
+physical audio-interface acceptance remain before commercial release.
+
+Release CI uploads encrypted candidates, never plaintext paid installers. See
+[the build guide](packaging/RELEASE.md) and [the distribution plan](DISTRIBUTION.md).

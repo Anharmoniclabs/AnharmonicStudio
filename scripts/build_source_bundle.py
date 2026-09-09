@@ -24,6 +24,10 @@ SOURCE_DIRS = {
 }
 SOURCE_FILES = {
     "README.md",
+    "CONTRIBUTING.md",
+    "BUILDING.md",
+    "SUPPORT.md",
+    "DISTRIBUTION.md",
     "LICENSE",
     "THIRD_PARTY.md",
     "pyproject.toml",

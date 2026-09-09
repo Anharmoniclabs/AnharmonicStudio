@@ -3,7 +3,9 @@
 The canonical public source repository is
 https://github.com/Anharmoniclabs/AnharmonicStudio. Source remains free under
 GPL-2.0-or-later; official ready-to-run binaries are intended for paid distribution.
-There is no activation or paywall code in the app. Checkout automation is future work.
+There is no activation or subscription gate in the app. Planned prices and the
+future checkout/delivery contract are in [DISTRIBUTION.md](../DISTRIBUTION.md).
+The public Pages site advertises the plans with checkout disabled until delivery is ready.
 
 ## Build outputs
 

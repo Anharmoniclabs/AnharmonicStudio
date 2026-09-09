@@ -1,6 +1,9 @@
 name: Publish studio website
 
 on:
+  push:
+    branches: [main]
+    paths: ['website/**', 'scripts/check_website.py', '.github/workflows/studio-pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -23,6 +26,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
+      - name: Validate public website files
+        run: python3 scripts/check_website.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

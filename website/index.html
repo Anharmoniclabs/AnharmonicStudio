@@ -4,18 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#111315">
-  <meta name="description" content="Meet Anharmonic Studio: an open-source desktop music studio for sampling, beatmaking, synthesis, arranging, and mixing. Free source code. Official Windows EXE pack coming soon.">
+  <meta name="description" content="Meet Anharmonic Studio: an open-source desktop music studio for sampling, beatmaking, synthesis, arranging, and mixing. Official desktop downloads for Linux, Windows, and macOS are coming soon. Free developer source.">
   <meta property="og:title" content="Anharmonic Studio — Your sound. No ceiling.">
-  <meta property="og:description" content="One idea. An entire studio. Explore the app, watch the film, and make something only you can. Free source code. EXE pack coming soon.">
+  <meta property="og:description" content="One idea. An entire studio. Explore the app, watch the film, and make something only you can. Free source code. Official downloads coming soon.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="https://anharmoniclabs.github.io/AnharmonicStudio/assets/social.png?v=logo-pack-1">
   <title>Anharmonic Studio — Your sound. No ceiling.</title>
   <link rel="icon" href="assets/favicon.ico?v=logo-pack-1" sizes="16x16 32x32 48x48">
   <link rel="icon" href="assets/logo.svg?v=logo-pack-1" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=logo-pack-1" sizes="180x180">
-  <link rel="stylesheet" href="styles.css?v=logo-pack-1">
-  <script src="config.js" defer></script>
-  <script src="app.js?v=signature-1" defer></script>
+  <link rel="stylesheet" href="styles.css?v=paid-builds-1">
+  <script src="config.js?v=paid-builds-1" defer></script>
+  <script src="app.js?v=paid-builds-1" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -31,7 +31,7 @@
 
   <header class="site-header wrap">
     <a class="brand" href="#" aria-label="Anharmonic Studio home"><img class="brand-lockup" src="assets/wordmark.svg?v=logo-pack-1" width="232" height="46" alt=""></a>
-    <nav aria-label="Main navigation"><a href="#studio">The studio</a><a href="#film">Watch the film <span class="nav-dot"></span></a><a href="#open-source">Open source</a></nav>
+    <nav aria-label="Main navigation"><a href="#studio">The studio</a><a href="#download">Downloads & pricing</a><a href="#open-source">Open source</a></nav>
     <a class="nav-cta" href="#download">Get the app <svg><use href="#arrow"/></svg></a>
   </header>
 
@@ -42,7 +42,7 @@
         <h1 id="hero-title">Your sound.<br><em>No ceiling.</em></h1>
         <p class="hero-description">Turn a little inspiration into something entirely yours. A desktop studio for sampling, beatmaking, and everything that comes next.</p>
         <div class="hero-actions"><a class="button button-primary" href="#download">Find your studio <svg><use href="#arrow"/></svg></a><a class="text-link" href="#studio">Take a look inside <span>↓</span></a></div>
-        <div class="hero-note"><svg><use href="#code"/></svg><span>Free source code. <strong>EXE pack coming soon.</strong></span></div>
+        <div class="hero-note"><svg><use href="#code"/></svg><span>Linux · Windows · macOS. <strong>Official downloads coming soon.</strong></span></div>
       </div>
 
       <div class="hero-visual" id="film">
@@ -97,26 +97,43 @@
       </div>
     </section>
 
-    <section class="open-source-section" id="open-source" aria-labelledby="source-title">
-      <div class="wrap source-layout"><div class="source-art" aria-hidden="true"><img class="source-signature source-lockup" src="assets/stacked.svg?v=logo-pack-1" width="360" height="300" alt=""><span class="source-art-label">OPEN BY DESIGN.</span></div><div><p class="eyebrow">02 / YOUR STUDIO. IN THE OPEN.</p><h2 id="source-title">The code is open.<br><em>So is the possibility.</em></h2><p>Anharmonic Studio is open source. Explore the code, build the app yourself, and make it your own. The source is free under GPL-2.0-or-later.</p><p>The official Windows EXE pack will offer a convenient, ready-to-run build. Release details will be announced here. The source code stays free.</p><a class="text-link source-link" href="https://github.com/Anharmoniclabs/AnharmonicStudio" target="_blank" rel="noopener noreferrer">Explore the source on GitHub <svg><use href="#arrow"/></svg></a></div></div>
-    </section>
-
     <section class="pricing-section" id="download" aria-labelledby="pricing-title">
-      <div class="wrap"><div class="pricing-heading"><p class="eyebrow">03 / TWO WAYS IN. ONE STUDIO.</p><h2 id="pricing-title">A little less setup.<br>A lot more <em>making.</em></h2><p>Build it yourself for free, or choose the official EXE pack.</p></div>
+      <div class="wrap">
+        <div class="pricing-heading"><p class="eyebrow">02 / OPEN SOURCE. INDEPENDENTLY SUPPORTED.</p><h2 id="pricing-title">Less setup.<br>More <em>music.</em></h2><p>Choose an official build for your desktop. Developers can get the complete source and maintain their own build.</p></div>
+        <div class="release-status" id="release-status" role="status"><span class="release-dot" aria-hidden="true"></span><div><strong id="release-status-title">Official downloads are coming soon</strong><p id="release-status-copy">Linux, Windows, and Mac release candidates have passed automated checks. Final release checks and checkout setup are in progress. Prices below are planned launch prices in USD; orders are not open.</p></div></div>
+        <fieldset class="platform-picker"><legend>One studio. Every desktop.</legend><div class="platform-options">
+          <label><input type="radio" name="platform" value="windows" checked><span><strong>Windows</strong><small>x86_64 · Setup EXE</small></span></label>
+          <label><input type="radio" name="platform" value="mac-arm"><span><strong>Mac · Apple Silicon</strong><small>ARM64 · DMG</small></span></label>
+          <label><input type="radio" name="platform" value="mac-intel"><span><strong>Mac · Intel</strong><small>x86_64 · DMG</small></span></label>
+          <label><input type="radio" name="platform" value="linux"><span><strong>Linux</strong><small>x86_64 · tar.gz</small></span></label>
+        </div><p id="platform-detail" aria-live="polite">Windows: a per-user installer with a Start menu shortcut and uninstaller.</p><p class="platform-note">Every paid download option includes all supported desktop platforms. Choose your package after checkout opens.</p></fieldset>
         <div class="pricing-grid">
-          <article class="price-card source-card"><div class="price-top"><svg><use href="#code"/></svg><span>FOR THE CURIOUS & THE BUILDERS</span></div><h3>The source code</h3><div class="price">Free<span>always open</span></div><p>The entire studio, in source form.<br>Bring your tools. Make it your own.</p><ul><li><svg><use href="#check"/></svg> Full application source code</li><li><svg><use href="#check"/></svg> Build, study, and modify</li><li><svg><use href="#check"/></svg> GPL-2.0-or-later license</li></ul><a class="button button-outline" href="https://github.com/Anharmoniclabs/AnharmonicStudio" target="_blank" rel="noopener noreferrer">Get the source <svg><use href="#arrow"/></svg></a><p class="price-note">Source installation requires dependencies and setup.</p></article>
-          <article class="price-card pack-card"><div class="price-top"><svg><use href="#windows"/></svg><span>THE OFFICIAL WINDOWS PACK</span><span class="availability" data-availability>COMING SOON</span></div><h3>Skip to the good part.</h3><div class="price">Soon<span>official Windows EXE pack</span></div><p>Your studio, packaged and ready.<br>More details are on the way.</p><ul><li><svg><use href="#check"/></svg> Official Windows executable pack</li><li><svg><use href="#check"/></svg> Ready-to-run packaging</li><li><svg><use href="#check"/></svg> Supports the studio’s development</li></ul><a class="button button-dark pack-link" href="#pack-info">EXE pack — coming soon <svg><use href="#arrow"/></svg></a><p class="price-note">Release details to come. The source remains free.</p></article>
+
+          <article class="price-card pack-card"><div class="price-top"><span>PAY WHAT YOU CAN</span><span class="availability">PLANNED</span></div><h3>Official download</h3><div class="price">$1<span>minimum · one-time payment</span></div><p>Choose an amount that works for you. Get a prepared build and spend more time making music.</p><ul><li>Linux, Windows, and both Mac builds</li><li>Current major version and its updates</li><li>Keep using the version you download</li></ul><a class="button button-dark commerce-link" data-offer="download" data-live-label="Choose your amount" href="#release-status">Download details <svg><use href="#arrow"/></svg></a><p class="price-note">Planned launch pricing. Checkout coming soon.</p></article>
+          <article class="price-card supporter-card"><div class="price-top"><span>HELP BUILD WHAT’S NEXT</span><span class="availability">PLANNED</span></div><h3>Supporter download</h3><div class="price">$45<span>or more · one-time payment</span></div><p>Give development a bigger boost, with access to the next major version included.</p><ul><li>Everything in the official download</li><li>Current and next major version updates</li><li>The same full studio, with no feature tiers</li></ul><a class="button button-dark commerce-link" data-offer="supporter" data-live-label="Get the supporter download" href="#release-status">Supporter details <svg><use href="#arrow"/></svg></a><p class="price-note">Planned launch pricing. Checkout coming soon.</p></article>
+          <article class="price-card source-card"><div class="price-top"><span>BUILD IT YOURSELF</span><span class="availability">AVAILABLE NOW</span></div><h3>Developer source</h3><div class="price">$0<span>no purchase required</span></div><p>The complete application and build scripts. Maintain your own development environment.</p><ul><li>Full application source</li><li>Study, modify, and share under the GPL</li><li>Self-built setup is not supported</li></ul><a class="button button-outline" href="https://github.com/Anharmoniclabs/AnharmonicStudio/blob/main/BUILDING.md" target="_blank" rel="noopener noreferrer">Developer build guide <svg><use href="#arrow"/></svg></a><p class="price-note">Requires a compiler, dependencies, and local validation.</p></article>
         </div>
-        <div class="pack-info" id="pack-info"><span class="live-dot"></span><p id="pack-status">The official Windows EXE pack is coming soon. You can explore and build the free source code today.</p></div>
+        <div class="support-grid" id="support">
+          <article class="support-card"><p class="eyebrow">STEADY SUPPORT. A STRONGER STUDIO.</p><h3>Support monthly</h3><p>Planned options: <strong>$1, $4, $10, or $50 per month.</strong> Access official releases while your support is active. Cancel whenever you need to; the app you already downloaded keeps working.</p><a class="text-link commerce-link" data-offer="subscription" data-live-label="Become a monthly supporter" href="#release-status">Monthly support details <span>↗</span></a></article>
+          <article class="support-card donation-card"><p class="eyebrow">ALREADY HAVE YOUR STUDIO?</p><h3>Give a little back.</h3><p>A separate, optional contribution of any amount helps fund development. Donations do not include downloads or update access. For a build, choose an official download or monthly support.</p><a class="text-link commerce-link" data-offer="donation" data-live-label="Make a donation" href="#release-status">Donation details <span>↗</span></a><p class="donation-status" id="donation-status">Donations are not open yet.</p></article>
+        </div>
+        <p class="ownership-note">No subscription is required to keep making music. Source code remains free under GPL-2.0-or-later, and recipients keep the rights granted by that license.</p>
       </div>
     </section>
 
+    <section class="open-source-section" id="open-source" aria-labelledby="source-title">
+      <div class="wrap source-layout"><div class="source-art" aria-hidden="true"><img class="source-signature source-lockup" src="assets/stacked.svg?v=logo-pack-1" width="360" height="300" alt=""><span class="source-art-label">OPEN BY DESIGN.</span></div><div><p class="eyebrow">03 / YOUR STUDIO. IN THE OPEN.</p><h2 id="source-title">The code is open.<br><em>So is the possibility.</em></h2><p>Anharmonic Studio is open source. Explore the code, build the app yourself, and make it your own. The source is free under GPL-2.0-or-later. Source builds are intended for developers who maintain their own toolchain and dependencies.</p><p>Prefer to start with an installer? Official Linux, Windows, and macOS downloads help fund development. You pay for the convenience of a prepared build and access to updates. Official released builds are the supported distribution for musicians. We do not provide installation or configuration troubleshooting for self-compiled copies. The code stays free, and your installed studio keeps working.</p><a class="text-link source-link" href="https://github.com/Anharmoniclabs/AnharmonicStudio" target="_blank" rel="noopener noreferrer">Explore the source on GitHub <svg><use href="#arrow"/></svg></a></div></div>
+    </section>
+
     <section class="faq-section wrap section-space" aria-labelledby="faq-title"><div><p class="eyebrow">A FEW GOOD QUESTIONS</p><h2 id="faq-title">Before you<br>press play.</h2></div><div class="faq-list">
-      <details><summary>What exactly is Anharmonic Studio?<svg><use href="#plus"/></svg></summary><p>It’s a native desktop music workstation. Import and chop audio, play samples on pads or as notes, design synth sounds, sequence patterns, arrange a song, mix your tracks, and export to WAV.</p></details>
-      <details><summary>Is the source code really free?<svg><use href="#plus"/></svg></summary><p>Yes. The application source is available under GPL-2.0-or-later. You can download, build, modify, and run a source build without buying the official EXE pack.</p></details>
-      <details><summary>What is the official EXE pack?<svg><use href="#plus"/></svg></summary><p>It’s the official Windows executable package: a convenient way to run the studio without setting up a source build. Release details will be announced here. The application source remains free and open.</p></details>
-      <details><summary>Does the studio need an internet connection?<svg><use href="#plus"/></svg></summary><p>The core studio is designed to run locally after installation. Optional stem separation needs additional dependencies and an initial model download. Your creative session runs on your machine.</p></details>
-      <details><summary>Can I get the Windows EXE pack now?<svg><use href="#plus"/></svg></summary><p id="availability-answer">The official EXE pack is coming soon. For now, you can explore the free repository and follow its source installation instructions.</p></details>
+      <details><summary>Why pay if the source code is free?<svg><use href="#plus"/></svg></summary><p>Developers can build the full application themselves for free using the complete source and build scripts. Official downloads cover the convenience of prepared packages, access to releases, and support for continued development. Payment does not change the application’s GPL license.</p></details>
+      <details><summary>Do you support self-built copies?<svg><use href="#plus"/></svg></summary><p>Source builds are for developers maintaining their own compiler, dependencies, and audio configuration. Installation and configuration troubleshooting for self-compiled copies is not provided. Official released binaries are the supported distribution. Reproducible application bug reports and patches are welcome from everyone.</p></details>
+      <details><summary>Which operating systems are included?<svg><use href="#plus"/></svg></summary><p>The planned official downloads cover Linux x86_64, Windows x86_64, Intel Macs, and Apple Silicon Macs. Each uses the same core studio. Window styling, file dialogs, and font rendering can differ by operating system.</p></details>
+      <details><summary>What updates will my payment include?<svg><use href="#plus"/></svg></summary><p>The planned one-time download starts at $1 and includes the current major version and its updates. Paying $45 or more also includes the next major version and its updates. Monthly supporters get access to official releases while their subscription is active. Final purchase details will be shown at checkout before payment.</p></details>
+      <details><summary>Will the app stop working if I stop paying?<svg><use href="#plus"/></svg></summary><p>No. Your installed version keeps working. Ending monthly support affects access to future official downloads, not your ability to open your songs or use the studio. There is no subscription requirement to run the app.</p></details>
+      <details><summary>Does a donation include an installer?<svg><use href="#plus"/></svg></summary><p>No. Donations are separate contributions toward development. To receive official downloads, choose the pay-what-you-can download, the supporter download, or monthly support when checkout opens. You can always get the source code for free.</p></details>
+      <details><summary>Can I buy an official download today?<svg><use href="#plus"/></svg></summary><p id="availability-answer">Not yet. The native release candidates have passed automated checks, but signing, hardware acceptance, and payment delivery are still being prepared. The source is available now. This page does not currently take payments.</p></details>
+      <details><summary>Does the studio need an internet connection?<svg><use href="#plus"/></svg></summary><p>The core studio runs locally after installation. Optional neural stem separation is a separate source setup with extra dependencies and an initial model download; it is not included in these release candidates.</p></details>
     </div></section>
 
     <section class="closing wrap"><img class="closing-mark" src="assets/mark-blue.svg" width="555" height="440" alt=""><p>One idea. Every possibility.</p><h2>Make something<br><em>only you can.</em></h2><a class="button button-primary" href="#download">Make your next move <svg><use href="#arrow"/></svg></a></section>
@@ -124,6 +141,6 @@
 
   <footer class="site-footer wrap"><a class="brand" href="#" aria-label="Anharmonic Studio home"><img class="brand-lockup" src="assets/wordmark.svg?v=logo-pack-1" width="200" height="40" alt=""></a><p>Independent tools. Individual sound.</p><div><a href="https://github.com/Anharmoniclabs/AnharmonicStudio" target="_blank" rel="noopener noreferrer">GitHub ↗</a><a href="https://github.com/Anharmoniclabs/AnharmonicStudio/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License ↗</a><a href="#film">Watch the film ↑</a></div><small>© 2026 Anharmonic Labs</small></footer>
 
-  <dialog id="pack-dialog" aria-labelledby="pack-dialog-title"><button class="dialog-close" aria-label="Close pack information">×</button><p class="eyebrow">OFFICIAL WINDOWS EXE PACK</p><h2 id="pack-dialog-title">Good things<br>are taking shape.</h2><p>The official Windows EXE pack is coming soon. Release details will be announced here.</p><p>You can explore and build the open-source studio today.</p><a class="button button-primary" href="https://github.com/Anharmoniclabs/AnharmonicStudio" target="_blank" rel="noopener noreferrer">Explore the free source <svg><use href="#arrow"/></svg></a></dialog>
+  <dialog id="download-dialog" aria-labelledby="download-dialog-title"><button class="dialog-close" aria-label="Close download information">×</button><p class="eyebrow" id="dialog-kicker">OFFICIAL DESKTOP DOWNLOADS</p><h2 id="download-dialog-title">Your studio.<br>Coming soon.</h2><p id="dialog-copy">Official downloads for Linux, Windows, and macOS are being prepared. Planned pricing starts at $1. Checkout is not open yet, and no payment is being collected.</p><p>The full source code is free to explore and build today.</p><a class="button button-primary" href="https://github.com/Anharmoniclabs/AnharmonicStudio" target="_blank" rel="noopener noreferrer">Explore the free source <svg><use href="#arrow"/></svg></a></dialog>
 </body>
 </html>
