@@ -68,9 +68,7 @@ def migrate_project_document(document: dict, *, target_version: int) -> dict:
     while version < target_version:
         migration = MIGRATIONS.get(version)
         if migration is None:
-            raise ValueError(
-                f"project format {version} has no migration to {version + 1}"
-            )
+            raise ValueError(f"project format {version} has no migration to {version + 1}")
         migrated = migration(migrated)
         if not isinstance(migrated, dict):
             raise ValueError(f"project migration {version} returned an invalid document")
