@@ -87,7 +87,7 @@ PRESET_BINDINGS: dict[str, dict[str, str]] = {
     },
     "Pro Tools-style": {
         "transport.play_toggle": "Space",
-        "transport.stop": "Space",
+        "transport.stop": "Esc",
         "playlist.split": "Ctrl+E",
         "playlist.duplicate": "Ctrl+D",
         "workflow.command_palette": "Ctrl+Shift+P",
@@ -126,7 +126,10 @@ class CommandRegistry:
             raise ValueError(f"duplicate command id: {spec.id}")
         self._commands[spec.id] = spec
         if spec.id not in self.bindings and spec.default_shortcut:
-            self.bindings[spec.id] = _valid_shortcut(spec.default_shortcut)
+            shortcut = _valid_shortcut(spec.default_shortcut)
+            occupied = {value.casefold() for value in self.bindings.values()}
+            if shortcut.casefold() not in occupied:
+                self.bindings[spec.id] = shortcut
 
     def register_many(self, specs: Iterable[CommandSpec]) -> None:
         for spec in specs:
@@ -165,8 +168,6 @@ class CommandRegistry:
         self.get(command_id)
         shortcut = _valid_shortcut(shortcut)
         if shortcut:
-            # One physical gesture must have one owner.  Rebinding intentionally
-            # releases the previous owner instead of leaving Qt ambiguity.
             folded = shortcut.casefold()
             for other, existing in list(self.bindings.items()):
                 if other != command_id and existing.casefold() == folded:
@@ -174,21 +175,30 @@ class CommandRegistry:
             self.bindings[command_id] = shortcut
         else:
             self.bindings.pop(command_id, None)
+        self.preset = "Custom"
         self.save()
 
     def apply_preset(self, name: str) -> None:
         if name not in PRESET_BINDINGS:
             raise ValueError("unknown keymap preset")
         self.preset = name
-        self.bindings = {
-            command_id: _valid_shortcut(shortcut)
-            for command_id, shortcut in PRESET_BINDINGS[name].items()
-        }
-        # Preserve command-provided defaults for actions that the preset does
-        # not mention, without overriding the preset itself.
+        bindings: dict[str, str] = {}
+        occupied: set[str] = set()
+        for command_id, raw_shortcut in PRESET_BINDINGS[name].items():
+            shortcut = _valid_shortcut(raw_shortcut)
+            folded = shortcut.casefold()
+            if shortcut and folded not in occupied:
+                bindings[command_id] = shortcut
+                occupied.add(folded)
         for spec in self._commands.values():
-            if spec.default_shortcut and spec.id not in self.bindings:
-                self.bindings[spec.id] = _valid_shortcut(spec.default_shortcut)
+            if not spec.default_shortcut or spec.id in bindings:
+                continue
+            shortcut = _valid_shortcut(spec.default_shortcut)
+            folded = shortcut.casefold()
+            if folded not in occupied:
+                bindings[spec.id] = shortcut
+                occupied.add(folded)
+        self.bindings = bindings
         self.save()
 
     def define_macro(self, name: str, command_ids: Iterable[str]) -> MacroSpec:
@@ -247,7 +257,7 @@ class CommandRegistry:
         if not isinstance(payload, dict) or payload.get("version") != self.VERSION:
             raise ValueError("unsupported workflow binding file")
         preset = payload.get("preset", "Anharmonic / FL-style")
-        if preset not in PRESET_BINDINGS:
+        if preset not in PRESET_BINDINGS and preset != "Custom":
             preset = "Anharmonic / FL-style"
         raw_bindings = payload.get("bindings", {})
         if not isinstance(raw_bindings, dict) or len(raw_bindings) > 1024:
