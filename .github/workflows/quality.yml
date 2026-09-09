@@ -30,6 +30,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Install system dependencies
         run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y build-essential cmake pkg-config ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libsndfile1 libportaudio2 portaudio19-dev libasound2-dev liblilv-dev
       - name: Install Python dependencies
@@ -82,6 +83,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Install build dependencies
         run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y build-essential ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libsndfile1 libportaudio2
           uv sync --locked
