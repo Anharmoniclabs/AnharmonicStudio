@@ -19,3 +19,19 @@ jobs:
       - run: ruff check delivery
       - run: ruff format --check delivery
       - run: python -m pytest -q delivery/test_server.py
+  cloudflare:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: delivery/cloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: delivery/cloudflare/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npx wrangler deploy --dry-run

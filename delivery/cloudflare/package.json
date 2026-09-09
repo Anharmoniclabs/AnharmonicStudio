@@ -1,0 +1,13 @@
+{
+  "name": "anharmonic-private-downloads",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test worker.test.mjs",
+    "build": "python3 build.py"
+  },
+  "devDependencies": {
+    "wrangler": "4.130.0",
+    "miniflare": "5.20260908.0-alpha"
+  }
+}

@@ -2,13 +2,13 @@
 // Enable a live offer only after hosted checkout verifies payment and provides
 // private downloads. The provider must enforce prices and update entitlements.
 window.ANHARMONIC_CONFIG = Object.freeze({
-  paymentMode: 'test',
-  testCheckoutOpen: true, // Verified $1 one-time Stripe sandbox checkout.
-  deliveryReady: false, // Enable only after a hosted, verified purchase downloads an installer.
-  salesOpen: false,
+  paymentMode: 'live',
+  testCheckoutOpen: false,
+  deliveryReady: true, // Display only; the Worker verifies payment before delivery.
+  salesOpen: true,
   donationsOpen: false,
   links: Object.freeze({
-    download: 'https://buy.stripe.com/test_4gMdR877K9rwdfA30g9oc00', // $1 one-time test payment.
+    download: 'https://buy.stripe.com/5kQaEWbqY2pKak2fbOco000', // $1 USD once, plus applicable tax.
     supporter: null,    // Hosted supporter checkout: $45 minimum.
     donation: null      // Separate optional contribution; no download entitlement.
   })

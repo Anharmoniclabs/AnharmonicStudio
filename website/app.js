@@ -115,11 +115,13 @@
       if (badge) badge.textContent = testMode ? 'TEST MODE' : 'AVAILABLE';
       if (note) note.textContent = testMode
         ? (config.deliveryReady === true ? 'Test mode: no real charge. Your selected installer downloads after payment confirmation.' : 'Stripe test mode. No real charge. Automatic downloads are being connected.')
-        : 'Payment and download access are handled at secure checkout.';
+        : 'One-time $1 USD payment, plus applicable tax. Your selected installer starts after payment confirmation.';
       if (testMode) testCheckoutOpen = true;
       else if (offer === 'donation') document.querySelector('#donation-status').textContent = 'Optional contributions are open. Donations do not include downloads.';
       else downloadsOpen = true;
     } else {
+      link.href = '#release-status';
+      link.removeAttribute('target');
       link.addEventListener('click', event => {
         if (typeof dialog.showModal !== 'function') return;
         event.preventDefault();
@@ -139,8 +141,16 @@
     document.querySelector('.hero-note strong').textContent = '$1 test checkout available.';
   } else if (downloadsOpen) {
     document.querySelector('#release-status-title').textContent = 'Official downloads are open';
-    document.querySelector('#release-status-copy').textContent = 'Choose an available option below. Confirm pricing and update access at hosted checkout. Options still marked planned are not open yet.';
-    document.querySelector('#availability-answer').textContent = 'Yes, for options marked available. Follow an available checkout link to confirm release details and payment. Other options remain planned. The source is always available for free.';
+    document.querySelector('#release-status-copy').textContent = 'Choose your computer below. Pay $1 USD once, plus applicable tax, and your selected installer downloads after Stripe confirms payment. These are unsigned 0.1.0-rc.1 release candidates; signing and physical audio-interface testing remain unfinished.';
+    document.querySelector('#availability-answer').textContent = 'Yes. The standard $1 USD download is open, plus applicable tax at Stripe checkout. Choose your computer above; its installer starts after payment confirmation. These are unsigned release candidates. The complete source remains free on GitHub.';
     document.querySelector('.hero-note strong').textContent = 'Official downloads available.';
+  } else {
+    document.querySelector('#release-status-title').textContent = 'Checkout is temporarily unavailable';
+    document.querySelector('#release-status-copy').textContent = 'Official checkout is closed. The complete source and build scripts remain free on GitHub.';
+    document.querySelector('#availability-answer').textContent = 'Checkout is closed right now. Source code for every platform remains available for free.';
+    document.querySelector('.hero-note strong').textContent = 'Free source available.';
+    document.querySelector('.pack-card .availability').textContent = 'UNAVAILABLE';
+    document.querySelector('.pack-card .price-note').textContent = 'Checkout is closed right now.';
+    document.querySelector('.pack-card .commerce-link').firstChild.textContent = 'Download details ';
   }
 })();

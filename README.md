@@ -18,20 +18,24 @@ Official released binaries are the supported distribution for musicians: downloa
 install, and open the studio. They bundle the runtime and dependencies, with no compiler
 setup or subscription requirement to keep using your installed version.
 
-The current packages are release candidates. Payment and private download delivery are
-not open yet; signing/notarization and hardware acceptance remain before launch.
+The current packages are **unsigned 0.1.0-rc.1 release candidates**. Signing,
+notarization, and physical audio-interface acceptance remain unfinished.
+The standard download costs $1 USD once, plus applicable tax, through Stripe checkout.
+After payment confirmation, your selected installer downloads from private Cloudflare storage.
 
-| Planned option | Price (USD) | Includes |
+| Option | Price (USD) | Includes |
 | --- | --- | --- |
 | Source code | **Free** | Full source; build it yourself without an account or purchase |
 | Official download | **$1**, one time | Current major version and its updates, on all supported platforms |
-| Supporter download | **$45 or more**, one time | Current and next major version and their updates |
-| Optional donation | **Any amount** | Development support only; no download entitlement |
+| Supporter download (planned) | **$45 or more**, one time | Current and next major version and their updates |
+| Optional donation (planned) | **Any amount** | Development support only; no download entitlement |
 
-These are planned launch prices, not live offers. See [downloads and pricing on the
+Only the standard $1 download is open. See [downloads and pricing on the
 website](https://anharmoniclabs.github.io/AnharmonicStudio/#download) and the
 [distribution plan](DISTRIBUTION.md). Paid installers stay outside this public repository
 and Pages site. Source access stays free; recipients retain their GPL rights.
+The [matching source and license packages for all four platforms](https://github.com/Anharmoniclabs/AnharmonicStudio/releases/tag/v0.1.0-rc.1-source)
+are public GitHub release assets. Cloudflare R2 stores only the compiled installers.
 
 ## What is inside
 
