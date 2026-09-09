@@ -24,6 +24,7 @@ separate = [
 
 [dependency-groups]
 dev = [
+    "psutil>=7,<8",
     "pytest>=8.0",
     "ruff>=0.12",
 ]

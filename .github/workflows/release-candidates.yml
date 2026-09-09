@@ -65,7 +65,15 @@ jobs:
           tests/test_audio_quality.py tests/test_project_persistence.py
           tests/test_release_runtime.py tests/test_vocal_workspace.py
           tests/test_track_recording.py tests/test_audio_storage.py
-          --junitxml=release-tests.xml
+          tests/test_midi_devices.py tests/test_devices_ui.py
+          tests/test_external_plugins.py tests/test_plugin_host.py
+          tests/test_paced_session.py
+          --junitxml=reports/release-tests.xml
+      - name: Ten minute mixed-instrument session (no physical devices)
+        run: >-
+          uv run --no-sync python scripts/soak_production.py --seconds 600 --frames 512
+          --max-p99-load 1.0 --max-late-fraction 0.05 --max-growth-mib 64
+          --json reports/soak.json
       - name: Compile, relocate and test installer
         run: uv run --no-sync python scripts/build_release.py dist/${{ matrix.target }} --version 0.1.0-rc.1
       - name: Encrypt paid candidates before upload
@@ -78,10 +86,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
-      - name: Test report (no installers)
+      - name: Test and stress reports (no installers)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tests-${{ matrix.target }}
-          path: release-tests.xml
+          path: reports/
           retention-days: 14

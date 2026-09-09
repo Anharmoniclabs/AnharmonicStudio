@@ -8,6 +8,7 @@ forces graph settings, routes devices, or changes an existing application's stre
 import argparse
 import json
 import math
+import platform
 from pathlib import Path
 import subprocess
 import sys
@@ -18,18 +19,15 @@ from mpclab.production_runtime import configure
 
 configure()
 import numpy as np
+import psutil
 from scripts.bench_production import production_engine
 from mpclab.native_dsp import STATUS
 
 
 def rss_mib():
-    try:
-        for line in Path("/proc/self/status").read_text().splitlines():
-            if line.startswith("VmRSS:"):
-                return int(line.split()[1]) / 1024
-    except OSError:
-        pass
-    return None
+    # This measures the test process only, including native allocations. Missing
+    # measurement support must fail the run instead of skipping the memory gate.
+    return psutil.Process().memory_info().rss / (1024 * 1024)
 
 
 def main():
@@ -148,6 +146,9 @@ def main():
             deadline += period
     values = np.asarray(measurements) * 1000
     result = dict(
+        platform=platform.platform(),
+        architecture=platform.machine(),
+        python=platform.python_version(),
         backend=STATUS,
         live_silent=args.live,
         frames=args.frames,

@@ -47,6 +47,21 @@ as candidates. Build-info and self-check logs record what actually passed.
 Native-runner regression tests additionally exercise DSP/reference parity, audio
 quality, persistence, recording, tuning and bounded media storage. These are
 software checks, not physical microphone/interface or round-trip latency tests.
+The Windows PowerShell, Intel Mac, Apple Silicon Mac, and Linux jobs also run
+simulated MIDI connection/mapping tests, plugin-process crash/hang tests, and a
+ten-minute paced piano/pad/effects session. Memory usage is measured on each OS.
+Public test reports include callback timing, memory growth, and platform details;
+only encrypted installer artifacts leave the build jobs. Actual third-party plugin
+tests remain opt-in and are reported as skipped when no trusted plugin is installed.
+
+Run the matrix from GitHub Actions → **encrypted release candidates** → **Run workflow**,
+or `gh workflow run release-candidates.yml --ref main`. This creates fresh native
+environments and tests built installers; it does not replace the packages sold through
+Cloudflare. Shared-runner timing is a regression check, not measured hardware latency.
+The CI limits are p99 callback work within one 512-frame buffer, at most 5% callbacks
+over that budget, and at most 64 MiB of sampled memory growth during the session.
+The separate extended Linux validation retains stricter performance thresholds.
+
 Candidates remain unsigned (macOS receives PyInstaller's ad-hoc signature).
 Developer ID/notarization, Windows signing, third-party corresponding-source
 review and physical-device acceptance are still required before calling the
