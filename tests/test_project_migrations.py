@@ -10,7 +10,7 @@ from mpclab.model import Project
 from mpclab.project_migrations import migrate_project_document, project_format_version
 
 
-@pytest.mark.parametrize("version", [0, 1, 2, 3, 4])
+@pytest.mark.parametrize("version", [0, 1, 2, 3])
 def test_historical_project_versions_upgrade_without_losing_fields(version):
     source = {
         "name": "migration fixture",
@@ -30,6 +30,14 @@ def test_historical_project_versions_upgrade_without_losing_fields(version):
     assert migrated["name"] == "migration fixture"
     assert migrated["patterns"] == original["patterns"]
     assert migrated["custom_unknown_field"] == original["custom_unknown_field"]
+
+
+def test_current_project_avoids_an_unnecessary_document_copy():
+    source = {"format_version": 4, "name": "current", "patterns": []}
+
+    migrated = migrate_project_document(source, target_version=4)
+
+    assert migrated is source
 
 
 def test_project_loader_migrates_legacy_document_without_mutating_it():
