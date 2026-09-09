@@ -28,9 +28,9 @@ After payment confirmation, your selected installer downloads from private Cloud
 | Source code | **Free** | Full source; build it yourself without an account or purchase |
 | Official download | **$1**, one time | Current major version and its updates, on all supported platforms |
 | Supporter download (planned) | **$45 or more**, one time | Current and next major version and their updates |
-| Optional donation (planned) | **Any amount** | Development support only; no download entitlement |
+| Optional donation on Ko-fi | **Any amount** | Development support only; no download entitlement |
 
-Only the standard $1 download is open. See [downloads and pricing on the
+The standard $1 download and separate Ko-fi donations are open. See [downloads and pricing on the
 website](https://anharmoniclabs.github.io/AnharmonicStudio/#download) and the
 [distribution plan](DISTRIBUTION.md). Paid installers stay outside this public repository
 and Pages site. Source access stays free; recipients retain their GPL rights.

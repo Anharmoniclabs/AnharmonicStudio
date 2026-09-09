@@ -6,10 +6,10 @@ window.ANHARMONIC_CONFIG = Object.freeze({
   testCheckoutOpen: false,
   deliveryReady: true, // Display only; the Worker verifies payment before delivery.
   salesOpen: true,
-  donationsOpen: false,
+  donationsOpen: true,
   links: Object.freeze({
     download: 'https://buy.stripe.com/5kQaEWbqY2pKak2fbOco000', // $1 USD once, plus applicable tax.
     supporter: null,    // Hosted supporter checkout: $45 minimum.
-    donation: null      // Separate optional contribution; no download entitlement.
+    donation: 'https://ko-fi.com/anharmoniclabs' // Separate contribution; no download entitlement.
   })
 });

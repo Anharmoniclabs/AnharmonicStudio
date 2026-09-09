@@ -11,15 +11,16 @@ without recurring payments.
 
 ## Download pricing
 
-The standard download is $1 USD once, plus applicable tax. Supporter downloads and
-donations remain planned and their checkout links stay disabled.
+The standard download is $1 USD once, plus applicable tax. Supporter downloads
+remain planned. Optional donations are open separately on
+[Ko-fi](https://ko-fi.com/anharmoniclabs); they grant no installer access.
 
 | Option | Price (USD) | Official download access |
 | --- | --- | --- |
 | Source code | Free | Build the full application yourself; no payment or account required |
 | Official download | $1, one time | All supported platforms for the current major version and its updates |
 | Supporter download (planned) | $45 or more, one time | All supported platforms for the current and next major version and their updates |
-| Donation (planned) | Any amount, optional | Development support only; does not grant downloads or update access |
+| Donation on Ko-fi | Any amount, optional | Development support only; does not grant downloads or update access |
 
 The standard download costs $1 USD once. The separate donation option does not
 include a download and must not be presented as a purchase.

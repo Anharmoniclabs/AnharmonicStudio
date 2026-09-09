@@ -2,7 +2,8 @@
 
 A static GitHub Pages storefront with the app tour, original commercial, free source,
 and a $1 USD one-time desktop download through Stripe. Applicable tax is shown at
-checkout. Supporter and donation offers remain disabled. No subscription is offered.
+checkout. Supporter downloads remain disabled. Optional donations are open separately
+at https://ko-fi.com/anharmoniclabs and do not include downloads. No subscription is offered.
 The current installers are unsigned 0.1.0-rc.1 release candidates.
 
 ## Preview and validate
@@ -33,6 +34,8 @@ public access stays disabled. Never upload installers to GitHub Releases or Page
 `salesOpen: true`, and `deliveryReady: true` enable the standard download. Test mode
 requires an explicit Stripe test link and `testCheckoutOpen: true`; it labels checkout
 as a simulation with no real charge. Missing or invalid offer URLs remain closed.
+Donations use their own `donationsOpen` flag independently of installer payment mode.
+Keep their static link in `index.html` synchronized for visitors without JavaScript.
 Neither those flags nor a browser redirect authorize a download.
 
 ## Private installer service
