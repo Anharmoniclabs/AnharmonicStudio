@@ -1,10 +1,9 @@
-"""High-level editing operations shared by commands, menus and future MIDI maps."""
+"""High-level audio, mixer, automation and scene workflow operations."""
 
 from __future__ import annotations
 
 from dataclasses import asdict
 import math
-import random
 
 import numpy as np
 
@@ -201,9 +200,9 @@ def render_mixer_track(app, track_index: int, *, tail: float = 1.0) -> np.ndarra
             track.mute = index != track_index
             track.solo = False
         project.master = 1.0
+        defaults = type(project.master_fx)()
         for key in project.master_fx.__annotations__:
-            default = type(project.master_fx)().__dict__[key]
-            setattr(project.master_fx, key, default)
+            setattr(project.master_fx, key, getattr(defaults, key))
         if "effect" in project.plugins:
             project.plugins["effect"]["bypass"] = True
         return app.engine.render_offline(mode="song", tail=max(0.0, float(tail)))
@@ -324,115 +323,6 @@ def unfreeze_mixer_track(app, track_index: int) -> None:
     app._set_dirty(True)
 
 
-def _note_indices(app) -> list[int]:
-    roll = app.piano_roll.roll
-    selected = sorted(roll.selected)
-    return selected if selected else sorted(roll.visible_indices())
-
-
-def quantize_notes(app, strength: float = 1.0) -> int:
-    indices = _note_indices(app)
-    if not indices:
-        return 0
-    step = float(app.piano_roll.snap.currentData())
-    strength = max(0.0, min(1.0, float(strength)))
-    app.snapshot()
-    for index in indices:
-        note = app.project.pattern().notes[index]
-        target = round(note.start / step) * step
-        note.start = max(0.0, note.start + (target - note.start) * strength)
-    app.piano_roll.roll.commit()
-    return len(indices)
-
-
-def strum_notes(app, spread_beats: float = 0.04, upward: bool = True) -> int:
-    indices = _note_indices(app)
-    if len(indices) < 2:
-        return len(indices)
-    spread_beats = max(0.0, min(2.0, float(spread_beats)))
-    notes = app.project.pattern().notes
-    groups: dict[float, list[int]] = {}
-    for index in indices:
-        groups.setdefault(round(notes[index].start, 6), []).append(index)
-    app.snapshot()
-    changed = 0
-    for group in groups.values():
-        ordered = sorted(group, key=lambda i: notes[i].pitch, reverse=not upward)
-        for offset, index in enumerate(ordered):
-            notes[index].start += offset * spread_beats
-            changed += 1
-    app.piano_roll.roll.commit()
-    return changed
-
-
-def legato_notes(app) -> int:
-    indices = _note_indices(app)
-    if not indices:
-        return 0
-    notes = app.project.pattern().notes
-    by_voice: dict[tuple[int | None, int], list[int]] = {}
-    for index in indices:
-        note = notes[index]
-        by_voice.setdefault((note.pad, note.pitch), []).append(index)
-    app.snapshot()
-    changed = 0
-    end = app.project.pattern().length_beats
-    for voice in by_voice.values():
-        voice.sort(key=lambda i: notes[i].start)
-        for position, index in enumerate(voice):
-            next_start = notes[voice[position + 1]].start if position + 1 < len(voice) else end
-            duration = max(0.01, next_start - notes[index].start)
-            notes[index].duration = duration
-            changed += 1
-    app.piano_roll.roll.commit()
-    return changed
-
-
-def randomize_note_velocity(app, amount: float = 0.15) -> int:
-    indices = _note_indices(app)
-    if not indices:
-        return 0
-    amount = max(0.0, min(1.0, float(amount)))
-    rng = random.Random()
-    app.snapshot()
-    notes = app.project.pattern().notes
-    for index in indices:
-        note = notes[index]
-        note.velocity = max(0.01, min(1.0, note.velocity + rng.uniform(-amount, amount)))
-    app.piano_roll.roll.commit()
-    return len(indices)
-
-
-SCALES = {
-    "major": (0, 2, 4, 5, 7, 9, 11),
-    "minor": (0, 2, 3, 5, 7, 8, 10),
-    "pentatonic": (0, 2, 4, 7, 9),
-    "minor pentatonic": (0, 3, 5, 7, 10),
-    "chromatic": tuple(range(12)),
-}
-
-
-def scale_lock_notes(app, root: int = 0, scale: str = "major") -> int:
-    indices = _note_indices(app)
-    if not indices:
-        return 0
-    allowed = SCALES.get(scale.casefold())
-    if allowed is None:
-        raise ValueError("unknown scale")
-    root = int(root) % 12
-    pitch_classes = {(root + interval) % 12 for interval in allowed}
-    app.snapshot()
-    notes = app.project.pattern().notes
-    for index in indices:
-        pitch = notes[index].pitch
-        if pitch % 12 in pitch_classes:
-            continue
-        candidates = [p for p in range(max(0, pitch - 6), min(127, pitch + 6) + 1) if p % 12 in pitch_classes]
-        notes[index].pitch = min(candidates, key=lambda p: (abs(p - pitch), p)) if candidates else pitch
-    app.piano_roll.roll.commit()
-    return len(indices)
-
-
 def smooth_current_automation(app, radius: int = 1) -> int:
     panel = app.automation_panel
     lane = panel.lane()
@@ -445,7 +335,9 @@ def smooth_current_automation(app, radius: int = 1) -> int:
     for index in range(len(values)):
         lo, hi = max(0, index - radius), min(len(values), index + radius + 1)
         smoothed.append(sum(values[lo:hi]) / (hi - lo))
-    lane.points = [AutomationPoint(point.beat, value) for point, value in zip(lane.points, smoothed)]
+    lane.points = [
+        AutomationPoint(point.beat, value) for point, value in zip(lane.points, smoothed)
+    ]
     panel.changed()
     return len(lane.points)
 
@@ -480,7 +372,14 @@ def launch_scene(app, scene_id: str) -> None:
 
 
 def new_take_lane(app, source_row=None) -> Row:
-    source = source_row or next((row for row in app.project.rows if row.id == getattr(app.track_capture, "armed_id", "")), None)
+    source = source_row or next(
+        (
+            row
+            for row in app.project.rows
+            if row.id == getattr(app.track_capture, "armed_id", "")
+        ),
+        None,
+    )
     if source is None:
         source = app.project.rows[getattr(app.playlist, "paste_row", 0)]
     app.snapshot()
