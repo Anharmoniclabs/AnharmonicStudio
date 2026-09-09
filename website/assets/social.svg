@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<title>Anharmonic Studio — Your sound. No ceiling.</title>
+<rect width="1200" height="630" fill="#111315"/>
+<path d="M64 78H1136M64 550H1136" stroke="#303640"/>
+<text x="64" y="53" fill="#f6f3ed" font-family="Arial,sans-serif" font-size="14" letter-spacing="3">ANHARMONIC STUDIO</text>
+<text x="1136" y="53" fill="#a2a7b1" font-family="Arial,sans-serif" text-anchor="end" font-size="12" letter-spacing="2">YOUR SOUND. NO CEILING.</text>
+<svg x="427" y="112" width="346" height="278" viewBox="290 200 555 440"><defs><mask id="wave-cut" maskUnits="userSpaceOnUse" x="290" y="200" width="555" height="440"><rect x="290" y="200" width="555" height="440" fill="white"/><path d="M613 550 C621 552 628 553 635 553 C681 552 725 491 778 497" fill="none" stroke="black" stroke-width="12"/></mask></defs>
+<path d="M315 607 C342 607 351 588 366 559 L546 224 L724 572 C736 598 753 607 774 607 L637 607 C658 607 662 598 652 578 L517 310 Q513 302 509 312 L391 543 C374 579 372 604 413 607 Z" fill="#ffffff" mask="url(#wave-cut)"/>
+<path d="M382 548 C427 455 465 400 503 423 C555 447 573 554 635 553 C681 552 725 491 778 497" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round"/>
+<circle cx="810" cy="500" r="11" fill="#427bff"/></svg>
+<text x="600" y="445" fill="#f6f3ed" font-family="Arial,sans-serif" text-anchor="middle" font-size="52" font-weight="300" letter-spacing="12">ANHARMONIC</text>
+<text x="600" y="486" fill="#f6f3ed" font-family="Arial,sans-serif" text-anchor="middle" font-size="18" letter-spacing="18">STUDIO</text>
+<text x="64" y="587" fill="#a2a7b1" font-family="Arial,sans-serif" font-size="14">An open-source music studio. Make something only you can.</text>
+<circle cx="1128" cy="582" r="7" fill="#427bff"/>
+</svg>

@@ -38,10 +38,12 @@ The workflow follows GitHub's [custom Pages workflow documentation](https://docs
 - `styles.css`: responsive desktop, tablet, and mobile styling, including reduced-motion support.
 - `app.js`: video overlay, accessible feature tabs, and the pack information dialog.
 - `config.js`: optional hosted checkout destination.
-- `assets/`: local video, caption track, existing logo, screenshots, and social image.
+- `assets/`: local video, caption track, SVG signature marks, screenshots, and social image.
 
 The local headless browser test harness and captured validation reports are kept
 outside the public repository. Desktop/mobile layout, video playback, captions,
 workspace tabs, keyboard navigation, EXE pack controls, and local asset links were checked.
 
 The included video and screenshots are from the isolated “Neon Current” demonstration session. The instrumental commercial uses an original soundtrack; its captions reproduce the on-screen feature copy.
+
+The website uses the Anharmonic Studio waveform signature with ink (`#111315`), paper (`#F6F3ED`), white, and signal blue (`#427BFF`). The logo assets are scalable SVGs; `assets/social.svg` is the editable source for the PNG sharing card.

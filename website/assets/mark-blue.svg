@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="290 200 555 440"><title>Anharmonic Studio waveform signature</title><defs><mask id="wave-cut" maskUnits="userSpaceOnUse" x="290" y="200" width="555" height="440"><rect x="290" y="200" width="555" height="440" fill="white"/><path d="M613 550 C621 552 628 553 635 553 C681 552 725 491 778 497" fill="none" stroke="black" stroke-width="12"/></mask></defs>
+<path d="M315 607 C342 607 351 588 366 559 L546 224 L724 572 C736 598 753 607 774 607 L637 607 C658 607 662 598 652 578 L517 310 Q513 302 509 312 L391 543 C374 579 372 604 413 607 Z" fill="#427bff" mask="url(#wave-cut)"/>
+<path d="M382 548 C427 455 465 400 503 423 C555 447 573 554 635 553 C681 552 725 491 778 497" fill="none" stroke="#427bff" stroke-width="5" stroke-linecap="round"/>
+<circle cx="810" cy="500" r="11" fill="#427bff"/></svg>
