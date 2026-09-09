@@ -98,6 +98,7 @@ patches are welcome.
 - [Developer build guide](BUILDING.md): prerequisites, native compilation, validation,
   and packaging for Linux, Windows, Apple Silicon Mac, and Intel Mac.
 - [Support scope](SUPPORT.md): official builds and self-compiled copies.
+  Purchase and installer help: [anharmoniclabs@gmail.com](mailto:anharmoniclabs@gmail.com).
 - [Contributing](CONTRIBUTING.md): development workflow and bug reports.
 - [Native packaging](packaging/RELEASE.md): release checks and corresponding source.
 

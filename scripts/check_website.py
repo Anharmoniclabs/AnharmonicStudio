@@ -3,6 +3,7 @@
 
 from html.parser import HTMLParser
 from pathlib import Path
+import re
 from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent / "website"
@@ -48,7 +49,12 @@ def main():
     for reference in page.references:
         url = urlsplit(reference)
         if url.scheme or url.netloc:
-            if url.scheme != "https":
+            contact = (
+                url.scheme == "mailto"
+                and not (url.netloc or url.query or url.fragment)
+                and re.fullmatch(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", url.path)
+            )
+            if url.scheme != "https" and not contact:
                 page.errors.append(f"Non-HTTPS external reference: {reference}")
             continue
         if not url.path:

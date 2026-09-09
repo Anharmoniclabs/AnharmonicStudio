@@ -7,6 +7,11 @@ is open through the website, with private installer delivery after payment confi
 The packages are unsigned and the Mac builds are not Apple-notarized. Physical-device
 acceptance remains unfinished.
 
+For purchase or official-installer help, contact
+[anharmoniclabs@gmail.com](mailto:anharmoniclabs@gmail.com). Include your operating
+system and app version. Use email for private purchase questions; application bug
+reports can still go to GitHub Issues under the guidance below.
+
 ## Installing official downloads
 
 Windows may show an unknown-publisher or SmartScreen warning. macOS may block either
