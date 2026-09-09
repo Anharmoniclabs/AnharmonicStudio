@@ -2,3 +2,5 @@
 pyinstaller==6.16.0
 pyinstaller-hooks-contrib==2026.7
 altgraph==0.17.5
+# PyInstaller converts the supplied PNG to native Windows/macOS icon formats.
+Pillow==11.3.0

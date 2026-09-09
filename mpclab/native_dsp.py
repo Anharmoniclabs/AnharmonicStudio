@@ -9,13 +9,21 @@ import platform
 import numpy as np
 
 SOURCE = Path(__file__).with_name("native") / "dsp.c"
-FLAGS = ("-O3", "-std=c99", "-shared", "-fPIC", "-fno-fast-math", "-ffp-contract=off")
+FLAGS = (
+    "-O3",
+    "-std=c99",
+    "-dynamiclib" if platform.system() == "Darwin" else "-shared",
+    *(() if platform.system() == "Windows" else ("-fPIC",)),
+    "-fno-fast-math",
+    "-ffp-contract=off",
+)
 
 
 def binary_path():
     identity = SOURCE.read_bytes() + repr((FLAGS, platform.machine(), platform.system())).encode()
     digest = hashlib.sha256(identity).hexdigest()[:20]
-    return SOURCE.parent.parent.parent / ".native" / f"dsp-{digest}.so"
+    suffix = {"Windows": ".dll", "Darwin": ".dylib"}.get(platform.system(), ".so")
+    return SOURCE.parent.parent.parent / ".native" / f"dsp-{digest}{suffix}"
 
 
 def _array(array, size=None):

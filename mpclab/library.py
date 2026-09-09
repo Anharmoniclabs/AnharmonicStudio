@@ -563,7 +563,7 @@ class Library:
                     block = audio[start : start + DECODE_BLOCK]
                     output.write(np.repeat(block, 2, axis=1) if block.shape[1] == 1 else block)
                 output.flush()
-            with (folder / "audio.wav").open("rb") as handle:
+            with (folder / "audio.wav").open("r+b") as handle:
                 os.fsync(handle.fileno())
             clip = Clip(
                 id=clip_id,

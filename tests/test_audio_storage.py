@@ -89,7 +89,7 @@ def test_full_mapping_disk_fails_without_losing_library_source(tmp_path, monkeyp
     def disk_full(*_args):
         raise OSError(errno.ENOSPC, "No space left on device")
 
-    monkeypatch.setattr(audio_storage.os, "posix_fallocate", disk_full)
+    monkeypatch.setattr(audio_storage.os, "posix_fallocate", disk_full, raising=False)
     with pytest.raises(OSError, match="No space"):
         library.audio(clip.id)
     data, _ = sf.read(library.wav_path(clip.id))

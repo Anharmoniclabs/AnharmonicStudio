@@ -163,7 +163,7 @@ class VocalRecorder:
                         pending.task_done()
                 fill_gap(self._captured_frames)
                 output.flush()
-            with path.open("rb") as handle:
+            with path.open("r+b") as handle:
                 os.fsync(handle.fileno())
         except Exception as exc:
             self._writer_error = exc

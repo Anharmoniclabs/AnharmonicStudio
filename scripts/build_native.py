@@ -17,21 +17,42 @@ def build():
     if destination.exists():
         NativeDSP(destination)
         return destination
-    compiler = shutil.which("cc")
+    compiler = shutil.which("clang" if sys.platform == "win32" else "cc")
     if compiler is None:
         raise RuntimeError("A C compiler is required for native audio DSP (install base-devel)")
     destination.parent.mkdir(exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix="dsp-", suffix=".so", dir=destination.parent)
+    fd, temporary = tempfile.mkstemp(
+        prefix="dsp-", suffix=destination.suffix, dir=destination.parent
+    )
     os.close(fd)
     try:
         subprocess.run(
-            [compiler, *FLAGS, str(SOURCE), "-lm", "-o", temporary],
+            [
+                compiler,
+                *FLAGS,
+                str(SOURCE),
+                *([] if sys.platform == "win32" else ["-lm"]),
+                "-o",
+                temporary,
+            ],
             check=True,
             capture_output=True,
             text=True,
             timeout=60,
         )
-        NativeDSP(temporary)
+        # A loaded DLL cannot be renamed on Windows. Validate in a child that
+        # exits before publishing the library, keeping a failed build atomic.
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from mpclab.native_dsp import NativeDSP; import sys; NativeDSP(sys.argv[1])",
+                temporary,
+            ],
+            cwd=SOURCE.parents[2],
+            check=True,
+            timeout=30,
+        )
         os.replace(temporary, destination)
     finally:
         Path(temporary).unlink(missing_ok=True)

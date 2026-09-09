@@ -101,7 +101,7 @@ from .audio_setup import AudioSetupDialog
 from .waveform import WaveformView, NavStrip
 from .color_picker import TonePickerDialog
 from .transport_meters import TransportMeters
-from .visual_assets import brand_pixmap
+from .visual_assets import owner_icon, brand_pixmap
 from .devices import DevicesController
 
 # Numeric keypad → local pad index, matching PAD_KEYS. Every entry is matched
@@ -446,6 +446,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
     def __init__(self, root: Path, *, restore_session: bool = True):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.setWindowIcon(owner_icon())
         self.export_job = None
         self.project_path: Path | None = None
         self._recorded_notes = {}

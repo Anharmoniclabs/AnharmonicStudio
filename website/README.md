@@ -1,54 +1,64 @@
 # Anharmonic Studio website
 
-A responsive, self-contained landing page for GitHub Pages. It includes the completed one-minute commercial, six actual app screenshots, a feature explainer, an open-source section, download options, and a native FAQ. No build step, external fonts, analytics, or JavaScript framework is required.
+A static, responsive GitHub Pages site with the app tour, original commercial,
+free-source links, planned paid-download pricing, and optional support options.
+All artwork, screenshots, video, and captions are local. No analytics, external fonts,
+payment collection, or JavaScript framework is used.
 
-## Preview
+## Preview and validate
 
-From the repository root:
-
-```bash
-python3 -m http.server 8765 --bind 127.0.0.1 --directory website
+```sh
+python scripts/check_website.py
+python -m http.server 8765 --bind 127.0.0.1 --directory website
 ```
 
-Visit http://127.0.0.1:8765. Opening `index.html` also works for the core page; use the local server for video captions and full browser testing.
+Open http://127.0.0.1:8765. Core content, prices, source links, FAQs, and video controls
+also work without JavaScript. JavaScript adds workspace tabs, platform details,
+video controls, and the release-information dialog.
 
-## EXE pack and checkout
+`check_website.py` checks local references, anchors, duplicate IDs, required content,
+and the deployment file allowlist. It prevents installers and private key files from
+being included in the Pages directory. It does not implement or audit payment security.
 
-The page says the source code is free and open under GPL-2.0-or-later. The official Windows EXE pack is coming soon; no price is announced.
+Before shipping changes, check desktop and mobile widths, keyboard navigation,
+all four platform options, and both closed and configured checkout states in a browser.
+Keep generated screenshots and local browser tooling outside the public repository.
 
-No payment destination was supplied, so the page deliberately shows **Coming soon**. It does not collect payment details or pretend to take orders. Source links work immediately.
+## Paid downloads and donations
 
-When sales are ready, set the real HTTPS payment/product URL in `config.js`. The page then changes the pack button, availability badge, status copy, and availability FAQ to match. Use a provider that handles checkout and private delivery of the EXE. Keep paid installers outside the public site and repository. Client-side JavaScript is not a payment or download gate.
+The full source is free under GPL-2.0-or-later. Planned official download prices and
+update access are defined in [DISTRIBUTION.md](../DISTRIBUTION.md):
 
-## Publish to GitHub Pages
+- $1 minimum, pay what you can: current major version and its updates.
+- $45 or more: current and next major version and their updates.
+- $1, $4, $10, or $50 monthly: official releases while subscribed.
+- Optional donation of any amount: development support only, with no download access.
 
-The repository includes `.github/workflows/studio-pages.yml`. It is manually triggered so a change to the app does not automatically replace the published website.
+All paid download plans include Linux, Windows, Intel Mac, and Apple Silicon Mac.
+Installed versions keep working after monthly support ends.
 
-1. Commit the `website/` directory and the new workflow to the repository's default branch.
-2. In repository **Settings → Pages**, choose **GitHub Actions** as the source.
-3. Run **Publish studio website** from the Actions tab on the default branch.
+`config.js` starts with `salesOpen: false`, `donationsOpen: false`, and no hosted URLs.
+Every unavailable offer opens an information dialog or links to the visible release
+status without JavaScript. No checkout is simulated, and no payments are taken.
 
-The expected project URL is `https://anharmoniclabs.github.io/AnharmonicStudio/`. If you change the repository or use a custom domain, update `og:image` in `index.html` to the published absolute URL.
+To open an offer, configure its real HTTPS hosted checkout URL and explicitly enable
+sales or donations. Each offer is checked independently. An invalid or missing URL
+stays closed even if other offers are enabled. URLs containing credentials or using
+non-HTTPS schemes are rejected. No price, payment status, or download entitlement is
+trusted from browser state. The provider must enforce those on its server.
 
-The workflow follows GitHub's [custom Pages workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages) and publishes only `website/`. Website changes do not automatically publish.
+Keep installers in private delivery storage, not in `website/`, GitHub Pages, or public
+Releases. Never place secrets in this config. See the [delivery integration steps](../DISTRIBUTION.md#connect-checkout-and-private-delivery).
 
-## Files
+## GitHub Pages
 
-- `index.html`: page structure and copy.
-- `styles.css`: responsive desktop, tablet, and mobile styling, including reduced-motion support.
-- `app.js`: video overlay, accessible feature tabs, and the pack information dialog.
-- `config.js`: optional hosted checkout destination.
-- `assets/`: local video, caption track, SVG signature marks, screenshots, and social image.
+[Publish studio website](../.github/workflows/studio-pages.yml) validates the site and
+publishes `website/` when site-related changes reach `main`. Manual dispatch remains
+available on the default branch. Pages uses GitHub Actions as its source.
 
-The local headless browser test harness and captured validation reports are kept
-outside the public repository. Desktop/mobile layout, video playback, captions,
-workspace tabs, keyboard navigation, EXE pack controls, and local asset links were checked.
+Public URL: https://anharmoniclabs.github.io/AnharmonicStudio/
 
-The included video and screenshots are from the isolated “Neon Current” demonstration session. The instrumental commercial uses an original soundtrack; its captions reproduce the on-screen feature copy.
-
-The website uses the Anharmonic Studio waveform signature with ink (`#111315`), paper (`#F6F3ED`), white, and signal blue (`#427BFF`). The logo assets are scalable SVGs; `assets/social.svg` is the editable source for the PNG sharing card.
-
-The header, footer, open-source signature, favicons, and sharing image use the
-[complete logo pack](../assets/branding/logo-pack). Logo lettering is outlined,
-so it renders consistently without external fonts. The native app also uses
-these masters; its in-app signature follows the selected project accent.
+The outlined logo pack is shared with the desktop app. Asset paths stay relative so the
+site works below the repository path. If the public URL changes, update the absolute
+social image URL in `index.html`. Increment the stylesheet/script query versions when
+shipping changes that should invalidate cached assets.

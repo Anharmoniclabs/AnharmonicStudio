@@ -74,3 +74,6 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Public certificate used to encrypt paid release artifacts (contains no private key)
+!/packaging/release-recipient.pem

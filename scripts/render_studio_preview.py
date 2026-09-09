@@ -145,7 +145,7 @@ def populate(window):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--output-dir", type=Path, default=Path(__file__).resolve().parent.parent / "previews"
+        "--output-dir", type=Path, default=Path(__file__).resolve().parent.parent / "docs/previews"
     )
     destination = parser.parse_args().output_dir
     destination.mkdir(parents=True, exist_ok=True)

@@ -42,7 +42,7 @@ torch = { index = "pytorch-cpu" }
 torchaudio = { index = "pytorch-cpu" }
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "automation"]
 pythonpath = ["."]
 
 [tool.ruff]

@@ -3,6 +3,7 @@
 import gc
 import json
 import os
+import sys
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
@@ -27,9 +28,14 @@ def plugin_runtime_probe(connection, specification, sample_rate):
         connection.close()
 
 
-def main():
+def main(report=None):
     # This command creates only offscreen Qt objects in its own process.
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    # The Windows offscreen plugin uses FreeType, not the native font database.
+    if sys.platform == "win32":
+        os.environ.setdefault(
+            "QT_QPA_FONTDIR", os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts")
+        )
     import numpy as np
     import soundfile as sf
     from PySide6.QtCore import QCoreApplication, QEvent, QSettings
@@ -62,6 +68,7 @@ def main():
         raise RuntimeError(f"Native audio helper did not load: {STATUS}")
     for asset in (
         "branding/anharmonic-studios.svg",
+        "branding/owner-mark.png",
         "branding/anharmonic-header.svg",
         "orchestra/manifest.json",
         "ui/check-dark.svg",
@@ -133,7 +140,10 @@ def main():
             result.update(
                 project_roundtrip=True, subprocess_export=True, ffmpeg=True, ui_lifetime=True
             )
-    print(json.dumps(result, indent=2))
+    rendered = json.dumps(result, indent=2) + "\n"
+    if report is not None:
+        Path(report).write_text(rendered, encoding="utf-8")
+    print(rendered)
     return 0
 
 

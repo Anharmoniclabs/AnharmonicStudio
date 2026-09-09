@@ -6,6 +6,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QFontInfo
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
@@ -198,4 +199,11 @@ def test_comp_panel_does_not_force_pitch_editor_horizontal_overflow(window):  # 
     window.pad_side.show()
     window.show_tab(5)
     QApplication.processEvents()
-    assert window.vocal_panel.workspace_scroller.horizontalScrollBar().maximum() == 0
+    scroller = window.vocal_panel.workspace_scroller
+    info = QFontInfo(window.vocal_panel.record_in_song.font())
+    assert info.family() and info.pixelSize() > 0, "Layout checks require real fonts"
+    assert scroller.horizontalScrollBar().maximum() == 0, {
+        "font": info.family(),
+        "viewport": scroller.viewport().width(),
+        "body_minimum": scroller.widget().minimumSizeHint().width(),
+    }

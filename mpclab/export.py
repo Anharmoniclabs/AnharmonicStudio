@@ -16,7 +16,7 @@ from PySide6.QtCore import QObject, QMetaObject, Qt, Signal, Slot
 
 from .engine import Engine
 from .model import Project
-from .runtime_paths import export_command
+from .runtime_paths import export_command, subprocess_options
 
 
 class ExportCancelled(Exception):
@@ -89,7 +89,7 @@ def render_export(
                 frames += len(block)
             output.flush()
         report(1)
-        with open(temporary, "rb") as handle:
+        with open(temporary, "r+b") as handle:
             os.fsync(handle.fileno())
         os.replace(temporary, destination)
     finally:
@@ -187,6 +187,7 @@ class ExportJob(QObject):
                         stdout=subprocess.PIPE,
                         stderr=errors,
                         text=True,
+                        **subprocess_options(),
                     ) as process:
                         outcome = None
                         for line in process.stdout:

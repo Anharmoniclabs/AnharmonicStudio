@@ -19,11 +19,24 @@ from PySide6.QtGui import QColor
 #
 # MONO_FONT is kept for the things that are actually numbers — the bar counter,
 # tempo, times, dB — where digits have to hold their column while they change.
-UI_FAMILIES = ("Rubik", "Open Sans", "Adwaita Sans", "Cantarell", "DejaVu Sans", "Liberation Sans")
+UI_FAMILIES = (
+    "Rubik",
+    "Open Sans",
+    "Adwaita Sans",
+    "Cantarell",
+    "Segoe UI",
+    "Helvetica Neue",
+    "Arial",
+    "DejaVu Sans",
+    "Liberation Sans",
+)
 MONO_FAMILIES = (
     "CaskaydiaCove NF",
     "CaskaydiaCove Nerd Font",
     "MesloLGS NF",
+    "Consolas",
+    "Menlo",
+    "Courier New",
     "DejaVu Sans Mono",
     "Liberation Mono",
 )
