@@ -4,9 +4,9 @@
 #include <math.h>
 
 #ifdef _WIN32
-#define MPC_EXPORT __declspec(dllexport)
+#define MPC_EXPORT extern "C" __declspec(dllexport)
 #else
-#define MPC_EXPORT
+#define MPC_EXPORT extern "C"
 #endif
 
 /* Recurrence replaces FFT convolution in compressor/reverb smoothing. */
