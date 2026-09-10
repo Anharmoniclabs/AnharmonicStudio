@@ -179,9 +179,9 @@ def test_repainting_and_erasing_only_rebuild_the_requested_comp_range():
         (5.0, 6.0, "audio"),
         (6.0, 8.0, "audio"),
     ]
-    assert [clip.offset for clip in sorted(row.clips, key=lambda item: item.start_beat)] == pytest.approx(
-        [2.0, 0.5, 3.0]
-    )
+    assert [
+        clip.offset for clip in sorted(row.clips, key=lambda item: item.start_beat)
+    ] == pytest.approx([2.0, 0.5, 3.0])
 
     row = erase_comp_range(project, group_id, 6.5, 7.0)
     assert comp_coverage(row) == [
@@ -208,7 +208,9 @@ def test_clear_comp_restores_the_selected_take_as_the_only_audible_lane():
 def test_note_comp_uses_derived_patterns_and_clear_removes_only_comp_patterns():
     project, lane_one, lane_two, group_id, first_id, second_id = _note_project()
     source_notes = {
-        pattern.id: [(note.pitch, note.start, note.duration, note.velocity) for note in pattern.notes]
+        pattern.id: [
+            (note.pitch, note.start, note.duration, note.velocity) for note in pattern.notes
+        ]
         for pattern in project.patterns
     }
 
@@ -220,10 +222,18 @@ def test_note_comp_uses_derived_patterns_and_clear_removes_only_comp_patterns():
         (3.0, 4.0, "pattern"),
     ]
     patterns = {pattern.id: pattern for pattern in project.patterns}
-    comp_patterns = [patterns[clip.ref] for clip in sorted(row.clips, key=lambda item: item.start_beat)]
-    assert [[note.pitch for note in pattern.notes] for pattern in comp_patterns] == [[64], [60], [64]]
+    comp_patterns = [
+        patterns[clip.ref] for clip in sorted(row.clips, key=lambda item: item.start_beat)
+    ]
+    assert [[note.pitch for note in pattern.notes] for pattern in comp_patterns] == [
+        [64],
+        [60],
+        [64],
+    ]
     assert source_notes == {
-        pattern.id: [(note.pitch, note.start, note.duration, note.velocity) for note in pattern.notes]
+        pattern.id: [
+            (note.pitch, note.start, note.duration, note.velocity) for note in pattern.notes
+        ]
         for pattern in project.patterns
         if pattern.id in {first_id, second_id}
     }
@@ -250,7 +260,8 @@ def test_comp_row_and_playback_state_survive_project_round_trip():
         (7.0, 8.0, "audio"),
     ]
     reopened_lanes = [
-        next(row for row in reopened.rows if row.id == lane_id) for lane_id in reopened_group["lanes"]
+        next(row for row in reopened.rows if row.id == lane_id)
+        for lane_id in reopened_group["lanes"]
     ]
     assert [lane.mute for lane in reopened_lanes] == [True, True]
 
