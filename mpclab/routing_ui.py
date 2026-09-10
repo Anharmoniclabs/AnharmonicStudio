@@ -6,11 +6,8 @@ from copy import deepcopy
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
-    QFormLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -157,9 +154,7 @@ class RoutingController:
         name = name.strip() or "BUS"
         choices = self._bus_choices(routing)
         labels = [label for label, _target in choices]
-        label, ok = QInputDialog.getItem(
-            self.window, "Create bus", "Output", labels, 0, False
-        )
+        label, ok = QInputDialog.getItem(self.window, "Create bus", "Output", labels, 0, False)
         if not ok:
             return None
         output = dict(choices)[label]
@@ -229,9 +224,7 @@ class RoutingController:
         source = dict(sources)[source_label]
 
         targets = [
-            (label, target)
-            for label, target in self._bus_choices(routing)
-            if target != source
+            (label, target) for label, target in self._bus_choices(routing) if target != source
         ]
         target_labels = [label for label, _target in targets]
         target_label, ok = QInputDialog.getItem(
@@ -240,9 +233,7 @@ class RoutingController:
         if not ok:
             return None
         target = dict(targets)[target_label]
-        gain, ok = QInputDialog.getDouble(
-            self.window, "Create send", "Send gain", 0.5, 0.0, 2.0, 3
-        )
+        gain, ok = QInputDialog.getDouble(self.window, "Create send", "Send gain", 0.5, 0.0, 2.0, 3)
         if not ok:
             return None
         position, ok = QInputDialog.getItem(
@@ -360,7 +351,13 @@ class RoutingController:
                 if not ok:
                     return
                 pan, ok = QInputDialog.getDouble(
-                    dialog, "Edit bus", "Pan (-1 left, +1 right)", float(bus.get("pan", 0.0)), -1.0, 1.0, 3
+                    dialog,
+                    "Edit bus",
+                    "Pan (-1 left, +1 right)",
+                    float(bus.get("pan", 0.0)),
+                    -1.0,
+                    1.0,
+                    3,
                 )
                 if not ok:
                     return

@@ -79,9 +79,7 @@ def test_workflow_validation_rejects_unbounded_or_unknown_data():
 
 def test_routing_validation_rejects_missing_targets_and_cycles():
     with pytest.raises(ValueError, match="output does not exist"):
-        validate_workflow(
-            {"routing": {"buses": [{"id": "a", "name": "A", "output": "missing"}]}}
-        )
+        validate_workflow({"routing": {"buses": [{"id": "a", "name": "A", "output": "missing"}]}})
 
     with pytest.raises(ValueError, match="acyclic"):
         validate_workflow(

@@ -27,7 +27,14 @@ def test_track_bus_and_pre_fader_send_sum_in_topological_order():
         "routing": {
             "buses": [
                 {"id": "a", "name": "A", "gain": 0.5, "pan": 0.0, "mute": False, "output": "b"},
-                {"id": "b", "name": "B", "gain": 1.0, "pan": 0.0, "mute": False, "output": "master"},
+                {
+                    "id": "b",
+                    "name": "B",
+                    "gain": 1.0,
+                    "pan": 0.0,
+                    "mute": False,
+                    "output": "master",
+                },
             ],
             "track_outputs": {project.tracks[0].id: "a"},
             "sends": [
