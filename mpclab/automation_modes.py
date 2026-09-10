@@ -147,13 +147,19 @@ class AutomationModeController(QObject):
             controller = getattr(strip.app, "automation_mode_controller", None)
             if controller is None:
                 return
-            controls = [("master", strip.fader, 100.0)] if strip.master else [
-                (f"track:{strip.index}:gain", strip.fader, 100.0),
-                (f"track:{strip.index}:pan", strip.pan, 100.0),
-            ]
+            controls = (
+                [("master", strip.fader, 100.0)]
+                if strip.master
+                else [
+                    (f"track:{strip.index}:gain", strip.fader, 100.0),
+                    (f"track:{strip.index}:pan", strip.pan, 100.0),
+                ]
+            )
             for target, slider, scale in controls:
                 lane = _lane(strip.app.project, target)
-                active = bool(lane and lane.enabled and lane.points and strip.app.engine.mode == "song")
+                active = bool(
+                    lane and lane.enabled and lane.points and strip.app.engine.mode == "song"
+                )
                 if not active:
                     slider.setEnabled(True)
                     continue
@@ -325,7 +331,9 @@ class AutomationModeController(QObject):
         if len(lane.points) >= MAX_AUTOMATION_POINTS and not any(
             point.beat == beat for point in lane.points
         ):
-            self.app.status.showMessage("automation lane reached its 100,000-point safety limit", 5000)
+            self.app.status.showMessage(
+                "automation lane reached its 100,000-point safety limit", 5000
+            )
             return
         if last is not None and beat >= last:
             lane.points = [point for point in lane.points if not (last < point.beat <= beat)]
@@ -417,8 +425,10 @@ class AutomationModeController(QObject):
         if playing:
             for target in tuple(self._passes):
                 mode = self.mode(target)
-                if mode == "write" or (mode == "touch" and target in self._gesture) or (
-                    mode == "latch" and target in self._latched
+                if (
+                    mode == "write"
+                    or (mode == "touch" and target in self._gesture)
+                    or (mode == "latch" and target in self._latched)
                 ):
                     self._write_point(target, self.manual_value(target))
         self._was_playing = playing
