@@ -68,7 +68,9 @@ def install_automation_mode_state() -> None:
     @classmethod
     def from_dict(cls, payload: dict) -> Project:
         project = original_from_dict(cls, payload)
-        project.automation_control = validate_automation_control(payload.get("automation_control", {}))
+        project.automation_control = validate_automation_control(
+            payload.get("automation_control", {})
+        )
         return project
 
     Project.to_dict = to_dict
