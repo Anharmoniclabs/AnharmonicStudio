@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 
 from mpclab.engine import Engine
 from mpclab.premium_workflows import attach_premium_workflows, install_premium_runtime
+from mpclab.routing_ui import attach_routing_ui
 from mpclab.ui.main_window import MainWindow
 from mpclab.workflow_compat import restore_unmanaged_legacy_shortcuts
 
@@ -20,18 +21,24 @@ def make_window(tmp_path, monkeypatch):
     install_premium_runtime()
     window = MainWindow(tmp_path, restore_session=False)
     controller = attach_premium_workflows(window)
+    attach_routing_ui(window, controller)
     restore_unmanaged_legacy_shortcuts(controller)
     window.show()
     app.processEvents()
     return app, window, controller
 
 
-def test_controller_adds_workflow_menu_and_command_catalog(tmp_path, monkeypatch):
+def test_controller_adds_workflow_and_routing_menus_and_command_catalog(tmp_path, monkeypatch):
     _app, window, controller = make_window(tmp_path, monkeypatch)
     try:
         assert controller.registry.get("clip.stretch").title == "Time-stretch selected clip"
         assert controller.registry.get("notes.scale_lock").title == "Lock selected notes to scale"
-        assert any(action.text() == "Workflow" for action in window.menuBar().actions())
+        assert controller.registry.get("mixer.bus_create").title == "Create routing bus"
+        menus = {action.text() for action in window.menuBar().actions()}
+        assert {"Workflow", "Routing"} <= menus
+        assert window.routing_controller is not None
+        assert hasattr(window.engine, "prepare_routing")
+        assert hasattr(window.engine, "plugin_pdc")
     finally:
         window.close()
 

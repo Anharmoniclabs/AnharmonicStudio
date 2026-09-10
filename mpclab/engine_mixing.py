@@ -10,10 +10,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from .engine_constants import AUDITION, METRONOME, SEND_TAIL, TRACK_DSP_TAIL
 from .model import NPADS, NTRACKS
 from .music import automation_values
 from .sample_voice import _balance_gains
-from .engine_constants import AUDITION, METRONOME, SEND_TAIL, TRACK_DSP_TAIL
+from .workflow_routing import clear_bus_buffers, finish_buses, route_track
 
 if TYPE_CHECKING:
     from .engine import Engine
@@ -47,6 +48,14 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         engine._preview = np.zeros((frames, 2), dtype=np.float32)
         engine._send_scratch = np.zeros((frames, 2), dtype=np.float32)
         engine._meter_scratch = np.zeros((frames, 2), dtype=np.float32)
+        if hasattr(engine, "_routing_buses"):
+            engine._routing_buses = np.zeros(
+                (engine._routing_buses.shape[0], frames, 2), dtype=np.float32
+            )
+        if hasattr(engine, "_external_instrument"):
+            engine._external_instrument = np.zeros((frames, 2), dtype=np.float32)
+        if hasattr(engine, "plugin_pdc"):
+            engine.plugin_pdc.ensure_blocksize(frames)
     tbuf = engine._tbuf[:, :frames]
     tbuf.fill(0.0)
     master = engine._master[:frames]
@@ -112,9 +121,8 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         destination = preview_bus if v.pad_index in (AUDITION, METRONOME) else tbuf[v.track]
         v.render(destination, v.start_offset, engine._pad_workspace)
         v.start_offset = 0
-        if not v.dead:
-            if v.pad_index == AUDITION:
-                preview = v
+        if not v.dead and v.pad_index == AUDITION:
+            preview = v
     for index in range(len(engine.voices) - 1, -1, -1):
         if engine.voices[index].dead:
             del engine.voices[index]
@@ -132,11 +140,20 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         if engine.synth_voices[index].dead:
             del engine.synth_voices[index]
 
-    engine.external.render_instrument(
-        tbuf[max(0, min(NTRACKS - 1, proj.synth.track))], frames, engine.sr
-    )
+    synth_track = max(0, min(NTRACKS - 1, proj.synth.track))
+    external_bus = getattr(engine, "_external_instrument", None)
+    if external_bus is None:
+        engine.external.render_instrument(tbuf[synth_track], frames, engine.sr)
+    else:
+        external = external_bus[:frames]
+        external.fill(0.0)
+        engine.external.render_instrument(external, frames, engine.sr)
+        pdc = getattr(engine, "plugin_pdc", None)
+        if engine.external.instrument is not None and pdc is not None and pdc.delay_samples > 0:
+            pdc.process(tbuf, frames)
+        np.add(tbuf[synth_track], external, out=tbuf[synth_track])
 
-    # 4 ─ inserts → track buses → sends → master
+    # 4 ─ inserts → track buses → arbitrary routing → sends → master
     any_solo = False
     for track in proj.tracks:
         if track.solo:
@@ -170,6 +187,11 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
     bus = engine._bus[:frames]
     send_scratch = engine._send_scratch[:frames]
     meter_scratch = engine._meter_scratch[:frames]
+    routing_plan = getattr(engine, "_routing_plan", None)
+    routing_buses = getattr(engine, "_routing_buses", None)
+    routed = routing_plan is not None and routing_buses is not None
+    if routed:
+        clear_bus_buffers(routing_plan, routing_buses, frames)
 
     for i in range(NTRACKS):
         t = proj.tracks[i]
@@ -203,7 +225,10 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         engine.meters[i] = float(np.sqrt(np.mean(meter_scratch)))
         np.abs(bus, out=meter_scratch)
         engine.peaks[i] = float(np.max(meter_scratch))
-        master += bus
+        if routed:
+            route_track(routing_plan, i, buf, bus, master, routing_buses, send_scratch)
+        else:
+            master += bus
         if run_sends and t.fx.sends_active:
             if t.fx.send_delay > 1e-4:
                 np.multiply(bus, np.float32(t.fx.send_delay), out=send_scratch)
@@ -211,6 +236,9 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
             if t.fx.send_reverb > 1e-4:
                 np.multiply(bus, np.float32(t.fx.send_reverb), out=send_scratch)
                 np.add(reverb_send, send_scratch, out=reverb_send)
+
+    if routed:
+        finish_buses(routing_plan, master, routing_buses, send_scratch, frames)
 
     if run_sends:
         if proj.delay_fx.enabled:

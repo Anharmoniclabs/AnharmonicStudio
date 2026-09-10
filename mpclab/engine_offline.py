@@ -10,13 +10,21 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from .audio_kernel import MasteringKernel
+from .engine_constants import FADE
+from .external_dsp import OfflinePlugins
+from .fx import MixRack
 from .model import NPADS, NTRACKS
 from .music import automation_values
-from .sample_voice import PadVoice, PadRenderWorkspace, _balance_gains
-from .audio_kernel import MasteringKernel
-from .fx import MixRack
-from .external_dsp import OfflinePlugins
-from .engine_constants import FADE
+from .plugin_latency import PluginDelayCompensator, plugin_path_latency_samples
+from .sample_voice import PadRenderWorkspace, PadVoice, _balance_gains
+from .workflow_routing import (
+    MAX_ROUTING_BUSES,
+    clear_bus_buffers,
+    compile_routing,
+    finish_buses,
+    route_track,
+)
 
 if TYPE_CHECKING:
     from .engine import Engine
@@ -109,44 +117,50 @@ def render_offline_reference(
         # voices through one cache-sized workspace instead of allocating
         # gigabytes of temporary arrays for every long clip or loop.
         voice_workspace = PadRenderWorkspace(min(voice_chunk, max(1, total)))
-        for n, (at, v) in enumerate(voices):
+        for n, (at, voice) in enumerate(voices):
             room = total - at
             if room <= 0:
                 continue
-            v.length = min(v.length, room)
+            voice.length = min(voice.length, room)
             rendered = 0
-            while rendered < room and not v.dead:
+            while rendered < room and not voice.dead:
                 take = min(voice_chunk, room - rendered)
                 start = at + rendered
-                v.render(tbuf[v.track][start : start + take], 0, voice_workspace)
+                voice.render(tbuf[voice.track][start : start + take], 0, voice_workspace)
                 rendered += take
             if progress and n % 32 == 0:
                 progress(n / max(1, len(voices)))
 
         # The mix runs block by block through a rack of its own, so an
         # export hears exactly what the live callback hears — same insert
-        # chains, same send tails, same glue — without disturbing the
+        # chains, routing, send tails and glue — without disturbing the
         # effect state the running engine is using.
         any_solo = proj.any_solo()
         gains = []
         for i in range(NTRACKS):
-            t = proj.tracks[i]
-            g = 0.0 if (t.mute or (any_solo and not t.solo)) else t.gain
-            pl, pr = _balance_gains(t.pan)
-            gains.append((g * pl, g * pr, g > 0.0))
+            track = proj.tracks[i]
+            gain = 0.0 if (track.mute or (any_solo and not track.solo)) else track.gain
+            left, right = _balance_gains(track.pan)
+            gains.append((gain * left, gain * right, gain > 0.0))
 
         rack = MixRack(NTRACKS)
+        rack.prepare(engine.blocksize)
         kernel = MasteringKernel(engine.sr, blocksize=engine.blocksize)
-        run_sends = any(t.fx.sends_active for t in proj.tracks) and (
+        run_sends = any(track.fx.sends_active for track in proj.tracks) and (
             proj.delay_fx.enabled or proj.reverb_fx.enabled
         )
+        routing_plan = compile_routing(proj)
+        routing_buses = np.zeros((MAX_ROUTING_BUSES, engine.blocksize, 2), dtype=np.float32)
+        panned = np.zeros((engine.blocksize, 2), dtype=np.float32)
+        routing_scratch = np.zeros((engine.blocksize, 2), dtype=np.float32)
         for start in range(0, total, engine.blocksize):
             stop = min(total, start + engine.blocksize)
-            n = stop - start
+            frames = stop - start
             block = out[start:stop]
+            clear_bus_buffers(routing_plan, routing_buses, frames)
             delay_send = reverb_send = None
             if run_sends:
-                delay_send, reverb_send = rack.send_buffers(n)
+                delay_send, reverb_send = rack.send_buffers(frames)
             for i in range(NTRACKS):
                 left, right, live = gains[i]
                 if not live:
@@ -155,16 +169,23 @@ def render_offline_reference(
                 fx = proj.tracks[i].fx
                 if fx.active:
                     rack.tracks[i].process(buf, fx)
-                block[:, 0] += buf[:, 0] * left
-                block[:, 1] += buf[:, 1] * right
+                np.multiply(buf[:, 0], left, out=panned[:frames, 0])
+                np.multiply(buf[:, 1], right, out=panned[:frames, 1])
+                route_track(
+                    routing_plan,
+                    i,
+                    buf,
+                    panned[:frames],
+                    block,
+                    routing_buses,
+                    routing_scratch,
+                )
                 if run_sends and fx.sends_active:
-                    panned = np.empty_like(buf)
-                    panned[:, 0] = buf[:, 0] * left
-                    panned[:, 1] = buf[:, 1] * right
                     if fx.send_delay > 1e-4:
-                        delay_send += panned * np.float32(fx.send_delay)
+                        delay_send += panned[:frames] * np.float32(fx.send_delay)
                     if fx.send_reverb > 1e-4:
-                        reverb_send += panned * np.float32(fx.send_reverb)
+                        reverb_send += panned[:frames] * np.float32(fx.send_reverb)
+            finish_buses(routing_plan, block, routing_buses, routing_scratch, frames)
             if run_sends:
                 if proj.delay_fx.enabled:
                     block += rack.delay.process(delay_send, proj.delay_fx, proj.bpm)
@@ -234,7 +255,12 @@ def iter_offline_blocks(
         notes, audio = engine._collect(0.0, length_beats)
         synth_events = sorted(
             [
-                (round(beat * spb * engine.sr), -idx - 1, vel, max(1, int(gate * spb * engine.sr)))
+                (
+                    round(beat * spb * engine.sr),
+                    -idx - 1,
+                    vel,
+                    max(1, int(gate * spb * engine.sr)),
+                )
                 for beat, idx, vel, gate, _sequence_id in notes
                 if idx < 0
             ],
@@ -255,7 +281,7 @@ def iter_offline_blocks(
                 continue
             arranged = max(1, int(clip.length_beats * spb * engine.sr))
             voice_length = arranged if clip.loop else min(arranged, s1 - s0)
-            pl, pr = _balance_gains(0.0)
+            left, right = _balance_gains(0.0)
             voices.append(
                 (
                     int(clip.start_beat * spb * engine.sr),
@@ -266,8 +292,8 @@ def iter_offline_blocks(
                         s1=s1,
                         rate=1.0,
                         gain=float(clip.gain),
-                        pan_l=pl,
-                        pan_r=pr,
+                        pan_l=left,
+                        pan_r=right,
                         attack=max(1, int(0.003 * engine.sr)),
                         release=max(1, int(0.008 * engine.sr)),
                         length=voice_length,
@@ -298,6 +324,15 @@ def iter_offline_blocks(
         tbuf = np.zeros((NTRACKS, blocksize, 2), dtype=np.float32)
         output = np.zeros((blocksize, 2), dtype=np.float32)
         panned = np.zeros((blocksize, 2), dtype=np.float32)
+        routing_scratch = np.zeros((blocksize, 2), dtype=np.float32)
+        routing_buses = np.zeros((MAX_ROUTING_BUSES, blocksize, 2), dtype=np.float32)
+        external = np.zeros((blocksize, 2), dtype=np.float32)
+        routing_plan = compile_routing(proj)
+        plugin_pdc = PluginDelayCompensator(NTRACKS, blocksize)
+        if plugins is not None and plugins.instrument is not None:
+            plugin_pdc.configure(
+                plugin_path_latency_samples(plugins.instrument, include_live_bridge=False)
+            )
         voice_workspace = PadRenderWorkspace(blocksize)
         active: list[tuple[int, PadVoice]] = []
         next_voice = 0
@@ -306,17 +341,18 @@ def iter_offline_blocks(
         rack = MixRack(NTRACKS)
         rack.prepare(blocksize)
         kernel = MasteringKernel(engine.sr, blocksize=blocksize)
-        run_sends = any(t.fx.sends_active for t in proj.tracks) and (
+        run_sends = any(track.fx.sends_active for track in proj.tracks) and (
             proj.delay_fx.enabled or proj.reverb_fx.enabled
         )
 
         for start in range(0, total, blocksize):
             stop = min(total, start + blocksize)
-            n = stop - start
-            tracks = tbuf[:, :n]
+            frames = stop - start
+            tracks = tbuf[:, :frames]
             tracks.fill(0.0)
-            block = output[:n]
+            block = output[:frames]
             block.fill(0.0)
+            clear_bus_buffers(routing_plan, routing_buses, frames)
 
             while next_voice < len(voices) and voices[next_voice][0] < stop:
                 at, voice = voices[next_voice]
@@ -344,32 +380,46 @@ def iter_offline_blocks(
                 next_synth += 1
             for voice in synth_voices:
                 voice.render(tracks[voice.track], proj.synth)
-            synth_voices[:] = [v for v in synth_voices if not v.dead]
-            if plugins is not None:
-                plugins.render_instrument(
-                    tracks[max(0, min(NTRACKS - 1, proj.synth.track))], start, n
-                )
-            automation_beats = engine._automation_beats(mode, start / (spb * engine.sr), n)
+            synth_voices[:] = [voice for voice in synth_voices if not voice.dead]
+            if plugins is not None and plugins.instrument is not None:
+                external_block = external[:frames]
+                external_block.fill(0.0)
+                plugins.render_instrument(external_block, start, frames)
+                if plugin_pdc.delay_samples > 0:
+                    plugin_pdc.process(tracks, frames)
+                synth_track = max(0, min(NTRACKS - 1, proj.synth.track))
+                np.add(tracks[synth_track], external_block, out=tracks[synth_track])
+
+            automation_beats = engine._automation_beats(mode, start / (spb * engine.sr), frames)
             delay_send = reverb_send = None
             if run_sends:
-                delay_send, reverb_send = rack.send_buffers(n)
+                delay_send, reverb_send = rack.send_buffers(frames)
             for i in range(NTRACKS):
                 track = proj.tracks[i]
                 left, right = engine._track_controls(i, automation_beats)
                 if track.mute or (any_solo and not track.solo):
                     continue
                 buf = tracks[i]
-                fx = proj.tracks[i].fx
+                fx = track.fx
                 if fx.active:
                     rack.tracks[i].process(buf, fx)
-                np.multiply(buf[:, 0], left, out=panned[:n, 0])
-                np.multiply(buf[:, 1], right, out=panned[:n, 1])
-                np.add(block, panned[:n], out=block)
+                np.multiply(buf[:, 0], left, out=panned[:frames, 0])
+                np.multiply(buf[:, 1], right, out=panned[:frames, 1])
+                route_track(
+                    routing_plan,
+                    i,
+                    buf,
+                    panned[:frames],
+                    block,
+                    routing_buses,
+                    routing_scratch,
+                )
                 if run_sends and fx.sends_active:
                     if fx.send_delay > 1e-4:
-                        delay_send += panned[:n] * np.float32(fx.send_delay)
+                        delay_send += panned[:frames] * np.float32(fx.send_delay)
                     if fx.send_reverb > 1e-4:
-                        reverb_send += panned[:n] * np.float32(fx.send_reverb)
+                        reverb_send += panned[:frames] * np.float32(fx.send_reverb)
+            finish_buses(routing_plan, block, routing_buses, routing_scratch, frames)
             if run_sends:
                 if proj.delay_fx.enabled:
                     block += rack.delay.process(delay_send, proj.delay_fx, proj.bpm)
