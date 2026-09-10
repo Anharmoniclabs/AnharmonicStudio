@@ -548,6 +548,10 @@ class RecordingWorkflowController:
 
     def _build_menu(self):
         menu = self.window.menuBar().addMenu("Recording")
+        self.menu = menu
+        # Keep the QAction wrapper alive: temporary QAction.menu() wrappers can
+        # transfer ownership under PySide and delete the attached QMenu.
+        self.menu_action = menu.menuAction()
         for command_id in (
             "recording.settings",
             "recording.loop_toggle",

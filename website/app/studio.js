@@ -276,7 +276,42 @@
   }
 
   function playSynthVoice(note, velocity = .8, preview = false) {
-    ensureAudio().then(() => { const synth = projectStore.project.synth; const context = state.audio.context; if (!trackAudible(synth.track || 0)) return; const start = context.currentTime; const frequency = 440 * Math.pow(2, (note - 69) / 12); const output = context.createGain(); const filter = context.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = synth.cutoff; filter.Q.value = synth.resonance * 18; const osc1 = context.createOscillator(); const osc2 = context.createOscillator(); osc1.type = synth.osc1; osc2.type = synth.osc2; osc1.frequency.value = frequency; osc2.frequency.value = frequency * Math.pow(2, synth.osc2_octave || 0); osc1.detune.value = -synth.detune / 2; osc2.detune.value = synth.detune / 2; const mix1 = context.createGain(); const mix2 = context.createGain(); mix1.gain.value = 1 - synth.osc_mix; mix2.gain.value = synth.osc_mix; osc1.connect(mix1).connect(filter); osc2.connect(mix2).connect(filter); filter.connect(output).connect(trackOutput(synth.track || 0)); const peak = Math.max(.001, synth.volume * velocity); output.gain.setValueAtTime(.0001, start); output.gain.exponentialRampToValueAtTime(peak, start + synth.attack); output.gain.exponentialRampToValueAtTime(Math.max(.0001, peak * synth.sustain), start + synth.attack + synth.decay); osc1.start(start); osc2.start(start); const voice = { release: () => { output.gain.cancelScheduledValues(context.currentTime); output.gain.setTargetAtTime(.0001, context.currentTime, synth.release / 4); window.setTimeout(() => { try { osc1.stop(); osc2.stop(); } catch {} }, synth.release * 1000); } }; if (!preview) state.synthVoices.set(note, voice); else window.setTimeout(voice.release, 500); });
+    ensureAudio().then(() => {
+      const synth = projectStore.project.synth;
+      const context = state.audio.context;
+      if (!trackAudible(synth.track || 0)) return;
+      const start = context.currentTime;
+      const frequency = 440 * Math.pow(2, (note - 69) / 12);
+      const output = context.createGain();
+      const filter = context.createBiquadFilter();
+      filter.type = 'lowpass'; filter.frequency.value = synth.cutoff; filter.Q.value = synth.resonance * 18;
+      const osc1 = context.createOscillator(); const osc2 = context.createOscillator();
+      const waveform = type => type === 'saw' ? 'sawtooth' : type;
+      osc1.type = waveform(synth.osc1); osc2.type = waveform(synth.osc2);
+      osc1.frequency.value = frequency; osc2.frequency.value = frequency * Math.pow(2, synth.osc2_octave || 0);
+      osc1.detune.value = -synth.detune / 2; osc2.detune.value = synth.detune / 2;
+      const mix1 = context.createGain(); const mix2 = context.createGain();
+      mix1.gain.value = 1 - synth.osc_mix; mix2.gain.value = synth.osc_mix;
+      osc1.connect(mix1).connect(filter); osc2.connect(mix2).connect(filter);
+      filter.connect(output).connect(trackOutput(synth.track || 0));
+      const peak = Math.max(.0001, synth.volume * velocity);
+      output.gain.setValueAtTime(.0001, start);
+      output.gain.exponentialRampToValueAtTime(peak, start + Math.max(.001, synth.attack));
+      output.gain.exponentialRampToValueAtTime(Math.max(.0001, peak * synth.sustain), start + Math.max(.001, synth.attack) + Math.max(.001, synth.decay));
+      osc1.start(start); osc2.start(start);
+      let released = false;
+      const voice = { release: () => {
+        if (released) return;
+        released = true;
+        const end = context.currentTime + Math.max(.01, synth.release);
+        output.gain.cancelAndHoldAtTime(context.currentTime);
+        output.gain.exponentialRampToValueAtTime(.0001, end);
+        osc1.stop(end); osc2.stop(end);
+        osc2.onended = () => { osc1.disconnect(); osc2.disconnect(); mix1.disconnect(); mix2.disconnect(); filter.disconnect(); output.disconnect(); };
+      } };
+      if (!preview) { state.synthVoices.get(note)?.release(); state.synthVoices.set(note, voice); }
+      else window.setTimeout(voice.release, 500);
+    }).catch(error => setStatus(`instrument failed: ${error.message}`));
   }
   function startArp() { if (state.arpTimer || !projectStore.project.arp.enabled) return; state.arpTimer = window.setInterval(() => { const held = [...state.heldSynth].sort((a, b) => a - b); if (!held.length) return; const arp = projectStore.project.arp; const ordered = arp.mode === 'down' ? held.reverse() : held; const note = ordered[state.arpIndex % ordered.length] + (Math.floor(state.arpIndex / Math.max(1, ordered.length)) % Math.max(1, arp.octaves)) * 12; state.arpIndex += 1; playSynthVoice(note, .8); }, Math.max(40, 60000 / state.tempo * projectStore.project.arp.rate_beats)); }
   function stopArp() { window.clearInterval(state.arpTimer); state.arpTimer = null; state.arpIndex = 0; }
@@ -405,7 +440,7 @@
   $('#tempo').value = projectStore.project.bpm;
   $('#swing').value = projectStore.project.swing || 0;
   $('#swing-value').textContent = `${projectStore.project.swing || 0}%`;
-  $('#master-volume').value = Math.round((projectStore.project.master || .82) * 100);
+  $('#master-volume').value = Math.round((projectStore.project.master ?? .82) * 100);
   $('#master-value').textContent = `${$('#master-volume').value}%`;
   applyTheme(); renderPads(); renderWorkspace('song');
 })();

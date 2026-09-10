@@ -6,8 +6,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .plugin_chain_host import IsolatedPluginChain
-from .plugin_host import LivePlugin
 from .plugin_latency import MAX_COMPENSATION_SAMPLES, plugin_path_latency_samples
 from .pro_daw_state import plugin_chains
 from .workflow_routing import MASTER_TARGET, RoutingPlan
@@ -72,7 +70,11 @@ class LivePluginChains:
 class OfflinePluginChains:
     """Synchronous insert chains for bounce/export with no live bridge delay."""
 
-    def __init__(self, project, sample_rate: int, *, factory=IsolatedPluginChain):
+    def __init__(self, project, sample_rate: int, *, factory=None):
+        if factory is None:
+            from .plugin_chain_host import IsolatedPluginChain
+
+            factory = IsolatedPluginChain
         self.chains: dict[str, IsolatedPluginChain] = {}
         try:
             valid = known_chain_targets(project)
@@ -283,6 +285,9 @@ def install_plugin_chain_runtime() -> None:
 
 def build_live_chain(specifications, sample_rate: int, blocksize: int):
     """Warm a complete isolated chain before the callback can ever see it."""
+    from .plugin_chain_host import IsolatedPluginChain
+    from .plugin_host import LivePlugin
+
     plugin = IsolatedPluginChain(specifications, sample_rate)
     silence = np.zeros((blocksize, 2), dtype=np.float32)
     try:

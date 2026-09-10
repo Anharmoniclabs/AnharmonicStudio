@@ -409,7 +409,8 @@ class AutomationModeController(QObject):
             return
         playing = self._transport_writing()
         if playing and not self._was_playing:
-            self._latched.clear()
+            # A gesture can begin and end between Play and the first timer tick.
+            # Stop already clears previous passes; retain this transport's latch.
             write_targets = [
                 target for target in automation_targets() if self.mode(target) == "write"
             ]

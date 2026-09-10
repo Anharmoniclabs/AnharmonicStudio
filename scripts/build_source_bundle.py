@@ -21,6 +21,7 @@ SOURCE_DIRS = {
     "docs",
     ".github",
     "packaging",
+    "website",
 }
 SOURCE_FILES = {
     "README.md",
@@ -37,6 +38,7 @@ SOURCE_FILES = {
     ".python-version",
     ".gitignore",
     "requirements-build.txt",
+    "requirements-browser.txt",
 }
 EXCLUDED_PARTS = {"build", "__pycache__", ".venv", ".deps", "evidence", "previews", "benchmarks"}
 BINARY_SUFFIXES = {".so", ".dll", ".dylib", ".pyc", ".o", ".a", ".exe"}
