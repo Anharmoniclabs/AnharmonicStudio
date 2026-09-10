@@ -25,6 +25,20 @@ JavaScript adds workspace tabs and sends the selected platform to checkout. With
 checkout's confirmation page offers a platform chooser. The confirmation page requires
 JavaScript to verify the purchase and request download links.
 
+The experimental browser DAW is available at http://127.0.0.1:8765/app/studio.html. It
+mirrors the desktop Studio shell with project and transport bars, Browser, Pads, and
+Song, Beats, Notes, Sampler, Instruments, Autotune, and Mix workspaces. It is a
+browser-native port, not the PySide6 desktop window; full audio parity, recording,
+plugins, and stem separation remain staged workspaces.
+
+The browser app now loads `app/project-model.js` before `app/studio.js`. This is the
+compatibility foundation for the remaining workspace ports: it normalizes legacy
+browser projects and desktop-shaped pattern documents into project format v5 state,
+including 64 pads, 8 tracks, stable IDs, velocity maps, notes, media manifests, and
+transaction history. Save/load uses that normalized document; Undo and Redo operate on
+the same transactions. New editors should mutate this store rather than introducing
+tab-local state.
+
 The checker rejects installers and unexpected file types in Pages. Before publication,
 check mobile and desktop widths, keyboard navigation, all four platform selections,
 and closed/test/live checkout configurations. Keep browser evidence outside Git.
