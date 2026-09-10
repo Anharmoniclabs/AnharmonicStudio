@@ -14,6 +14,25 @@ import numpy as np
 MAX_COMPENSATION_SAMPLES = 480_000  # ten seconds at 48 kHz
 
 
+def plugin_path_latency_samples(plugin, *, include_live_bridge: bool = True) -> int:
+    """Return intrinsic plugin latency plus the isolated live bridge when present."""
+    if plugin is None:
+        return 0
+    info = getattr(plugin, "info", {})
+    try:
+        intrinsic = max(0, int(info.get("latency_samples", 0))) if isinstance(info, dict) else 0
+    except (TypeError, ValueError):
+        intrinsic = 0
+    bridge = 0
+    if include_live_bridge:
+        try:
+            blocksize = max(0, int(getattr(plugin, "blocksize", 0)))
+        except (TypeError, ValueError):
+            blocksize = 0
+        bridge = 2 * blocksize
+    return min(MAX_COMPENSATION_SAMPLES, intrinsic + bridge)
+
+
 class PluginDelayCompensator:
     def __init__(self, tracks: int, blocksize: int):
         self.tracks = int(tracks)
