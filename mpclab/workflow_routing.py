@@ -248,9 +248,7 @@ def install_engine_routing_extensions() -> None:
     original_configure_blocksize = Engine.configure_blocksize
 
     def allocate(engine) -> None:
-        engine._routing_buses = np.zeros(
-            (MAX_ROUTING_BUSES, engine.blocksize, 2), dtype=np.float32
-        )
+        engine._routing_buses = np.zeros((MAX_ROUTING_BUSES, engine.blocksize, 2), dtype=np.float32)
         engine._external_instrument = np.zeros((engine.blocksize, 2), dtype=np.float32)
         if not hasattr(engine, "plugin_pdc"):
             engine.plugin_pdc = PluginDelayCompensator(NTRACKS, engine.blocksize)

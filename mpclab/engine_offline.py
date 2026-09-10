@@ -150,9 +150,7 @@ def render_offline_reference(
             proj.delay_fx.enabled or proj.reverb_fx.enabled
         )
         routing_plan = compile_routing(proj)
-        routing_buses = np.zeros(
-            (MAX_ROUTING_BUSES, engine.blocksize, 2), dtype=np.float32
-        )
+        routing_buses = np.zeros((MAX_ROUTING_BUSES, engine.blocksize, 2), dtype=np.float32)
         panned = np.zeros((engine.blocksize, 2), dtype=np.float32)
         routing_scratch = np.zeros((engine.blocksize, 2), dtype=np.float32)
         for start in range(0, total, engine.blocksize):
