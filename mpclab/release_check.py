@@ -50,6 +50,9 @@ def main(report=None):
     from .runtime_paths import RESOURCE_ROOT
     from .plugin_host import IsolatedPlugin
     from .ui import main_window
+    from .application_features import attach_application_features, install_application_runtime
+
+    install_application_runtime()
 
     class IsolatedSettings:
         IniFormat = QSettings.IniFormat
@@ -94,6 +97,20 @@ def main(report=None):
             patch.object(main_window, "QSettings", IsolatedSettings),
         ):
             window = main_window.MainWindow(root, restore_session=False)
+            controller = attach_application_features(window)
+            required_commands = (
+                "plugins.insert_chains",
+                "plugins.reload_chains",
+                "recording.settings",
+                "recording.take_comp",
+                "automation.mode.latch",
+            )
+            for command_id in required_commands:
+                if not callable(controller.registry.get(command_id).callback):
+                    raise RuntimeError(f"Production command is not attached: {command_id}")
+            if window.automation_mode_controller.mode_combo is None:
+                raise RuntimeError("Production automation controls are not attached")
+            result["production_commands"] = list(required_commands)
             engine_ref = weakref.ref(window.engine)
             wave = (np.sin(np.arange(4800) * 0.08) * 0.2).astype(np.float32)
             clip = window.library.add_audio(np.column_stack((wave, wave)), "Release check")
@@ -133,7 +150,7 @@ def main(report=None):
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
             if isValid(window):
                 raise RuntimeError("Closed Qt window was retained")
-            del window
+            del controller, window
             gc.collect()
             if engine_ref() is not None:
                 raise RuntimeError("Closed workstation retained its audio engine")
