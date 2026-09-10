@@ -160,6 +160,8 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
             any_solo = True
             break
     rack = engine.rack
+    chains = getattr(engine, "plugin_chains", None)
+    chain_delays = getattr(engine, "plugin_chain_delays", None)
     send_has_input = False
     for i, track in enumerate(proj.tracks):
         if (
@@ -206,7 +208,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
             # feeding hidden voices into the effect chain.
             buf.fill(0.0)
         tailing = engine._track_tail[i] > 0
-        # Stateful DSP consumes a finite run of silent blocks, then sleeps.
+        # Stateful built-in DSP consumes a finite run of silent blocks, then sleeps.
         if t.fx.active and (has_input or tailing):
             rack.tracks[i].process(buf, t.fx, prepared_only=True)
             if has_input:
@@ -215,6 +217,11 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
                 engine._track_tail[i] = max(0, engine._track_tail[i] - frames)
         elif not t.fx.active:
             engine._track_tail[i] = 0
+        # External chains are one isolated bridge per whole serial chain. They
+        # stay fed with silence while present so third-party reverb/delay tails
+        # can drain without ever blocking this callback.
+        if chains is not None:
+            chains.render(f"track:{t.id}", buf)
         if g <= 0.0:
             engine.meters[i] = 0.0
             engine.peaks[i] = 0.0
@@ -226,7 +233,16 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         np.abs(bus, out=meter_scratch)
         engine.peaks[i] = float(np.max(meter_scratch))
         if routed:
-            route_track(routing_plan, i, buf, bus, master, routing_buses, send_scratch)
+            route_track(
+                routing_plan,
+                i,
+                buf,
+                bus,
+                master,
+                routing_buses,
+                send_scratch,
+                chain_delays,
+            )
         else:
             master += bus
         if run_sends and t.fx.sends_active:
@@ -238,7 +254,15 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
                 np.add(reverb_send, send_scratch, out=reverb_send)
 
     if routed:
-        finish_buses(routing_plan, master, routing_buses, send_scratch, frames)
+        finish_buses(
+            routing_plan,
+            master,
+            routing_buses,
+            send_scratch,
+            frames,
+            chain_delays,
+            chains.render if chains is not None else None,
+        )
 
     if run_sends:
         if proj.delay_fx.enabled:
@@ -250,7 +274,11 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
     # never changes how hard the bus compressor is working.
     if proj.master_fx.active:
         rack.master.process(master, proj.master_fx, prepared_only=True)
+    # Preserve the original single master-effect slot for project compatibility;
+    # the professional serial chain follows it and can hold up to eight effects.
     engine.external.render_effect(master)
+    if chains is not None:
+        chains.render("master", master)
     master_gain = (
         proj.master
         if automation_beats is None
