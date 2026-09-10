@@ -1,8 +1,8 @@
 """Compiled project routing graph shared by realtime playback and export.
 
-The core audio engine still owns eight source tracks.  Advanced routing lives in
+The core audio engine still owns eight source tracks. Advanced routing lives in
 validated workflow metadata and is compiled on the GUI thread into compact,
-callback-safe integer targets.  The callback only clears fixed scratch buffers
+callback-safe integer targets. The callback only clears fixed scratch buffers
 and performs NumPy adds/multiplies; it never walks arbitrary JSON or allocates a
 new routing object.
 """
@@ -17,6 +17,7 @@ from .sample_voice import _balance_gains
 
 MAX_ROUTING_BUSES = 16
 MASTER_TARGET = -1
+_ENGINE_INSTALLED = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,8 +46,10 @@ class RoutingPlan:
 
     @property
     def active(self) -> bool:
-        return bool(self.buses) or any(target != MASTER_TARGET for target in self.track_outputs) or any(
-            self.track_sends
+        return (
+            bool(self.buses)
+            or any(target != MASTER_TARGET for target in self.track_outputs)
+            or any(self.track_sends)
         )
 
     @classmethod
@@ -228,3 +231,68 @@ def finish_buses(
         for send in bus.sends:
             if not send.pre_fader:
                 _accumulate(send.target, block, send.gain, master, buses, scratch)
+
+
+def install_engine_routing_extensions() -> None:
+    """Install engine scratch/state before MainWindow creates the audio engine."""
+    global _ENGINE_INSTALLED
+    if _ENGINE_INSTALLED:
+        return
+
+    from .engine import Engine
+    from .model import NTRACKS
+    from .plugin_latency import PluginDelayCompensator, plugin_path_latency_samples
+
+    original_init = Engine.__init__
+    original_prepare_fx = Engine.prepare_fx
+    original_configure_blocksize = Engine.configure_blocksize
+
+    def allocate(engine) -> None:
+        engine._routing_buses = np.zeros(
+            (MAX_ROUTING_BUSES, engine.blocksize, 2), dtype=np.float32
+        )
+        engine._external_instrument = np.zeros((engine.blocksize, 2), dtype=np.float32)
+        if not hasattr(engine, "plugin_pdc"):
+            engine.plugin_pdc = PluginDelayCompensator(NTRACKS, engine.blocksize)
+        else:
+            engine.plugin_pdc.configure(0, engine.blocksize)
+        engine._routing_plan = compile_routing(engine.project)
+        engine.linux_audio.lock_arrays(
+            engine._routing_buses,
+            engine._external_instrument,
+            engine.plugin_pdc.history,
+            engine.plugin_pdc.output,
+        )
+
+    def init(engine, *args, **kwargs):
+        original_init(engine, *args, **kwargs)
+        allocate(engine)
+
+    def prepare_routing(engine, project=None):
+        plan = compile_routing(project or engine.project)
+        engine._routing_plan = plan
+        return plan
+
+    def prepare_plugin_latency(engine):
+        delay = plugin_path_latency_samples(engine.external.instrument, include_live_bridge=True)
+        engine.plugin_pdc.configure(delay, engine.blocksize)
+        engine.linux_audio.lock_arrays(engine.plugin_pdc.history, engine.plugin_pdc.output)
+        return delay
+
+    def prepare_fx(engine, project=None):
+        result = original_prepare_fx(engine, project)
+        prepare_routing(engine, project)
+        return result
+
+    def configure_blocksize(engine, frames):
+        result = original_configure_blocksize(engine, frames)
+        allocate(engine)
+        prepare_plugin_latency(engine)
+        return result
+
+    Engine.__init__ = init
+    Engine.prepare_routing = prepare_routing
+    Engine.prepare_plugin_latency = prepare_plugin_latency
+    Engine.prepare_fx = prepare_fx
+    Engine.configure_blocksize = configure_blocksize
+    _ENGINE_INSTALLED = True
