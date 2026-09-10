@@ -27,6 +27,7 @@ static HTML validation alone does not establish browser/desktop parity.
 | Browser controls | Placeholder pitch analysis, effects menus, sample library, chopping, and other controls | Implement and test functionality before claiming parity |
 | Browser persistence | Zero values overwritten; current_pattern ignored; source metadata discarded from notes/clips | Validate input and preserve desktop project semantics |
 | Native synth | Web Audio receives unsupported oscillator type `saw` | Map desktop oscillator names to browser types |
+| Packaged self-check | Startup check constructs the base window without production feature attachments | Use the production installation path and assert registered commands |
 | Delivery | Configured source SHA is `9adf246506f5648b46ff871783d4bb7fb9d9a3c8` | New immutable release, matching source/notices/checksums for all four platforms |
 | Attribution | Three github-actions formatting commits and one Copilot merge commit | Preserve truthful attribution; review history changes separately |
 
@@ -80,3 +81,34 @@ candidates, include recent feature tests on every native platform, and allow a
 new candidate version. Packaging rejects modified or untracked source inputs
 and verifies the commit again before promoting its local output directory.
 No Cloudflare catalog, bucket, live website, or historical Git author was changed.
+
+The first local Linux candidate at commit `aa67f18` passed packaging, relocation,
+temporary installation, and installed export. It is a development-machine build
+(glibc 2.44), not the portable Ubuntu release. Its check exposed a coverage gap:
+the packaged self-check did not attach the production feature controllers. The
+normal launcher and self-check now share `application_features.py`; the expanded
+self-check verifies plugin-chain, recording/comping, and automation commands.
+The expanded self-check and 39 related regressions passed. A new build must use
+this expanded check before it can replace that first candidate.
+
+## Browser architecture decision
+
+Both routes require rebuilding the browser UI to match the supplied desktop
+screenshot and a control-by-control acceptance matrix. The choice affects the
+audio implementation and the user's installation requirements:
+
+- **Desktop-connected browser:** use the installed DAW as the audio/project
+  authority through an authenticated local bridge. Local libraries, native
+  plugins and current DSP stay available. Requires installing and running the
+  companion DAW; cannot work as a standalone public static website. The bridge
+  must bind locally, require explicit pairing, validate origin and commands,
+  and preserve the desktop's project/thread ownership.
+- **Standalone browser:** implement browser-supported DSP, scheduling, media
+  storage and project exchange, with equivalent native code ported to WebAssembly
+  where feasible. Requires substantial porting and audio equivalence tests;
+  native VST3/LV2 binaries cannot simply be loaded by the current JavaScript app.
+  Cloudflare's static hosting/download worker does not provide the desktop
+  audio engine or local sample library.
+
+This decision remains pending. Neither the browser smoke tests nor native
+packaging resolve it. Cloudflare promotion remains on hold.
