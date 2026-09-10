@@ -62,5 +62,5 @@ def test_sidechain_duck_uses_previous_source_meter():
     dry_left, _ = advanced_track_controls(engine, 1, None)
     engine.meters[0] = 0.5
     ducked_left, _ = advanced_track_controls(engine, 1, None)
-    assert dry_left == 1.0
+    assert dry_left == project.tracks[1].gain
     assert 0.0 < ducked_left < dry_left

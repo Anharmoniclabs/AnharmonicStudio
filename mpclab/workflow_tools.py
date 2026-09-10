@@ -41,7 +41,10 @@ def arranged_clip_audio(app, clip: Clip) -> np.ndarray:
     """Render one arrangement audio block before mixer inserts."""
     source = _clip_source(app, clip)
     sr = app.library.sr
-    arranged_frames = max(1, int(round(clip.length_beats * 60.0 / app.project.bpm * sr)))
+    arranged_frames = max(
+        1,
+        int(round(clip.length_beats * 60.0 / app.project.bpm * sr)),
+    )
     if clip.loop:
         repeats = max(1, math.ceil(arranged_frames / len(source)))
         source = np.tile(source, (repeats, 1))[:arranged_frames]
@@ -57,7 +60,12 @@ def arranged_clip_audio(app, clip: Clip) -> np.ndarray:
 def _replace_with_render(app, clip: Clip, audio: np.ndarray, suffix: str) -> Clip:
     parent = clip.ref
     source_name = app.library.clips[parent].name if parent in app.library.clips else "clip"
-    rendered = app.library.add_audio(audio, f"{source_name} {suffix}", kind="render", parent=parent)
+    rendered = app.library.add_audio(
+        audio,
+        f"{source_name} {suffix}",
+        kind="render",
+        parent=parent,
+    )
     clip.ref = rendered.id
     clip.offset = 0.0
     clip.source_length = rendered.duration
@@ -82,16 +90,16 @@ def stretch_selected_clip(app, target_beats: float, mode: str = "complex") -> Cl
         raise ValueError("stretch target must be a positive beat length")
     source = _clip_source(app, clip) * np.float32(clip.gain)
     target_frames = max(
-        1, int(round(target_beats * 60.0 / app.project.bpm * app.library.sr))
+        1,
+        int(round(target_beats * 60.0 / app.project.bpm * app.library.sr)),
     )
     app.snapshot()
     rendered_audio = stretch_audio(source, target_frames, mode)
     _replace_with_render(app, clip, rendered_audio, f"{mode} stretch")
     clip.length_beats = target_beats
     clip.source_length = len(rendered_audio) / app.library.sr
-    ensure_workflow(app.project).setdefault("clip_edits", {}).setdefault(clip.id, {}).update(
-        stretch_mode=mode
-    )
+    edits = ensure_workflow(app.project).setdefault("clip_edits", {})
+    edits.setdefault(clip.id, {}).update(stretch_mode=mode)
     app._set_dirty(True)
     return clip
 
@@ -118,8 +126,10 @@ def fade_selected_clip(app, fade_in_ms: float, fade_out_ms: float) -> Clip:
         round(fade_out_ms * app.library.sr / 1000.0),
     )
     _replace_with_render(app, clip, audio, "faded")
-    ensure_workflow(app.project).setdefault("clip_edits", {}).setdefault(clip.id, {}).update(
-        fade_in_ms=fade_in_ms, fade_out_ms=fade_out_ms
+    edits = ensure_workflow(app.project).setdefault("clip_edits", {})
+    edits.setdefault(clip.id, {}).update(
+        fade_in_ms=fade_in_ms,
+        fade_out_ms=fade_out_ms,
     )
     app._set_dirty(True)
     return clip
@@ -137,7 +147,10 @@ def consolidate_selected_audio(app) -> Clip:
     start_beat = min(clip.start_beat for clip in clips)
     end_beat = max(clip.start_beat + clip.length_beats for clip in clips)
     sr = app.library.sr
-    total_frames = max(1, int(round((end_beat - start_beat) * 60.0 / app.project.bpm * sr)))
+    total_frames = max(
+        1,
+        int(round((end_beat - start_beat) * 60.0 / app.project.bpm * sr)),
+    )
     mixed = np.zeros((total_frames, 2), dtype=np.float32)
     for clip in clips:
         audio = arranged_clip_audio(app, clip)
@@ -149,7 +162,11 @@ def consolidate_selected_audio(app) -> Clip:
             mixed[offset : offset + take] += audio[:take, :2]
     np.clip(mixed, -1.0, 1.0, out=mixed)
     app.snapshot()
-    rendered = app.library.add_audio(mixed, f"{row.name} consolidated", kind="render")
+    rendered = app.library.add_audio(
+        mixed,
+        f"{row.name} consolidated",
+        kind="render",
+    )
     for clip in clips:
         owner = app.playlist.row_for_clip(clip)
         if owner and clip in owner.clips:
@@ -184,7 +201,7 @@ def bounce_selected_in_place(app) -> Clip:
 
 
 def render_mixer_track(app, track_index: int, *, tail: float = 1.0) -> np.ndarray:
-    """Render one mixer track with its inserts/sends but without master coloration."""
+    """Render one mixer track with inserts/sends but without master coloration."""
     track_index = int(track_index)
     if not 0 <= track_index < len(app.project.tracks):
         raise ValueError("mixer track is outside the project")
@@ -205,10 +222,13 @@ def render_mixer_track(app, track_index: int, *, tail: float = 1.0) -> np.ndarra
             setattr(project.master_fx, key, getattr(defaults, key))
         if "effect" in project.plugins:
             project.plugins["effect"]["bypass"] = True
-        return app.engine.render_offline(mode="song", tail=max(0.0, float(tail)))
+        return app.engine.render_offline(
+            mode="song",
+            tail=max(0.0, float(tail)),
+        )
     finally:
-        for track, (mute, solo) in zip(project.tracks, mute_solo):
-            track.mute, track.solo = mute, solo
+        for track, state in zip(project.tracks, mute_solo, strict=True):
+            track.mute, track.solo = state
         project.master = master
         for key, value in master_fx.items():
             setattr(project.master_fx, key, value)
@@ -233,7 +253,9 @@ def freeze_mixer_track(app, track_index: int) -> Clip:
     audio = render_mixer_track(app, track_index)
     app.snapshot()
     rendered = app.library.add_audio(audio, f"{track.name} freeze", kind="render")
-    pad_state = {str(i): pad.gain for i, pad in enumerate(project.pads) if pad.track == track_index}
+    pad_state = {
+        str(index): pad.gain for index, pad in enumerate(project.pads) if pad.track == track_index
+    }
     clip_state = {
         clip.id: clip.mute
         for row in project.rows
@@ -333,10 +355,12 @@ def smooth_current_automation(app, radius: int = 1) -> int:
     app.snapshot()
     smoothed = []
     for index in range(len(values)):
-        lo, hi = max(0, index - radius), min(len(values), index + radius + 1)
+        lo = max(0, index - radius)
+        hi = min(len(values), index + radius + 1)
         smoothed.append(sum(values[lo:hi]) / (hi - lo))
     lane.points = [
-        AutomationPoint(point.beat, value) for point, value in zip(lane.points, smoothed)
+        AutomationPoint(point.beat, value)
+        for point, value in zip(lane.points, smoothed, strict=True)
     ]
     panel.changed()
     return len(lane.points)
@@ -373,15 +397,13 @@ def launch_scene(app, scene_id: str) -> None:
 
 def new_take_lane(app, source_row=None) -> Row:
     source = source_row or next(
-        (
-            row
-            for row in app.project.rows
-            if row.id == getattr(app.track_capture, "armed_id", "")
-        ),
+        (row for row in app.project.rows if row.id == getattr(app.track_capture, "armed_id", "")),
         None,
     )
     if source is None:
-        source = app.project.rows[getattr(app.playlist, "paste_row", 0)]
+        fallback = int(getattr(app.playlist, "paste_row", 0))
+        fallback = max(0, min(len(app.project.rows) - 1, fallback))
+        source = app.project.rows[fallback]
     app.snapshot()
     lane = Row(
         name=f"{source.name} TAKE",

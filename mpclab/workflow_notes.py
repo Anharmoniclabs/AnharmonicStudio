@@ -77,7 +77,9 @@ def legato_notes(app) -> int:
     for voice in by_voice.values():
         voice.sort(key=lambda i: notes[i].start)
         for position, index in enumerate(voice):
-            next_start = notes[voice[position + 1]].start if position + 1 < len(voice) else pattern_end
+            next_start = (
+                notes[voice[position + 1]].start if position + 1 < len(voice) else pattern_end
+            )
             notes[index].duration = max(0.01, next_start - notes[index].start)
             changed += 1
     _canvas(app).commit()
@@ -120,7 +122,9 @@ def scale_lock_notes(app, root: int = 0, scale: str = "major") -> int:
             if candidate % 12 in pitch_classes
         ]
         if candidates:
-            notes[index].pitch = min(candidates, key=lambda candidate: (abs(candidate - pitch), candidate))
+            notes[index].pitch = min(
+                candidates, key=lambda candidate: (abs(candidate - pitch), candidate)
+            )
     _canvas(app).commit()
     return len(indices)
 
