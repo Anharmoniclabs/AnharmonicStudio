@@ -32,7 +32,7 @@ jobs:
       - name: Install isolated browser test tools
         run: |
           python -m pip install -r requirements-browser.txt
-          python -m playwright install --with-deps chromium
+          python -m playwright install chromium
       - name: Exercise browser workspaces and synth patch
         run: python scripts/audit_web_studio.py --output /tmp/anharmonic-web-checks
       - name: Preserve browser evidence
