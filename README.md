@@ -71,7 +71,8 @@ on the device exposing a standard MIDI input; proprietary modes may require
 the manufacturer's driver or a MIDI/controller-mode setting.
 
 The plugin scanner checks standard installation folders and folders you add.
-Load one VST3 instrument for synth notes and one master effect. Parameters and
+Load a VST3 instrument for synth notes, and use **Plugins → Manage insert plugin
+chains** to configure serial effects on tracks, buses and the master. Parameters and
 presets save with the project and are used during WAV export. Pitch bend and
 unmapped MIDI CCs reach the external instrument during live playing. Native
 plugin windows, MIDI output/clock synchronization, and recording expression
@@ -82,10 +83,11 @@ Plugins must match your operating system and processor. VST2, CLAP, and LV2
 are listed but cannot be loaded by this host. Audio Unit support is available
 through the host on macOS; this integration has only been tested on Linux.
 Linux checks include the Nekobi instrument and MVerb effect; other plugins may
-need different bus layouts or host features. Each plugin runs in a separate
-process. A failed instrument is silenced and a failed effect is bypassed;
-failed exports report the error. Live monitoring adds two audio buffers per
-loaded plugin (about 21 ms each at 48 kHz / 512 frames).
+need different bus layouts or host features. External instruments and effect
+chains run in isolated processes. A failed instrument is silenced and a failed
+effect path is bypassed; failed exports report the error. A serial insert chain
+shares one two-buffer live bridge (about 21 ms at 48 kHz / 512 frames), in addition
+to plugin-reported latency and the native output queue.
 
 The Audio interfaces tab refreshes available outputs, including Linux PipeWire
 devices. Choose the desired routing in Audio setup; connecting hardware does

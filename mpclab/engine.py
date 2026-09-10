@@ -1,10 +1,12 @@
 """Shared realtime engine coordinator and compatibility API.
 
-One PortAudio callback owns playback state. Shared modules implement sample
-voices, event scheduling, block mixing and offline export; this coordinator owns
-commands, devices, plugin routing and the callback's transport boundaries.
+A render worker owns playback state and calls portable C++ DSP kernels. The
+production PortAudio callback consumes a bounded native FIFO without entering
+Python. Shared modules preserve event scheduling, mixing and offline export;
+this coordinator owns commands, devices and transport boundaries.
 
-The GUI thread never touches the voice list — it posts commands on a queue.
+The GUI posts voice commands to a queue. Direct/offline _callback callers retain
+the synchronous reference contract used by the regression and benchmark tools.
 """
 
 from __future__ import annotations
@@ -30,6 +32,8 @@ from .music import Note
 from .synth import ArpState, SynthVoice
 from .orchestra import prepare_patch
 from .external_dsp import ExternalDSP
+from .native_dsp import NATIVE
+from .native_output import NativeOutputStream
 
 # Preserve imports used by extensions and tests during the modular transition.
 from .sample_voice import (
@@ -85,6 +89,7 @@ class Engine:
         self.output_device: int | str | None = None
         self.linux_audio = LinuxAudioRuntime()
         self._live_starting = False
+        self._native_output_active = False
         self.cmds: "queue.SimpleQueue[tuple]" = queue.SimpleQueue()
         self.voices: list[PadVoice] = []
         self.synth_voices: list[SynthVoice] = []
@@ -134,6 +139,7 @@ class Engine:
         self._preview = np.zeros((blocksize, 2), dtype=np.float32)
         self._send_scratch = np.zeros((blocksize, 2), dtype=np.float32)
         self._meter_scratch = np.zeros((blocksize, 2), dtype=np.float32)
+        self._native_meter = np.zeros(2, dtype=np.float64)
         # Microphone monitoring arrives from the independent input callback.
         # A lock-free, preallocated latest-block ring keeps both audio callbacks
         # away from Queue locks and heap allocations. Old cue audio is disposable.
@@ -309,7 +315,13 @@ class Engine:
             for _ in range(3):
                 warm.fill(0)
                 voice.render(warm, self.project.synth)
-        stream = sd.OutputStream(
+        native_output = NATIVE is not None and hasattr(sd, "_StreamBase")
+        stream_factory = (
+            (lambda **options: NativeOutputStream(sd, NATIVE, **options))
+            if native_output
+            else sd.OutputStream
+        )
+        stream = stream_factory(
             samplerate=self.sr,
             blocksize=self.blocksize,
             channels=2,
@@ -321,6 +333,7 @@ class Engine:
             prime_output_buffers_using_stream_callback=True,
             callback=self._callback,
         )
+        self._native_output_active = native_output
         try:
             self._live_starting = True
             stream.start()
@@ -329,11 +342,14 @@ class Engine:
                 stream.close()
             except Exception:
                 pass
+            self._native_output_active = False
             raise
         finally:
             self._live_starting = False
         self.stream = stream
         self.output_device = output_device
+        if native_output:
+            self.linux_audio.status.scheduler = "host-managed C++ callback"
 
     def stop(self) -> None:
         if self.stream is not None:
@@ -341,7 +357,10 @@ class Engine:
             try:
                 stream.stop()
             finally:
-                stream.close()
+                try:
+                    stream.close()
+                finally:
+                    self._native_output_active = False
 
     def configure_blocksize(self, frames: int) -> None:
         """Prepare a fixed callback size while the stream is stopped."""
@@ -434,6 +453,7 @@ class Engine:
         blocks the callback — worth far more than a lock here.
         """
         period = self.period_ms
+        xruns = self.underruns + getattr(self.stream, "underruns", 0)
         n = self._cb_filled
         if not n:
             return {
@@ -442,7 +462,7 @@ class Engine:
                 "max": 0.0,
                 "period": period,
                 "headroom": 1.0,
-                "xruns": self.underruns,
+                "xruns": xruns,
                 "blocks": 0,
             }
         window = self._cb_times[:n] * 1000.0
@@ -453,7 +473,7 @@ class Engine:
             "max": worst,
             "period": period,
             "headroom": max(0.0, 1.0 - worst / period) if period else 0.0,
-            "xruns": self.underruns,
+            "xruns": xruns,
             "blocks": n,
         }
 
@@ -464,6 +484,8 @@ class Engine:
         self._cb_filled = 0
         self._cb_times.fill(0.0)
         self.underruns = 0
+        if getattr(self.stream, "native_callback", False):
+            self.stream.reset_timing()
 
     # ── commands from the GUI thread ─────────────────────────
     def trigger_pad(self, index: int, velocity: float = 1.0) -> None:
@@ -863,7 +885,7 @@ class Engine:
 
     def _callback(self, outdata, frames, time_info, status) -> None:
         t_start = time.perf_counter()
-        if self._live_starting or self.stream is not None:
+        if not self._native_output_active and (self._live_starting or self.stream is not None):
             self.linux_audio.prepare_callback_thread()
         output_underflow = getattr(status, "output_underflow", None)
         if bool(status) and (output_underflow is None or output_underflow):

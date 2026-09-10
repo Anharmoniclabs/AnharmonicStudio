@@ -14,6 +14,7 @@ from .engine_constants import AUDITION, METRONOME, SEND_TAIL, TRACK_DSP_TAIL
 from .model import NPADS
 from .music import automation_values
 from .sample_voice import _balance_gains
+from .native_dsp import NATIVE
 from .workflow_routing import clear_bus_buffers, finish_buses, route_track
 
 if TYPE_CHECKING:
@@ -229,12 +230,16 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
             engine.meters[i] = 0.0
             engine.peaks[i] = 0.0
             continue
-        np.multiply(buf[:, 0], left, out=bus[:, 0])
-        np.multiply(buf[:, 1], right, out=bus[:, 1])
-        np.square(bus, out=meter_scratch)
-        engine.meters[i] = float(np.sqrt(np.mean(meter_scratch)))
-        np.abs(bus, out=meter_scratch)
-        engine.peaks[i] = float(np.max(meter_scratch))
+        if NATIVE is not None:
+            NATIVE.core.mix_meter(buf, bus, left, right, engine._native_meter)
+            engine.meters[i], engine.peaks[i] = engine._native_meter
+        else:
+            np.multiply(buf[:, 0], left, out=bus[:, 0])
+            np.multiply(buf[:, 1], right, out=bus[:, 1])
+            np.square(bus, out=meter_scratch)
+            engine.meters[i] = float(np.sqrt(np.mean(meter_scratch)))
+            np.abs(bus, out=meter_scratch)
+            engine.peaks[i] = float(np.max(meter_scratch))
         if routed:
             route_track(
                 routing_plan,

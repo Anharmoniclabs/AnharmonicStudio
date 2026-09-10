@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .native_dsp import NATIVE
+
 
 AUDIO_SAMPLE_RATE = 48_000
 ULTRA_LOW_LATENCY_BLOCKSIZE = 128
@@ -44,6 +46,7 @@ class MasteringKernel:
         self.release_step = 1.0 / max(1.0, release_seconds * self.sample_rate)
         self.gain = 1.0
         self.gain_reduction_db = 0.0
+        self._native_state = np.array([1.0, 0.0], dtype=np.float64)
         self._capacity = 0
         self._peak = np.empty(0, dtype=np.float32)
         self._target = np.empty(0, dtype=np.float32)
@@ -70,6 +73,11 @@ class MasteringKernel:
             raise ValueError("mastering kernel expects (frames, 2) stereo audio")
         frames = len(audio)
         if not frames:
+            return audio
+        if NATIVE is not None and audio.dtype == np.float32 and audio.flags.c_contiguous:
+            self._native_state[0] = self.gain
+            NATIVE.core.limit(audio, self.ceiling, self.release_step, self._native_state)
+            self.gain, self.gain_reduction_db = map(float, self._native_state)
             return audio
         self.prepare(frames)
         np.nan_to_num(audio, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
