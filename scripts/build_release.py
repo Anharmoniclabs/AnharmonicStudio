@@ -16,7 +16,7 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.build_native import build
-from scripts.build_source_bundle import build_bundle
+from scripts.build_source_bundle import SOURCE_DIRS, SOURCE_FILES, build_bundle
 
 ROOT = Path(__file__).resolve().parent.parent
 NAME = "AnharmonicStudio"
@@ -37,6 +37,28 @@ PACKAGES = (
 
 def run(command, **kwargs):
     return subprocess.run([str(arg) for arg in command], check=True, **kwargs)
+
+
+def release_source_commit(root):
+    """Require committed build inputs so the source SHA identifies the binary."""
+    dirty = subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=no"], cwd=root, text=True
+    ).strip()
+    untracked = subprocess.check_output(
+        [
+            "git",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "--",
+            *sorted(SOURCE_DIRS | SOURCE_FILES),
+        ],
+        cwd=root,
+        text=True,
+    ).strip()
+    if dirty or untracked:
+        raise ValueError("Commit source changes before building an identified release")
+    return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
 
 
 def check(executable, directory, report):
@@ -198,7 +220,7 @@ def main():
     parser.add_argument("output", type=Path, help="new output directory")
     parser.add_argument("--version", default="0.1.0-rc.1")
     args = parser.parse_args()
-    if any(
+    if not args.version or any(
         c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-"
         for c in args.version
     ):
@@ -210,6 +232,10 @@ def main():
     output = args.output.resolve()
     if output.exists():
         parser.error(f"Output already exists: {output}")
+    try:
+        source_commit = release_source_commit(ROOT)
+    except ValueError as exc:
+        parser.error(str(exc))
     native = build()
     media = [shutil.which(name) for name in ("ffmpeg", "ffprobe")]
     if not all(media):
@@ -246,9 +272,7 @@ def main():
         source_hash = build_bundle(ROOT, ready / f"{NAME}-{args.version}-source.zip")
         manifest = dict(
             version=args.version,
-            source_commit=subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-            ).strip(),
+            source_commit=source_commit,
             platform=platform.platform(),
             architecture=platform.machine(),
             python=platform.python_version(),
@@ -329,6 +353,10 @@ def main():
                     digest = hashlib.file_digest(stream, "sha256").hexdigest()
                 hashes.append(f"{digest}  {path.relative_to(ready).as_posix()}")
         (ready / "SHA256SUMS").write_text("\n".join(hashes) + "\n", encoding="utf-8")
+        if release_source_commit(ROOT) != source_commit:
+            raise RuntimeError(
+                "Source commit changed during packaging; rebuild from a stable checkout"
+            )
         os.replace(ready, output)
     print(f"Validated {sys.platform} candidate: {output}")
 

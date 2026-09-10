@@ -44,8 +44,31 @@ class Page(HTMLParser):
 
 
 def main():
-    page = Page()
-    page.feed((ROOT / "index.html").read_text())
+    pages = {}
+    errors = []
+    for path in ROOT.rglob("*.html"):
+        page = Page()
+        page.feed(path.read_text())
+        pages[path.resolve()] = page
+        errors.extend(f"{path.relative_to(ROOT)}: {error}" for error in page.errors)
+    for path, page in pages.items():
+        errors.extend(validate_references(path, page, pages))
+    for path in ROOT.rglob("*"):
+        if path.is_symlink():
+            errors.append(f"Symlinks are not allowed in Pages: {path.relative_to(ROOT)}")
+        elif path.is_file() and path.suffix.lower() not in ALLOWED and path != ROOT / ".nojekyll":
+            errors.append(f"Non-site file in Pages: {path.relative_to(ROOT)}")
+    required = {"download", "open-source", "support", "release-status", "download-dialog"}
+    landing = pages[(ROOT / "index.html").resolve()]
+    if required - landing.ids:
+        errors.append(f"Required sections missing: {required - landing.ids}")
+    if errors:
+        raise SystemExit("\n".join(errors))
+    print(f"Pages checks passed: {len(pages)} HTML pages; local references and site files only.")
+
+
+def validate_references(path, page, pages):
+    errors = []
     for reference in page.references:
         url = urlsplit(reference)
         if url.scheme or url.netloc:
@@ -55,28 +78,20 @@ def main():
                 and re.fullmatch(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", url.path)
             )
             if url.scheme != "https" and not contact:
-                page.errors.append(f"Non-HTTPS external reference: {reference}")
+                errors.append(f"{path.name}: Non-HTTPS external reference: {reference}")
             continue
         if not url.path:
             if url.fragment and url.fragment not in page.ids:
-                page.errors.append(f"Missing anchor: {reference}")
+                errors.append(f"{path.name}: Missing anchor: {reference}")
         else:
-            target = (ROOT / unquote(url.path)).resolve()
+            target = (path.parent / unquote(url.path)).resolve()
+            if target.is_dir():
+                target = target / "index.html"
             if not target.is_relative_to(ROOT) or not target.is_file():
-                page.errors.append(f"Missing or escaping local reference: {reference}")
-    for path in ROOT.rglob("*"):
-        if path.is_symlink():
-            page.errors.append(f"Symlinks are not allowed in Pages: {path.relative_to(ROOT)}")
-        elif path.is_file() and path.suffix.lower() not in ALLOWED and path != ROOT / ".nojekyll":
-            page.errors.append(f"Non-site file in Pages: {path.relative_to(ROOT)}")
-    required = {"download", "open-source", "support", "release-status", "download-dialog"}
-    if required - page.ids:
-        page.errors.append(f"Required sections missing: {required - page.ids}")
-    if page.errors:
-        raise SystemExit("\n".join(page.errors))
-    print(
-        f"Pages checks passed: {len(page.ids)} IDs, {len(page.references)} references; site files only."
-    )
+                errors.append(f"{path.name}: Missing or escaping local reference: {reference}")
+            elif url.fragment and target in pages and url.fragment not in pages[target].ids:
+                errors.append(f"{path.name}: Missing target anchor: {reference}")
+    return errors
 
 
 if __name__ == "__main__":

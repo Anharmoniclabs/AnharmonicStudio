@@ -2,6 +2,12 @@ name: encrypted release candidates
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'New candidate version (never reuse a published version)'
+        required: true
+        default: '0.1.0-rc.2'
+        type: string
   push:
     branches: ['release/**']
 
@@ -9,7 +15,10 @@ permissions:
   contents: read
 
 jobs:
+  validate:
+    uses: ./.github/workflows/quality.yml
   native-candidate:
+    needs: validate
     if: github.repository == 'Anharmoniclabs/AnharmonicStudio'
     strategy:
       fail-fast: false
@@ -73,6 +82,14 @@ jobs:
           tests/test_track_recording.py tests/test_audio_storage.py
           tests/test_midi_devices.py tests/test_devices_ui.py
           tests/test_external_plugins.py tests/test_plugin_host.py
+          tests/test_workflow_state.py tests/test_workflow_commands.py
+          tests/test_workflow_mixing.py tests/test_premium_workflows.py
+          tests/test_workflow_routing.py tests/test_routing_audio_paths.py
+          tests/test_loop_punch_recording.py tests/test_take_comping.py
+          tests/test_take_comping_safety.py tests/test_pro_daw_state.py
+          tests/test_plugin_chain_host.py tests/test_plugin_chain_runtime.py
+          tests/test_plugin_chain_ui.py tests/test_plugin_latency.py
+          tests/test_automation_mode_state.py tests/test_automation_modes.py
           tests/test_paced_session.py
           --junitxml=reports/release-tests.xml
       - name: Ten minute mixed-instrument session (no physical devices)
@@ -81,7 +98,10 @@ jobs:
           --max-p99-load 1.0 --max-late-fraction 0.05 --max-growth-mib 64
           --json reports/soak.json
       - name: Compile, relocate and test installer
-        run: uv run --no-sync python scripts/build_release.py dist/${{ matrix.target }} --version 0.1.0-rc.1
+        env:
+          RELEASE_VERSION: ${{ inputs.version || '0.1.0-rc.2' }}
+        shell: bash
+        run: uv run --no-sync python scripts/build_release.py dist/${{ matrix.target }} --version "$RELEASE_VERSION"
       - name: Encrypt paid candidates before upload
         run: uv run --no-sync python scripts/seal_release.py dist/${{ matrix.target }} sealed/${{ matrix.target }}.enc
       - name: Upload only encrypted binaries

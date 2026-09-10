@@ -2,19 +2,47 @@ name: Source checks
 
 on:
   push:
-    paths-ignore: ['website/**']
   pull_request:
-    paths-ignore: ['website/**']
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: source-checks-${{ github.ref }}
+  group: source-checks-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate website and browser project regressions
+        run: |
+          python3 scripts/check_website.py
+          node --test tests/web/*.test.cjs
+      - name: Install isolated browser test tools
+        run: |
+          python -m pip install -r requirements-browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Exercise browser workspaces and synth patch
+        run: python scripts/audit_web_studio.py --output /tmp/anharmonic-web-checks
+      - name: Preserve browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-checks-${{ github.run_id }}
+          path: /tmp/anharmonic-web-checks/
+          retention-days: 7
+
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
