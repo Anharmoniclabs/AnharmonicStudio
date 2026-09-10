@@ -110,6 +110,7 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication, QMessageBox
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QFontDatabase, QIcon
+    from .plugin_chain_runtime import install_plugin_chain_runtime
     from .premium_workflows import attach_premium_workflows, install_premium_runtime
     from .pro_daw_state import install_pro_daw_state
     from .recording_workflows import (
@@ -124,6 +125,7 @@ def main() -> int:
     # MainWindow creates TrackCapture or restores an autosaved session.
     install_premium_runtime()
     install_pro_daw_state()
+    install_plugin_chain_runtime()
     install_recording_capture_extensions()
     from .ui.main_window import MainWindow
 
