@@ -1,0 +1,2 @@
+# Isolated headless browser checks; not a desktop application dependency.
+playwright==1.58.0
