@@ -29,11 +29,42 @@ JavaScript adds workspace tabs and sends the selected platform to checkout. With
 checkout's confirmation page offers a platform chooser. The confirmation page requires
 JavaScript to verify the purchase and request download links.
 
-The experimental browser DAW is available at http://127.0.0.1:8765/app/studio.html. It
-mirrors the desktop Studio shell with project and transport bars, Browser, Pads, and
-Song, Beats, Notes, Sampler, Instruments, Autotune, and Mix workspaces. It is a
-browser-native port, not the PySide6 desktop window; full audio parity, recording,
-plugins, and stem separation remain staged workspaces.
+The standalone browser DAW is at http://127.0.0.1:8765/app/studio.html; `/app/`
+redirects to this canonical implementation. Its Song, Beats, Notes, Sampler,
+Instruments and Mix workspaces share one project store and one playback/export
+audio graph. Empty projects contain no invented library entries or audio clips.
+
+Browser support includes imported audio, 64 pads, sample trim/pitch/pan/gain and
+looping, step and note sequencing, oscillator instruments, arrangement clips,
+eight mixer tracks, microphone recording, real output meters, undo/redo, and WAV
+export. Save retains original audio in IndexedDB and metadata in local storage;
+Project + audio is a portable **browser** bundle. Desktop JSON exports metadata
+separately: sounds must be imported/relinked in the desktop library, and browser
+master effects must be recreated there. Never treat a browser bundle as a native
+project JSON or silently replace an unrecognized project with an empty song.
+
+This is not the PySide6 app or bit-identical native DSP. Active native automation,
+plugins, custom bus routing, sidechains, clip processors and sample-layer synth
+patches cannot be silently omitted from playback/export. Use the native app to
+render those parts to audio. Pitch correction and stem separation are not browser
+features. The Capabilities dialog describes these limits rather than presenting
+placeholder controls as functional tools.
+
+Automated browser validation uses isolated Chromium, not a desktop/chat window or
+real microphone. Other browser engines and physical recording devices are not
+certified by those checks. Offline export limits are 128 overlapping voices,
+50,000 scheduled events and 300 seconds including effect tails, PCM16 stereo at
+up to 48 kHz. Long/dense editor documents and decoded audio are bounded without
+discarding the imported project. Keep portable backups; browser storage may be
+cleared or run out of space.
+
+```sh
+node --test tests/web/*.test.cjs
+python -m pip install -r requirements-browser.txt
+python -m playwright install chromium
+python scripts/audit_web_studio.py --output /tmp/anharmonic-web-checks
+python tests/web/audio-engine.browser.py --output /tmp/anharmonic-web-checks/audio-report.json
+```
 
 The browser app now loads `app/project-model.js` before `app/studio.js`. This is the
 compatibility foundation for the remaining workspace ports: it normalizes legacy

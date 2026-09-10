@@ -124,7 +124,7 @@ promotion remains on hold pending final acceptance.
 
 - Browser project normalization now validates nested numeric/index fields and
   stable identities, preserves unknown desktop metadata, and bounds document
-  complexity/history memory. Nine model regressions pass; all 83 saved desktop
+  complexity/history memory. Ten model regressions pass; all 83 saved desktop
   project JSON files present during this check loaded read-only. User songs were
   not edited.
 - Catalog preparation now validates all four platforms before emitting output,
@@ -145,3 +145,22 @@ promotion remains on hold pending final acceptance.
 - A separate, actively changing native rewrite remains outside this release
   integration tree. Do not absorb its unfinished work or claim its platform
   validation applies to the repaired engine on main.
+
+The continued desktop validation passed **1270 tests, 5 skipped** in 525.52
+seconds at 633.2 MiB peak RSS. Python DSP fallback passed **67 tests**, and the
+production startup/export self-check again passed with zero audio devices opened.
+New focused installation, catalog, profiler and project-interchange safeguards
+were tested separately after the full suite collected its tests.
+
+The shared browser audio graph passed **24 actual Chromium audio regressions**,
+including sample PCM trim/reverse/pitch/pan/gain, routing/mute/solo, native swing
+timing, gate/choke/loop crossfades, tempo changes, effect export, and missing-media
+and unsupported-processing rejection. These do not certify bit-identical native
+DSP or physical-device performance. **60 headless UI checks passed with zero
+browser exceptions**, covering file import, editing,
+portable export/reopen in a fresh browser context, generated microphone fixtures,
+and audible song export, plus recording recovery and mobile controls. Two native
+and two JavaScript interchange tests verify the same shared fixture; a generated
+browser export also preserved 1,400 shared scalar fields through the native
+project loader. Browser-only media storage and master effects are not native
+project processing and remain explicitly documented.
