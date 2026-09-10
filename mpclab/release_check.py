@@ -28,6 +28,12 @@ def plugin_runtime_probe(connection, specification, sample_rate):
         connection.close()
 
 
+def _require_callable_command(registry, command_id):
+    command = registry.get(command_id)
+    if command is None or not callable(command.callback):
+        raise RuntimeError(f"Production command is not attached: {command_id}")
+
+
 def main(report=None):
     # This command creates only offscreen Qt objects in its own process.
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
@@ -106,8 +112,7 @@ def main(report=None):
                 "automation.mode.latch",
             )
             for command_id in required_commands:
-                if not callable(controller.registry.get(command_id).callback):
-                    raise RuntimeError(f"Production command is not attached: {command_id}")
+                _require_callable_command(controller.registry, command_id)
             if window.automation_mode_controller.mode_combo is None:
                 raise RuntimeError("Production automation controls are not attached")
             result["production_commands"] = list(required_commands)
