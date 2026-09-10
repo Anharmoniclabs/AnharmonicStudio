@@ -116,6 +116,7 @@ def main() -> int:
         install_recording_capture_extensions,
     )
     from .routing_ui import attach_routing_ui
+    from .take_comping import attach_take_comping
     from .workflow_compat import restore_unmanaged_legacy_shortcuts
 
     # Project persistence and optional runtime extensions must be ready before
@@ -149,6 +150,7 @@ def main() -> int:
     controller = attach_premium_workflows(win)
     attach_routing_ui(win, controller)
     attach_recording_workflows(win, controller)
+    attach_take_comping(win, controller)
     restore_unmanaged_legacy_shortcuts(controller)
     if args.project is not None:
         if not win.load_project_path(args.project, clear_session=False):
