@@ -111,6 +111,7 @@ def main() -> int:
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QFontDatabase, QIcon
     from .premium_workflows import attach_premium_workflows, install_premium_runtime
+    from .pro_daw_state import install_pro_daw_state
     from .recording_workflows import (
         attach_recording_workflows,
         install_recording_capture_extensions,
@@ -122,6 +123,7 @@ def main() -> int:
     # Project persistence and optional runtime extensions must be ready before
     # MainWindow creates TrackCapture or restores an autosaved session.
     install_premium_runtime()
+    install_pro_daw_state()
     install_recording_capture_extensions()
     from .ui.main_window import MainWindow
 
