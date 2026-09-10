@@ -561,6 +561,12 @@ class Project:
     def from_dict(cls, d: dict) -> "Project":
         if not isinstance(d, dict):
             raise ValueError("project root must be a JSON object")
+        if "anharmonic_bundle" in d:
+            raise ValueError(
+                "This is a browser Project + audio bundle, not a desktop project. "
+                "Open it in Web Studio and export Desktop project JSON; "
+                "import and relink its audio separately. The current session was not replaced."
+            )
         d = migrate_project_document(d, target_version=PROJECT_FORMAT_VERSION)
 
         def mapping(name: str) -> dict:

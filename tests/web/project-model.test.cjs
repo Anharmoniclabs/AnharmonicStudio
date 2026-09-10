@@ -104,11 +104,22 @@ test('unsafe edits do not enter history or modify the document', () => {
   }
 });
 
-test('zero-velocity notes/steps and zero-length notes survive as silent events', () => {
-  const store = new ProjectStore({ patterns: [{ steps: { 0: { 0: 0 } }, notes: [{ pitch: 0, velocity: 0, duration: 0 }] }] });
+test('zero-velocity steps survive; native-invalid zero notes are rejected', () => {
+  const store = new ProjectStore({ patterns: [{ steps: { 0: { 0: 0 } }, notes: [{ pitch: 0, velocity: .1, duration: .1 }] }] });
   assert.equal(store.pattern.steps[0][0], 0);
-  assert.equal(store.pattern.notes[0].duration, 0);
-  assert.equal(store.pattern.notes[0].velocity, 0);
+  assert.equal(store.pattern.notes[0].pitch, 0);
+  assert.throws(() => new ProjectStore({ patterns: [{ notes: [{ duration: 0 }] }] }));
+  assert.throws(() => new ProjectStore({ patterns: [{ notes: [{ velocity: 0 }] }] }));
+});
+
+test('supported native effects reject malformed controls and retain bypass', () => {
+  const store = new ProjectStore({ loop_enabled: false, self_choke: false, master_fx: { glue: false, low: 0 }, delay_fx: { enabled: false, sync: '1/8.', level: 1.09 }, reverb_fx: { enabled: false, level: 0 } });
+  assert.equal(store.project.master_fx.glue, false);
+  assert.equal(store.project.delay_fx.enabled, false);
+  assert.equal(store.project.delay_fx.sync, '1/8.');
+  assert.equal(store.project.delay_fx.level, 1.09);
+  assert.equal(store.project.reverb_fx.level, 0);
+  for (const invalid of [{ loop_enabled: 'false' }, { self_choke: 1 }, { master_fx: [] }, { master_fx: { glue: 'false' } }, { delay_fx: { enabled: 'false' } }, { delay_fx: { feedback: -1 } }, { reverb_fx: { size: '1' } }]) assert.throws(() => new ProjectStore(invalid));
 });
 
 test('document complexity and history memory have hard bounds', () => {

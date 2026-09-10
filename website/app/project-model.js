@@ -181,7 +181,7 @@
       ...pattern, id: identity(pattern.id, uid('pattern')), name: string(pattern.name, `pattern ${index + 1}`),
       bars: number(pattern.bars, 1, 1, 256, true), div: number(pattern.div, 4, 1, 32, true), steps: normalizeSteps(pattern.steps),
       notes: unique(records(pattern.notes, 'notes', 100000).map(note => ({ ...note, id: identity(note.id, uid('note')),
-        pitch: number(note.pitch, 60, 0, 127, true), start: number(note.start, 0, 0, 1000000), duration: number(note.duration, .25, 0, 4096), velocity: number(note.velocity, .8, 0, 1),
+        pitch: number(note.pitch, 60, 0, 127, true), start: number(note.start, 0, 0, 1000000), duration: number(note.duration, .25, Number.MIN_VALUE, 4096), velocity: number(note.velocity, .8, Number.MIN_VALUE, 1),
         pad: note.pad === undefined || note.pad === null ? null : number(note.pad, 0, 0, PAD_COUNT - 1, true) })), 'note')
     })), 'pattern');
     normalized.tracks = records(source.tracks, 'tracks', TRACK_COUNT).map((track, index) => {
@@ -222,6 +222,21 @@
     const currentIndex = normalized.patterns.findIndex(pattern => pattern.id === source.current_pattern);
     normalized.selected_pattern = currentIndex >= 0 ? currentIndex : Math.min(normalized.patterns.length - 1, number(source.selected_pattern, 0, 0, 1023, true));
     normalized.current_pattern = normalized.patterns[normalized.selected_pattern].id;
+    for (const field of ['loop_enabled', 'self_choke']) if (source[field] !== undefined) normalized[field] = boolean(source[field]);
+    if (source.master_fx !== undefined) {
+      normalized.master_fx = numericFields({ ...object(source.master_fx, 'master effects') }, { low: [0, -36, 36], mid: [0, -36, 36], high: [0, -36, 36], drive: [0, 0, 1], glue_amount: [.4, 0, 1] });
+      normalized.master_fx.glue = boolean(source.master_fx.glue);
+    }
+    if (source.delay_fx !== undefined) {
+      normalized.delay_fx = numericFields({ ...object(source.delay_fx, 'delay effects') }, { feedback: [.36, 0, 1], damping: [.4, 0, 1], level: [.9, 0, 4] });
+      normalized.delay_fx.enabled = boolean(source.delay_fx.enabled, true);
+      normalized.delay_fx.ping_pong = boolean(source.delay_fx.ping_pong, true);
+      normalized.delay_fx.sync = choice(source.delay_fx.sync, '1/8', ['1/1', '1/2', '1/4', '1/8', '1/16', '1/8.', '1/8D', '1/8T', '1/16T']);
+    }
+    if (source.reverb_fx !== undefined) {
+      normalized.reverb_fx = numericFields({ ...object(source.reverb_fx, 'reverb effects') }, { size: [.55, 0, 1], damping: [.45, 0, 1], width: [1, 0, 2], predelay: [.018, 0, .3], level: [.9, 0, 4] });
+      normalized.reverb_fx.enabled = boolean(source.reverb_fx.enabled, true);
+    }
     validateJSON(normalized);
     return normalized;
   }
