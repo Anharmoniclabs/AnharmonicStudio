@@ -10,7 +10,6 @@ import weakref
 
 from PySide6.QtCore import QObject, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -142,8 +141,7 @@ class PluginChainController(QObject):
             if target not in desired:
                 runtime.remove(target)
         self._pending = {
-            target: (generation, specifications)
-            for target, specifications in desired.items()
+            target: (generation, specifications) for target, specifications in desired.items()
         }
         self.app.engine.prepare_plugin_chain_latency()
         self.status = "Loading insert chains…" if self._pending else "Insert chains ready"
@@ -285,7 +283,10 @@ class PluginChainController(QObject):
         self.timer.stop()
         self._generation += 1
         self._pending.clear()
-        self.app.engine.plugin_chains.close()
+        try:
+            self.app.engine.plugin_chains.close()
+        except RuntimeError:
+            pass
 
 
 class PluginChainDialog(QDialog):
