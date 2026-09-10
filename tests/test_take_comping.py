@@ -169,6 +169,25 @@ def test_audio_swipe_starts_from_active_take_without_touching_source_clips():
     ]
 
 
+def test_audio_swipe_uses_actual_latency_shifted_take_coverage():
+    project, _source, lane_one, lane_two, group_id = _audio_project()
+    lane_one.clips[0].start_beat = 3.95
+
+    row = swipe_comp_range(project, group_id, lane_one.id, 4.0, 8.0)
+
+    assert comp_coverage(row) == [
+        (4.0, 7.95, "audio"),
+        (7.95, 8.0, "audio"),
+    ]
+    clips = sorted(row.clips, key=lambda item: item.start_beat)
+    assert clips[0].offset == pytest.approx(0.025)
+    assert clips[0].source_length == pytest.approx(1.975)
+    assert clips[1].offset == pytest.approx(3.975)
+    assert clips[1].source_length == pytest.approx(0.025)
+    assert [lane_one.mute, lane_two.mute] == [True, True]
+    assert take_group(project, group_id)["active_lane"] == lane_one.id
+
+
 def test_repainting_and_erasing_only_rebuild_the_requested_comp_range():
     project, _source, lane_one, lane_two, group_id = _audio_project()
     row = swipe_comp_range(project, group_id, lane_one.id, 5.0, 7.0)
