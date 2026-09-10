@@ -1,0 +1,49 @@
+name: Format Recording Workflow Once
+
+on:
+  push:
+    branches:
+      - feature/loop-punch-takes
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: ${{ !contains(github.event.head_commit.message, '[autoformat]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feature/loop-punch-takes
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
+      - name: Apply lint fixes and formatter
+        run: |
+          uv sync --locked --group dev
+          uv run --no-sync ruff check --fix \
+            mpclab/__main__.py \
+            mpclab/recording_workflows.py \
+            mpclab/workflow_state.py \
+            tests/test_loop_punch_recording.py
+          uv run --no-sync ruff format \
+            mpclab/__main__.py \
+            mpclab/recording_workflows.py \
+            mpclab/workflow_state.py \
+            tests/test_loop_punch_recording.py
+      - name: Commit formatter output
+        run: |
+          if git diff --quiet; then
+            echo 'No formatter changes required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mpclab tests
+          git commit -m 'Format loop and punch recording workflow [autoformat]'
+          git push origin HEAD:feature/loop-punch-takes
