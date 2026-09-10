@@ -43,13 +43,16 @@ def test_native_rejects_mismatched_buffers():
 
 
 @pytest.mark.parametrize("rate", [44100, 96000])
-def test_native_phase_wraps_match_reference_with_fast_modulation_and_patch_changes(monkeypatch, rate):
+def test_native_phase_wraps_match_reference_with_fast_modulation_and_patch_changes(
+    monkeypatch, rate
+):
     results = []
     phases = []
     for backend in (None, NATIVE):
         monkeypatch.setattr(synth, "NATIVE", backend)
-        voice = synth.SynthVoice(123, 0.8, rate, phase1=0.999999, phase2=0.999999,
-                                 phase_sub=0.999999, lfo_phase=0.999999)
+        voice = synth.SynthVoice(
+            123, 0.8, rate, phase1=0.999999, phase2=0.999999, phase_sub=0.999999, lfo_phase=0.999999
+        )
         patch = synth.patch_copy("Midnight Brass")
         blocks = []
         for size, lfo_rate in ((513, 12000), (1, 0.01), (256, 17777), (4096, 19)):
