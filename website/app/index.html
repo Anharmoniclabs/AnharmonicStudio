@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#12151a">
+  <meta name="description" content="Anharmonic Studio browser workspace.">
+  <title>Anharmonic Studio Web Studio</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Skip to workspace</a>
+  <header class="topbar">
+    <a class="brand" href="../" aria-label="Back to Anharmonic Studio home"><span class="brand-mark">A</span><span><strong>ANHARMONIC</strong><small>WEB STUDIO</small></span></a>
+    <div class="project-title"><label for="project-name">PROJECT</label><input id="project-name" value="Untitled session" spellcheck="false"></div>
+    <div class="top-actions"><button class="quiet-button" id="new-project" type="button">New</button><button class="quiet-button" id="import-project" type="button">Import</button><button class="quiet-button" id="save-project" type="button">Save</button><button class="quiet-button" id="export-project" type="button">Export JSON</button><button class="accent-button" id="export-wav" type="button">Export WAV</button></div>
+  </header>
+
+  <main id="workspace" class="workspace">
+    <aside class="sidebar" aria-label="Studio workspaces">
+      <p class="sidebar-label">WORKSPACES</p>
+      <button class="workspace-nav active" type="button"><span>01</span>Sampler</button>
+      <button class="workspace-nav" type="button" disabled><span>02</span>Beats <em>soon</em></button>
+      <button class="workspace-nav" type="button" disabled><span>03</span>Instruments <em>soon</em></button>
+      <button class="workspace-nav" type="button" disabled><span>04</span>Notes <em>soon</em></button>
+      <button class="workspace-nav" type="button" disabled><span>05</span>Song <em>soon</em></button>
+      <button class="workspace-nav" type="button" disabled><span>06</span>Mix <em>soon</em></button>
+      <div class="sidebar-bottom"><span class="status-dot"></span><span id="audio-status">Audio engine ready</span><p>Browser preview<br>Project format v5 compatible</p></div>
+    </aside>
+
+    <section class="main-panel" aria-label="Sampler and sequencer">
+      <div class="transport-bar">
+        <button class="transport-button" id="play-toggle" type="button" aria-label="Play"><span class="play-icon">▶</span><span id="play-label">Play</span></button>
+        <button class="stop-button" id="stop-button" type="button">Stop</button>
+        <div class="transport-readout"><span id="step-readout">01</span><small>STEP</small></div>
+        <label class="tempo-control" for="tempo"><span>BPM</span><input id="tempo" type="number" min="40" max="220" value="110"><button id="tempo-down" type="button" aria-label="Decrease tempo">−</button><button id="tempo-up" type="button" aria-label="Increase tempo">+</button></label>
+        <div class="transport-spacer"></div><span class="engine-note"><span class="status-dot"></span>LOCAL AUDIO</span>
+      </div>
+
+      <div class="content-scroll">
+        <section class="intro-row"><div><p class="eyebrow">01 / MAKE A LOOP</p><h1>Find the<br><em>moment.</em></h1></div><p class="intro-copy">Drop in a sound, make it playable, then give it a pulse. This browser workspace is the first working piece of the studio.</p></section>
+
+        <section class="sampler-section panel-section" aria-labelledby="sampler-heading">
+          <div class="section-heading"><div><p class="eyebrow">SAMPLER</p><h2 id="sampler-heading">Playable sounds</h2></div><label class="file-button">Import audio<input id="audio-file" type="file" accept="audio/*"></label></div>
+          <div class="sample-strip"><div class="sample-visual"><div class="sample-wave" id="sample-wave" aria-hidden="true"></div><span id="sample-name">No sample loaded</span><small id="sample-meta">Import a WAV, MP3, or browser-supported audio file</small></div><div class="sample-actions"><button id="preview-sample" type="button">Preview selected</button><span id="selected-pad">Pad 01 selected</span></div></div>
+          <div class="pad-grid" id="pad-grid" aria-label="Sampler pads"></div>
+        </section>
+
+        <section class="sequencer-section panel-section" aria-labelledby="sequencer-heading">
+          <div class="section-heading"><div><p class="eyebrow">SEQUENCER</p><h2 id="sequencer-heading">Build the pulse</h2></div><div class="pattern-controls"><span>Pattern 01</span><button id="clear-pattern" type="button">Clear</button></div></div>
+          <div class="sequencer" id="sequencer" aria-label="16 step sequencer"></div>
+          <div class="sequencer-footer"><span>Click a cell to place a hit. Press <kbd>1</kbd>–<kbd>8</kbd> to play a pad.</span><span id="pattern-status">4 bars · 16 steps</span></div>
+        </section>
+
+        <section class="future-section panel-section"><div><p class="eyebrow">THE REST OF THE STUDIO</p><h2>One idea.<br><em>Every direction.</em></h2></div><div class="future-list"><span>Instruments <small>next workspace</small></span><span>Piano roll <small>next workspace</small></span><span>Song arrangement <small>next workspace</small></span><span>Mixer & effects <small>next workspace</small></span></div></section>
+      </div>
+    </section>
+  </main>
+
+  <input id="project-file" type="file" accept="application/json,.json" hidden>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

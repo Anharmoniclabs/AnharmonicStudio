@@ -3,8 +3,8 @@
 A comp is a normal Song row, not a second hidden project format. Audio regions
 reference the existing take sources with adjusted offsets; note regions create
 small derived patterns containing only the selected phrase. Re-swiping a range
-splits/removes overlapping comp material, giving the familiar "paint the best
-take into the comp" workflow while keeping every source lane untouched.
+splits/removes overlapping comp material while the source take material remains
+intact. Playback ownership moves to the comp only while it is active.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 
 from .model import Clip, Pattern, Row
 from .workflow_commands import CommandSpec
-from .workflow_state import ensure_workflow
+from .workflow_state import ensure_workflow, validate_workflow
 
 _EPSILON = 1e-7
 
@@ -51,6 +51,14 @@ def row_by_id(project, row_id: str) -> Row | None:
     return next((row for row in project.rows if row.id == row_id), None)
 
 
+def take_lane_rows(project, group: dict) -> list[Row]:
+    return [
+        lane
+        for lane_id in group.get("lanes", [])
+        if (lane := row_by_id(project, lane_id)) is not None
+    ]
+
+
 def comp_row_id(group: dict) -> str:
     return f"{group['id']}:comp"
 
@@ -70,12 +78,9 @@ def ensure_comp_row(project, group: dict) -> Row:
         color=source.color if source is not None else "",
         record_source=source.record_source if source is not None else "audio",
         record_track=source.record_track if source is not None else 3,
+        mute=True,
     )
-    lane_indices = [
-        project.rows.index(lane)
-        for lane_id in group.get("lanes", [])
-        if (lane := row_by_id(project, lane_id)) is not None
-    ]
+    lane_indices = [project.rows.index(lane) for lane in take_lane_rows(project, group)]
     if lane_indices:
         insert_at = max(lane_indices) + 1
     elif source is not None:
@@ -94,28 +99,41 @@ def _range(group: dict, start: float, end: float) -> tuple[float, float]:
     return left, right
 
 
-def _source_clip(row: Row, start: float, end: float) -> Clip:
-    candidates = [
-        clip
-        for clip in row.clips
-        if clip.start_beat <= start + _EPSILON
-        and clip.start_beat + clip.length_beats >= end - _EPSILON
-    ]
+def _source_selection(row: Row, start: float, end: float) -> tuple[Clip, float, float]:
+    candidates = []
+    for clip in row.clips:
+        clip_start = float(clip.start_beat)
+        clip_end = clip_start + float(clip.length_beats)
+        left = max(start, clip_start)
+        right = min(end, clip_end)
+        overlap = right - left
+        if overlap > _EPSILON:
+            candidates.append((overlap, clip, left, right))
     if not candidates:
-        raise ValueError("selected take lane does not cover that comp range")
-    return min(candidates, key=lambda clip: clip.length_beats)
+        raise ValueError("selected take lane has no material in that comp range")
+    _overlap, clip, left, right = max(
+        candidates,
+        key=lambda item: (item[0], -float(item[1].length_beats)),
+    )
+    return clip, left, right
 
 
 def _audio_segment(clip: Clip, start: float, end: float, bpm: float) -> Clip:
     seconds_per_beat = 60.0 / max(1e-6, float(bpm))
     delta = max(0.0, start - clip.start_beat)
+    source_length = (end - start) * seconds_per_beat
+    if clip.source_length > 0.0:
+        available = max(0.0, float(clip.source_length) - delta * seconds_per_beat)
+        source_length = min(source_length, available)
+    if source_length <= _EPSILON:
+        raise ValueError("audio comp segment has no source material")
     return Clip(
         kind="audio",
         ref=clip.ref,
         start_beat=start,
         length_beats=end - start,
         offset=float(clip.offset) + delta * seconds_per_beat,
-        source_length=(end - start) * seconds_per_beat,
+        source_length=source_length,
         gain=clip.gain,
         track=clip.track,
         loop=False,
@@ -171,6 +189,17 @@ def _segment(project, clip: Clip, start: float, end: float, bpm: float, name: st
     raise ValueError("take comp supports audio and note-pattern clips")
 
 
+def _preflight_source(project, clip: Clip, start: float, end: float, bpm: float) -> None:
+    """Reject unusable source material before comp rows or mute state are changed."""
+    if clip.kind == "audio":
+        _audio_segment(clip, start, end, bpm)
+        return
+    if clip.kind == "pattern":
+        _pattern_for_clip(project, clip)
+        return
+    raise ValueError("take comp supports audio and note-pattern clips")
+
+
 def _discard_derived_pattern(project, clip: Clip) -> None:
     if clip.kind != "pattern":
         return
@@ -209,6 +238,63 @@ def _replace_range(
     row.clips = rebuilt
 
 
+def _active_lane(project, group: dict) -> Row:
+    lane_id = str(group.get("active_lane", ""))
+    lane = row_by_id(project, lane_id)
+    if lane is None or lane_id not in group.get("lanes", []):
+        lanes = take_lane_rows(project, group)
+        if not lanes:
+            raise ValueError("take group has no available source lanes")
+        lane = lanes[-1]
+        group["active_lane"] = lane.id
+    return lane
+
+
+def _seed_comp_from_active(project, group: dict, row: Row) -> None:
+    """Clone the audible take so activating a comp never creates holes."""
+    if row.clips:
+        return
+    lane = _active_lane(project, group)
+    seeded = []
+    for clip in sorted(lane.clips, key=lambda item: item.start_beat):
+        left = float(clip.start_beat)
+        right = left + float(clip.length_beats)
+        if right <= left + _EPSILON:
+            continue
+        seeded.append(
+            _segment(
+                project,
+                clip,
+                left,
+                right,
+                project.bpm,
+                f"COMP · baseline · {lane.name}",
+            )
+        )
+    if not seeded:
+        raise ValueError("active take lane has no material to comp")
+    row.clips = seeded
+
+
+def _activate_comp_playback(project, group: dict, row: Row) -> None:
+    _seed_comp_from_active(project, group, row)
+    for lane in take_lane_rows(project, group):
+        lane.mute = True
+    row.mute = False
+
+
+def _restore_take_playback(project, group: dict, row: Row | None = None) -> None:
+    active = _active_lane(project, group)
+    for lane in take_lane_rows(project, group):
+        lane.mute = lane.id != active.id
+    if row is not None:
+        row.mute = True
+
+
+def _validate_project_workflow(project) -> None:
+    project.workflow = validate_workflow(ensure_workflow(project))
+
+
 def swipe_comp_range(project, group_id: str, lane_id: str, start: float, end: float) -> Row:
     """Paint one lane into the comp over ``start:end`` beats."""
     group = take_group(project, group_id)
@@ -218,18 +304,21 @@ def swipe_comp_range(project, group_id: str, lane_id: str, start: float, end: fl
     lane = row_by_id(project, lane_id)
     if lane is None:
         raise ValueError("selected take lane no longer exists")
-    source = _source_clip(lane, start, end)
+    source, source_start, source_end = _source_selection(lane, start, end)
+    _preflight_source(project, source, source_start, source_end, project.bpm)
     row = ensure_comp_row(project, group)
+    _activate_comp_playback(project, group, row)
     replacement = _segment(
         project,
         source,
-        start,
-        end,
+        source_start,
+        source_end,
         project.bpm,
-        f"COMP · {lane.name} · {start:g}-{end:g}",
+        f"COMP · {lane.name} · {source_start:g}-{source_end:g}",
     )
-    _replace_range(project, row, start, end, replacement, project.bpm)
+    _replace_range(project, row, source_start, source_end, replacement, project.bpm)
     group["active_lane"] = lane_id
+    _validate_project_workflow(project)
     return row
 
 
@@ -237,7 +326,9 @@ def erase_comp_range(project, group_id: str, start: float, end: float) -> Row:
     group = take_group(project, group_id)
     start, end = _range(group, start, end)
     row = ensure_comp_row(project, group)
+    _activate_comp_playback(project, group, row)
     _replace_range(project, row, start, end, None, project.bpm)
+    _validate_project_workflow(project)
     return row
 
 
@@ -247,6 +338,8 @@ def clear_comp(project, group_id: str) -> Row:
     for clip in row.clips:
         _discard_derived_pattern(project, clip)
     row.clips.clear()
+    _restore_take_playback(project, group, row)
+    _validate_project_workflow(project)
     return row
 
 
@@ -285,16 +378,16 @@ class TakeCompController:
             if "duplicate command id" not in str(exc):
                 raise
         command_controller._reindex_bindings()
-        menu = next(
-            (
-                action.menu()
-                for action in window.menuBar().actions()
-                if action.text() == "Recording" and action.menu() is not None
-            ),
-            None,
-        )
+        menu = None
+        for menu_action in window.menuBar().actions():
+            if menu_action.text() == "Recording":
+                menu = menu_action.menu()
+                if menu is not None:
+                    break
         if menu is None:
             menu = window.menuBar().addMenu("Recording")
+        self.menu = menu
+        self.menu_action = menu.menuAction()
         action = menu.addAction(self.registry.get("recording.take_comp").title)
         action.triggered.connect(
             lambda _checked=False: self.command_controller._execute("recording.take_comp")
@@ -305,10 +398,13 @@ class TakeCompController:
         self.window.playlist.refresh()
         if row is not None:
             self.window.status.showMessage(
-                f"Updated {row.name} · source take lanes unchanged · Undo restores the comp edit",
+                f"Updated {row.name} · source takes preserved · Undo restores the comp edit",
                 5000,
             )
         self.window._set_dirty(True)
+
+    def _edit_error(self, title: str, exc: Exception) -> None:
+        QMessageBox.warning(self.window, title, str(exc))
 
     def show_editor(self):
         groups = take_groups(self.window.project)
@@ -324,8 +420,9 @@ class TakeCompController:
         dialog.setWindowTitle("Take comp editor")
         layout = QVBoxLayout(dialog)
         intro = QLabel(
-            "Choose a take lane and paint it into the comp over a beat range. Repainting a range "
-            "replaces only that section; source lanes are never modified."
+            "Choose a take lane and paint it into the comp over a beat range. The first edit starts "
+            "from the active take, then replaces only the selected section. Source material is never "
+            "cut or overwritten; source-lane playback mutes are managed automatically."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
@@ -370,25 +467,21 @@ class TakeCompController:
             group = current_group()
             row = comp_row(self.window.project, group)
             if row is None or not row.clips:
-                coverage.addItem("No comp material yet")
+                coverage.addItem("No active comp material")
                 return
-            lane_rows = [
-                row_by_id(self.window.project, lane_id) for lane_id in group.get("lanes", [])
-            ]
             for left, right, kind in comp_coverage(row):
                 item = QListWidgetItem(f"{left:g} → {right:g} beats · {kind}")
                 item.setData(Qt.UserRole, (left, right))
                 coverage.addItem(item)
-            if lane_rows:
-                coverage.setToolTip("Source lanes remain unchanged while the comp row is edited.")
+            coverage.setToolTip(
+                "The comp row owns playback while active; recorded source material remains intact."
+            )
 
         def group_changed():
             lane_box.clear()
             group = current_group()
-            for lane_id in group.get("lanes", []):
-                lane = row_by_id(self.window.project, lane_id)
-                if lane is not None:
-                    lane_box.addItem(lane.name, lane.id)
+            for lane in take_lane_rows(self.window.project, group):
+                lane_box.addItem(lane.name, lane.id)
             start_box.setValue(float(group.get("start", 0.0)))
             end_box.setValue(float(group.get("end", 0.0)))
             active = str(group.get("active_lane", ""))
@@ -410,6 +503,10 @@ class TakeCompController:
                     start_box.value(),
                     end_box.value(),
                 )
+            except (KeyError, ValueError) as exc:
+                self.window.discard_snapshot()
+                self._edit_error("Take comp", exc)
+                return
             except Exception:
                 self.window.discard_snapshot()
                 raise
@@ -425,6 +522,10 @@ class TakeCompController:
                     start_box.value(),
                     end_box.value(),
                 )
+            except (KeyError, ValueError) as exc:
+                self.window.discard_snapshot()
+                self._edit_error("Take comp", exc)
+                return
             except Exception:
                 self.window.discard_snapshot()
                 raise
@@ -433,7 +534,15 @@ class TakeCompController:
 
         def do_clear():
             self.window.snapshot()
-            row = clear_comp(self.window.project, str(group_box.currentData()))
+            try:
+                row = clear_comp(self.window.project, str(group_box.currentData()))
+            except (KeyError, ValueError) as exc:
+                self.window.discard_snapshot()
+                self._edit_error("Take comp", exc)
+                return
+            except Exception:
+                self.window.discard_snapshot()
+                raise
             self._refresh_project_ui(row)
             refresh_coverage()
 
