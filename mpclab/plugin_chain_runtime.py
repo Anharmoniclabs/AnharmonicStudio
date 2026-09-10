@@ -14,7 +14,9 @@ from .workflow_routing import MASTER_TARGET, RoutingPlan
 
 
 def target_chain_specs(project, target: str) -> list[dict]:
-    return [item for item in plugin_chains(project).get(target, []) if not item.get("bypass", False)]
+    return [
+        item for item in plugin_chains(project).get(target, []) if not item.get("bypass", False)
+    ]
 
 
 def known_chain_targets(project) -> set[str]:
@@ -24,9 +26,7 @@ def known_chain_targets(project) -> set[str]:
     buses = routing.get("buses", []) if isinstance(routing, dict) else []
     if isinstance(buses, list):
         targets.update(
-            f"bus:{item.get('id')}"
-            for item in buses
-            if isinstance(item, dict) and item.get("id")
+            f"bus:{item.get('id')}" for item in buses if isinstance(item, dict) and item.get("id")
         )
     return targets
 
