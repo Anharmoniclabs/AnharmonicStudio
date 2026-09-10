@@ -36,7 +36,7 @@
 
   function defaultRows(patternId) {
     return ['Drums', 'Bass', 'Keys', 'Atmosphere', 'Melody'].map((name, index) => ({
-      id: uid('row'), name, mute: false, solo: false, record_armed: false, clips: index < 3 ? [{ id: uid('clip'), kind: index === 2 ? 'audio' : 'pattern', ref: patternId, start_beat: 0, length_beats: index === 0 ? 8 : 6, offset: 0, source_length: 0, gain: 1, track: index, loop: false, reverse: false, mute: false }] : [], record_source: 'audio', record_track: index
+      id: uid('row'), name, mute: false, solo: false, record_armed: false, clips: [], record_source: 'audio', record_track: index
     }));
   }
 
@@ -44,7 +44,7 @@
     const pattern = defaultPattern();
     return {
       format_version: FORMAT_VERSION, name, bpm: 110, swing: 0, master: 0.82,
-      pads: defaultPads(), patterns: [pattern], selected_pattern: 0,
+      pads: defaultPads(), patterns: [pattern], selected_pattern: 0, current_pattern: pattern.id,
       tracks: defaultTracks(), synth: defaultSynth(), arp: defaultArp(), rows: defaultRows(pattern.id), automation: [], vocal_settings: {}, vocal_record: {}, loop_start: 0, loop_end: 8,
       media: []
     };
@@ -65,23 +65,35 @@
   }
 
   function normalize(document) {
+    if (!document || typeof document !== 'object' || Array.isArray(document)) throw new Error('Project must be a JSON object');
+    if (document.format_version !== undefined && (!Number.isInteger(document.format_version) || document.format_version > FORMAT_VERSION || document.format_version < 0)) throw new Error('Unsupported project format version');
+    const number = (value, fallback, minimum, maximum) => {
+      const result = value === undefined || value === null ? fallback : Number(value);
+      if (!Number.isFinite(result) || result < minimum || result > maximum) throw new Error('Project contains an out-of-range number');
+      return result;
+    };
+    for (const [key, limit] of Object.entries({ pads: PAD_COUNT, tracks: TRACK_COUNT, patterns: 1024, rows: 4096, media: 100000 })) {
+      if (document[key] !== undefined && (!Array.isArray(document[key]) || document[key].length > limit || document[key].some(item => !item || typeof item !== 'object' || Array.isArray(item)))) throw new Error(`Invalid project ${key}`);
+    }
     const base = defaultProject(document?.name || 'Untitled project');
     const source = document && typeof document === 'object' ? document : {};
     const patterns = Array.isArray(source.patterns) && source.patterns.length ? source.patterns : [source];
-    const normalized = { ...base, ...clone(source), format_version: FORMAT_VERSION, bpm: Number(source.bpm ?? source.tempo) || 110 };
+    const normalized = { ...base, ...clone(source), format_version: FORMAT_VERSION, bpm: number(source.bpm ?? source.tempo, 110, 20, 400), master: number(source.master, base.master, 0, 2), swing: number(source.swing, 0, 0, 100) };
     normalized.pads = Array.isArray(source.pads) ? source.pads.map((pad, index) => ({ ...base.pads[index % PAD_COUNT], ...pad, id: pad.id || uid('pad') })) : base.pads;
     while (normalized.pads.length < PAD_COUNT) normalized.pads.push(base.pads[normalized.pads.length]);
     normalized.patterns = patterns.map((pattern, index) => ({
       ...defaultPattern(), ...clone(pattern), id: pattern.id || uid('pattern'), name: pattern.name || `pattern ${index + 1}`,
-      bars: Number(pattern.bars) || 1, div: Number(pattern.div) || 4, steps: normalizeSteps(pattern.steps), notes: Array.isArray(pattern.notes) ? pattern.notes.map(note => ({ id: note.id || uid('note'), pitch: Number(note.pitch) || 60, start: Number(note.start) || 0, duration: Math.max(.0625, Number(note.duration) || .25), velocity: Math.max(.01, Math.min(1, Number(note.velocity) || .8)), pad: note.pad ?? null })) : []
+      bars: number(pattern.bars, 1, 1, 256), div: number(pattern.div, 4, 1, 32), steps: normalizeSteps(pattern.steps), notes: Array.isArray(pattern.notes) ? pattern.notes.map(note => ({ ...clone(note), id: note.id || uid('note'), pitch: number(note.pitch, 60, 0, 127), start: number(note.start, 0, 0, 1000000), duration: number(note.duration, .25, .000001, 4096), velocity: number(note.velocity, .8, .000001, 1), pad: note.pad ?? null })) : []
     }));
     normalized.tracks = Array.isArray(source.tracks) ? source.tracks.map((track, index) => ({ ...base.tracks[index % TRACK_COUNT], ...track, id: track.id || uid('track') })) : base.tracks;
     while (normalized.tracks.length < TRACK_COUNT) normalized.tracks.push(base.tracks[normalized.tracks.length]);
     normalized.media = Array.isArray(source.media) ? source.media : [];
     normalized.synth = { ...base.synth, ...(source.synth || {}) };
     normalized.arp = { ...base.arp, ...(source.arp || {}) };
-    normalized.rows = Array.isArray(source.rows) && source.rows.length ? source.rows.map(row => ({ ...row, id: row.id || uid('row'), clips: Array.isArray(row.clips) ? row.clips.map(clip => ({ id: clip.id || uid('clip'), kind: clip.kind || 'pattern', ref: clip.ref || normalized.patterns[0].id, start_beat: Number(clip.start_beat) || 0, length_beats: Math.max(.25, Number(clip.length_beats) || 4, 0), offset: Number(clip.offset) || 0, source_length: Number(clip.source_length) || 0, gain: Number(clip.gain) || 1, track: Number(clip.track) || 0, loop: Boolean(clip.loop), reverse: Boolean(clip.reverse), mute: Boolean(clip.mute) })) : [] })) : defaultRows(normalized.patterns[0].id);
-    normalized.selected_pattern = Math.max(0, Math.min(normalized.patterns.length - 1, Number(source.selected_pattern) || 0));
+    normalized.rows = Array.isArray(source.rows) ? source.rows.map(row => ({ ...row, id: row.id || uid('row'), clips: Array.isArray(row.clips) ? row.clips.map(clip => ({ ...clone(clip), id: clip.id || uid('clip'), kind: clip.kind || 'pattern', ref: clip.ref ?? '', start_beat: number(clip.start_beat, 0, 0, 1000000), length_beats: number(clip.length_beats, 4, .000001, 1000000), offset: number(clip.offset, 0, 0, 1000000), source_length: number(clip.source_length, 0, 0, 1000000), gain: number(clip.gain, 1, 0, 4), track: number(clip.track, 0, 0, TRACK_COUNT - 1), loop: Boolean(clip.loop), reverse: Boolean(clip.reverse), mute: Boolean(clip.mute) })) : [] })) : defaultRows(normalized.patterns[0].id);
+    const currentIndex = normalized.patterns.findIndex(pattern => pattern.id === source.current_pattern);
+    normalized.selected_pattern = currentIndex >= 0 ? currentIndex : Math.max(0, Math.min(normalized.patterns.length - 1, Math.floor(Number(source.selected_pattern) || 0)));
+    normalized.current_pattern = normalized.patterns[normalized.selected_pattern].id;
     return normalized;
   }
 
@@ -98,7 +110,10 @@
     notify() { this.listeners.forEach(listener => listener(this.document)); }
     transact(label, change) {
       const before = clone(this.document);
-      change(this.document);
+      const next = clone(this.document);
+      change(next);
+      next.current_pattern = next.patterns[next.selected_pattern].id;
+      this.document = next;
       this.history.push({ label, before, after: clone(this.document) });
       if (this.history.length > 80) this.history.shift();
       this.future = [];
