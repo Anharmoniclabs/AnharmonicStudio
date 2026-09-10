@@ -168,6 +168,22 @@ def main():
                 project.plugins = { effect: { path: '/private/plugin.vst3', bypass: true } }; const before = JSON.stringify(project.plugins);
                 const output = await pcm(await engine.render('pattern', { tail: 0 })); assert(output.peak() > .1, 'bypassed plugin prevented supported playback'); assert(JSON.stringify(project.plugins) === before, 'preserved plugin state was changed');
               });
+              await test('native mixer group gain or mute blocks transport and WAV without changing saved state', async () => {
+                const { project, engine } = factory(); project.patterns[0].steps = { 0: { 0: 1 } };
+                const baseline = await pcm(await engine.render('pattern', { tail: 0 })); assert(baseline.peak() > .1, 'baseline sample is silent');
+                for (const settings of [{ mute: true, gain: 1 }, { mute: false, gain: 0 }, { mute: false, gain: .5 }]) {
+                  project.workflow = { groups: [{ id: 'native-group', name: 'Group', members: [project.tracks[0].id], ...settings }] };
+                  const saved = JSON.stringify(project.workflow); let validation = '', exported = '';
+                  try { engine.validate(project, 'pattern'); } catch (error) { validation = error.message; }
+                  try { await engine.render('pattern', { tail: 0 }); } catch (error) { exported = error.message; }
+                  assert(validation.includes('mixer group gain or mute'), 'transport accepted active native group');
+                  assert(exported.includes('mixer group gain or mute'), 'WAV silently omitted active native group');
+                  assert(JSON.stringify(project.workflow) === saved, 'capability rejection changed group settings');
+                  assert(!engine.playing && !engine.rendering && engine.voices.size === 0, 'rejected project retained playback/render state');
+                }
+                project.workflow.groups[0].gain = 1;
+                const neutral = await pcm(await engine.render('pattern', { tail: 0 })); equal(neutral.at(.1), baseline.at(.1));
+              });
               await test('lookahead uses audio clock, changes tempo without resetting beat, cancels stop', () => {
                 const { project, engine } = factory(); project.patterns[0].steps = { 0: { 0: 1, 1: 1, 2: 1 } };
                 engine.context = { currentTime: 0 }; engine.graph = { sync() {} }; engine.playing = true; engine.mode = 'pattern'; engine.tempo = 120; engine.project = project; engine.anchorTime = .04; engine.anchorBeat = 0; engine.cursor = 0;

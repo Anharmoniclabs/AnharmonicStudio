@@ -105,6 +105,8 @@
     if (Object.values(project.plugins || {}).some(plugin => plugin && !plugin.bypass)) unsupported.push('native plugins');
     if (Object.values(project.pro_daw?.plugin_chains || {}).some(chain => Array.isArray(chain) && chain.some(plugin => !plugin.bypass))) unsupported.push('native insert chains');
     const workflow = project.workflow || {}; const routing = workflow.routing || {};
+    const groups = workflow.groups || [];
+    if (groups.some(group => (group.members || []).some(id => project.tracks.some(track => track.id === id)) && (group.mute || finite(group.gain, 1) !== 1))) unsupported.push('mixer group gain or mute');
     if ((routing.buses || []).length || (routing.sends || []).some(send => !send.mute && finite(send.gain, 1) > 0) || Object.values(routing.track_outputs || {}).some(target => target !== 'master')) unsupported.push('custom bus routing');
     if (Object.keys(workflow.clip_edits || {}).length) unsupported.push('desktop clip processing');
     if (Object.keys(workflow.sidechains || {}).length) unsupported.push('sidechain processing');

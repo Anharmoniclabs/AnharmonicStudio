@@ -1,5 +1,26 @@
 # Release audit — 2026-09-10
 
+## Combined release checkpoint
+
+The following sections preserve earlier audit checkpoints and their original
+commit identities. Native `781f616` (main `f8345093`) and browser `612d6c4` are
+now combined through merge `87a0073`. The isolated integration repairs fresh
+export-worker persistence/DSP setup and optimizes the portable native renderer.
+Its local full suite passed **1,359 tests, five skipped**; fallback at the
+formatting-only follow-up `8502bc2` passed **74 tests, eight skipped**. Native
+CI at `8502bc2` passed 414 tests on each of four platforms. The five full-suite
+skips are three physical-device checks and two real installed-plugin checks.
+
+Final browser review additionally found that saved mixer-group mute/gain could
+be silently omitted. Browser playback/export now rejects groups that affect
+the mix, preserves their settings, and accepts neutral groups. The corrected
+browser passes **17 JavaScript tests and 29 Chromium audio assertions**.
+Candidate `34513022518` predates that correction and is diagnostic only; a new
+matching four-platform build is required. Live Stripe fulfillment and installer
+promotion remain pending. No production acceptance or 1:1 DSP parity is claimed.
+
+## Original audit baseline
+
 Baseline: `0dd09d21077211513a56d0ee3368e847db8d172f` (merged web DAW).
 Working source: `/home/al/Projects/mpc-lab`. The separate
 `AnharmonicStudio` checkout is older (`01900b4`). Preserve local projects,
