@@ -16,6 +16,7 @@ def test_require_callable_command_accepts_attached_callable():
     [
         ({}, "recording.settings"),
         ({"recording.settings": SimpleNamespace(callback=None)}, "recording.settings"),
+        ({"recording.settings": object()}, "recording.settings"),
     ],
 )
 def test_require_callable_command_rejects_missing_or_noncallable(registry, command_id):
