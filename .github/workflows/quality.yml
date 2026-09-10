@@ -27,14 +27,14 @@ jobs:
           python-version: '3.12'
       - name: Validate website and browser project regressions
         run: |
-          python3 scripts/check_website.py
+          python scripts/check_website.py
           node --test tests/web/*.test.cjs
       - name: Install isolated browser test tools
         run: |
-          python3 -m pip install -r requirements-browser.txt
-          python3 -m playwright install chromium
+          python -m pip install -r requirements-browser.txt
+          python -m playwright install chromium
       - name: Exercise browser workspaces and synth patch
-        run: python3 scripts/audit_web_studio.py --output /tmp/anharmonic-web-checks
+        run: python scripts/audit_web_studio.py --output /tmp/anharmonic-web-checks
       - name: Preserve browser evidence
         if: always()
         uses: actions/upload-artifact@v4
