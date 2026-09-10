@@ -1,9 +1,8 @@
 """Advanced mixer control layered over the existing eight-track audio engine.
 
-Groups and sidechains deliberately operate on the already-rendered track control
-values.  This keeps the realtime callback allocation-free and preserves the
-current insert/send graph while adding project-persisted summing control and
-meter-driven ducking.
+Groups and sidechains operate on rendered track control values. The deeper
+routing layer installs fixed callback scratch before the engine is constructed,
+so buses, arbitrary sends and plugin compensation stay callback-safe too.
 """
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 
 from . import engine_mixing
+from .workflow_routing import install_engine_routing_extensions
 from .workflow_state import ensure_workflow
 
 _INSTALLED = False
@@ -31,9 +31,9 @@ def advanced_track_controls(engine, index: int, beats):
     workflow = ensure_workflow(project)
     track_id = project.tracks[index].id
 
-    # A group acts like a VCA/summing-control layer over member channels.  It
-    # intentionally does not create another audio bus, so no callback buffers
-    # or plugin ordering change is required.
+    # A group acts like a VCA/summing-control layer over member channels. It
+    # intentionally remains independent of the audio-bus graph: a group can
+    # control tracks even when those tracks route to different destinations.
     for group in workflow.get("groups", []):
         if track_id not in group.get("members", []):
             continue
@@ -42,10 +42,9 @@ def advanced_track_controls(engine, index: int, beats):
         gain = max(0.0, min(2.0, float(group.get("gain", 1.0))))
         left, right = _multiply(left, gain), _multiply(right, gain)
 
-    # Sidechain control uses the source track's previous callback RMS.  That
+    # Sidechain control uses the source track's previous callback RMS. That
     # one-block lookback is stable, bounded and avoids scanning source audio in
-    # the target processing path.  The curve behaves like a simple compressor
-    # control signal; it can later drive a dedicated dynamics bus unchanged.
+    # the target processing path.
     for route in workflow.get("sidechains", []):
         if not route.get("enabled", True) or route.get("target") != track_id:
             continue
@@ -66,5 +65,6 @@ def install_advanced_track_controls() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
+    install_engine_routing_extensions()
     engine_mixing.track_controls = advanced_track_controls
     _INSTALLED = True
