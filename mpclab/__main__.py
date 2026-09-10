@@ -110,7 +110,10 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication, QMessageBox
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QFontDatabase, QIcon
+    from .plugin_chain_runtime import install_plugin_chain_runtime
+    from .plugin_chain_ui import attach_plugin_chain_ui
     from .premium_workflows import attach_premium_workflows, install_premium_runtime
+    from .pro_daw_state import install_pro_daw_state
     from .recording_workflows import (
         attach_recording_workflows,
         install_recording_capture_extensions,
@@ -122,6 +125,8 @@ def main() -> int:
     # Project persistence and optional runtime extensions must be ready before
     # MainWindow creates TrackCapture or restores an autosaved session.
     install_premium_runtime()
+    install_pro_daw_state()
+    install_plugin_chain_runtime()
     install_recording_capture_extensions()
     from .ui.main_window import MainWindow
 
@@ -149,6 +154,7 @@ def main() -> int:
     win = MainWindow(root, restore_session=args.project is None)
     controller = attach_premium_workflows(win)
     attach_routing_ui(win, controller)
+    attach_plugin_chain_ui(win, controller)
     attach_recording_workflows(win, controller)
     attach_take_comping(win, controller)
     restore_unmanaged_legacy_shortcuts(controller)
