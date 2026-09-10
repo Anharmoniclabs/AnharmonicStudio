@@ -71,6 +71,7 @@ def _set_recording(window, **values):
 def test_default_track_recording_behavior_stays_single_lane(window, monkeypatch):
     _mock_audio(window, monkeypatch, 1.0)
     row = _arm(window)
+    initial_rows = len(window.project.rows)
     window.engine.beat = 3.0
     assert window.track_capture.prepare()
     window.track_capture.start()
@@ -78,7 +79,7 @@ def test_default_track_recording_behavior_stays_single_lane(window, monkeypatch)
     assert len(row.clips) == 1
     assert row.clips[0].start_beat == pytest.approx(3.0)
     assert not ensure_workflow(window.project).get("recording")
-    assert len(window.project.rows) == 4
+    assert len(window.project.rows) == initial_rows
 
 
 def test_two_audio_loop_passes_create_two_non_destructive_take_lanes(window, monkeypatch):
