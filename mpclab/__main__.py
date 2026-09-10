@@ -110,6 +110,8 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication, QMessageBox
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QFontDatabase, QIcon
+    from .automation_mode_state import install_automation_mode_state
+    from .automation_modes import attach_automation_modes
     from .plugin_chain_runtime import install_plugin_chain_runtime
     from .plugin_chain_ui import attach_plugin_chain_ui
     from .premium_workflows import attach_premium_workflows, install_premium_runtime
@@ -126,6 +128,7 @@ def main() -> int:
     # MainWindow creates TrackCapture or restores an autosaved session.
     install_premium_runtime()
     install_pro_daw_state()
+    install_automation_mode_state()
     install_plugin_chain_runtime()
     install_recording_capture_extensions()
     from .ui.main_window import MainWindow
@@ -157,6 +160,7 @@ def main() -> int:
     attach_plugin_chain_ui(win, controller)
     attach_recording_workflows(win, controller)
     attach_take_comping(win, controller)
+    attach_automation_modes(win, controller)
     restore_unmanaged_legacy_shortcuts(controller)
     if args.project is not None:
         if not win.load_project_path(args.project, clear_session=False):
