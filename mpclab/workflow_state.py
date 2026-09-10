@@ -8,10 +8,21 @@ a song without forcing a schema migration or changing realtime dataclasses.
 from __future__ import annotations
 
 from copy import deepcopy
+import math
+
 from .model import Project
+from .workflow_routing import MAX_ROUTING_BUSES
 
 
-_ALLOWED = {"clip_edits", "freezes", "groups", "sidechains", "scenes", "track_presets"}
+_ALLOWED = {
+    "clip_edits",
+    "freezes",
+    "groups",
+    "routing",
+    "sidechains",
+    "scenes",
+    "track_presets",
+}
 _INSTALLED = False
 _ORIGINAL_TO_DICT = Project.to_dict
 _ORIGINAL_FROM_DICT = Project.from_dict.__func__
@@ -22,6 +33,124 @@ def _bounded_text(value, limit=128) -> str:
     if len(text) > limit:
         raise ValueError("workflow text field is too long")
     return text
+
+
+def _bounded_number(value, low: float, high: float, label: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{label} must be finite")
+    return max(low, min(high, number))
+
+
+def _check_routing_acyclic(buses: list[dict], sends: list[dict]) -> None:
+    ids = [item["id"] for item in buses]
+    bus_ids = set(ids)
+    edges = {bus_id: set() for bus_id in ids}
+    indegree = dict.fromkeys(ids, 0)
+
+    def connect(source: str, target: str) -> None:
+        if source not in bus_ids or target not in bus_ids or target in edges[source]:
+            return
+        edges[source].add(target)
+        indegree[target] += 1
+
+    for item in buses:
+        connect(item["id"], item["output"])
+    for item in sends:
+        connect(item["source"], item["target"])
+
+    ready = [bus_id for bus_id in ids if indegree[bus_id] == 0]
+    visited = 0
+    while ready:
+        source = ready.pop()
+        visited += 1
+        for target in edges[source]:
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                ready.append(target)
+    if visited != len(ids):
+        raise ValueError("routing buses must form an acyclic graph")
+
+
+def _validate_routing(value) -> dict:
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or set(value) - {"buses", "track_outputs", "sends"}:
+        raise ValueError("routing metadata contains unsupported keys")
+
+    raw_buses = value.get("buses", [])
+    if not isinstance(raw_buses, list) or len(raw_buses) > MAX_ROUTING_BUSES:
+        raise ValueError(f"routing supports at most {MAX_ROUTING_BUSES} buses")
+    buses = []
+    bus_ids = set()
+    for item in raw_buses:
+        if not isinstance(item, dict):
+            raise ValueError("routing bus must be an object")
+        bus_id = _bounded_text(item.get("id"))
+        if not bus_id or bus_id == "master" or bus_id in bus_ids:
+            raise ValueError("routing bus ids must be unique and non-empty")
+        bus_ids.add(bus_id)
+        buses.append(
+            {
+                "id": bus_id,
+                "name": _bounded_text(item.get("name") or "BUS", 96),
+                "gain": _bounded_number(item.get("gain", 1.0), 0.0, 2.0, "bus gain"),
+                "pan": _bounded_number(item.get("pan", 0.0), -1.0, 1.0, "bus pan"),
+                "mute": bool(item.get("mute", False)),
+                "output": _bounded_text(item.get("output") or "master"),
+            }
+        )
+    for item in buses:
+        if item["output"] != "master" and item["output"] not in bus_ids:
+            raise ValueError("routing bus output does not exist")
+
+    raw_outputs = value.get("track_outputs", {})
+    if not isinstance(raw_outputs, dict) or len(raw_outputs) > 64:
+        raise ValueError("track outputs must be a bounded object")
+    track_outputs = {}
+    for track_id, target in raw_outputs.items():
+        track_id = _bounded_text(track_id)
+        target = _bounded_text(target)
+        if not track_id or (target != "master" and target not in bus_ids):
+            raise ValueError("track output target does not exist")
+        track_outputs[track_id] = target
+
+    raw_sends = value.get("sends", [])
+    if not isinstance(raw_sends, list) or len(raw_sends) > 128:
+        raise ValueError("routing sends must be a bounded array")
+    sends = []
+    send_ids = set()
+    for item in raw_sends:
+        if not isinstance(item, dict):
+            raise ValueError("routing send must be an object")
+        send_id = _bounded_text(item.get("id"))
+        source = _bounded_text(item.get("source"))
+        target = _bounded_text(item.get("target") or "master")
+        if not send_id or send_id in send_ids or not source:
+            raise ValueError("routing send ids and sources must be unique/non-empty")
+        if target != "master" and target not in bus_ids:
+            raise ValueError("routing send target does not exist")
+        send_ids.add(send_id)
+        sends.append(
+            {
+                "id": send_id,
+                "source": source,
+                "target": target,
+                "gain": _bounded_number(item.get("gain", 1.0), 0.0, 2.0, "send gain"),
+                "pre_fader": bool(item.get("pre_fader", False)),
+                "enabled": bool(item.get("enabled", True)),
+            }
+        )
+
+    _check_routing_acyclic(buses, sends)
+    result = {}
+    if buses:
+        result["buses"] = buses
+    if track_outputs:
+        result["track_outputs"] = track_outputs
+    if sends:
+        result["sends"] = sends
+    return result
 
 
 def validate_workflow(value) -> dict:
@@ -46,7 +175,7 @@ def validate_workflow(value) -> dict:
         for key in ("fade_in_ms", "fade_out_ms", "source_bpm"):
             if key in item:
                 number = float(item[key])
-                if not -1_000_000 <= number <= 1_000_000:
+                if not math.isfinite(number) or not -1_000_000 <= number <= 1_000_000:
                     raise ValueError("clip workflow numeric value is out of range")
                 checked[key] = number
         checked_clips[clip_id] = checked
@@ -61,8 +190,6 @@ def validate_workflow(value) -> dict:
         track_id = _bounded_text(track_id)
         if not isinstance(item, dict):
             raise ValueError("freeze metadata is invalid")
-        # Freeze records are generated internally from primitive project state.
-        # Bound their serialized breadth and recursively copy only JSON-shaped values.
         if len(item) > 24:
             raise ValueError("freeze metadata contains too many fields")
         checked_freezes[track_id] = deepcopy(item)
@@ -84,12 +211,16 @@ def validate_workflow(value) -> dict:
                 "id": _bounded_text(item.get("id")),
                 "name": _bounded_text(item.get("name"), 96),
                 "members": [_bounded_text(member) for member in members],
-                "gain": max(0.0, min(2.0, float(item.get("gain", 1.0)))),
+                "gain": _bounded_number(item.get("gain", 1.0), 0.0, 2.0, "group gain"),
                 "mute": bool(item.get("mute", False)),
             }
         )
     if checked_groups:
         result["groups"] = checked_groups
+
+    routing = _validate_routing(value.get("routing", {}))
+    if routing:
+        result["routing"] = routing
 
     sidechains = value.get("sidechains", [])
     if not isinstance(sidechains, list) or len(sidechains) > 64:
@@ -102,8 +233,10 @@ def validate_workflow(value) -> dict:
             {
                 "source": _bounded_text(item.get("source")),
                 "target": _bounded_text(item.get("target")),
-                "amount": max(0.0, min(32.0, float(item.get("amount", 4.0)))),
-                "threshold": max(0.0, min(1.0, float(item.get("threshold", 0.05)))),
+                "amount": _bounded_number(item.get("amount", 4.0), 0.0, 32.0, "sidechain amount"),
+                "threshold": _bounded_number(
+                    item.get("threshold", 0.05), 0.0, 1.0, "sidechain threshold"
+                ),
                 "enabled": bool(item.get("enabled", True)),
             }
         )
@@ -122,7 +255,7 @@ def validate_workflow(value) -> dict:
                 "id": _bounded_text(item.get("id")),
                 "name": _bounded_text(item.get("name"), 96),
                 "pattern": _bounded_text(item.get("pattern")),
-                "bpm": max(20.0, min(400.0, float(item.get("bpm", 120.0)))),
+                "bpm": _bounded_number(item.get("bpm", 120.0), 20.0, 400.0, "scene tempo"),
             }
         )
     if checked_scenes:
