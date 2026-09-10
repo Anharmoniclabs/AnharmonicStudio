@@ -189,6 +189,17 @@ def _segment(project, clip: Clip, start: float, end: float, bpm: float, name: st
     raise ValueError("take comp supports audio and note-pattern clips")
 
 
+def _preflight_source(project, clip: Clip, start: float, end: float, bpm: float) -> None:
+    """Reject unusable source material before comp rows or mute state are changed."""
+    if clip.kind == "audio":
+        _audio_segment(clip, start, end, bpm)
+        return
+    if clip.kind == "pattern":
+        _pattern_for_clip(project, clip)
+        return
+    raise ValueError("take comp supports audio and note-pattern clips")
+
+
 def _discard_derived_pattern(project, clip: Clip) -> None:
     if clip.kind != "pattern":
         return
@@ -294,6 +305,7 @@ def swipe_comp_range(project, group_id: str, lane_id: str, start: float, end: fl
     if lane is None:
         raise ValueError("selected take lane no longer exists")
     source, source_start, source_end = _source_selection(lane, start, end)
+    _preflight_source(project, source, source_start, source_end, project.bpm)
     row = ensure_comp_row(project, group)
     _activate_comp_playback(project, group, row)
     replacement = _segment(
