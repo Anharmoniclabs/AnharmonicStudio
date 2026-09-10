@@ -178,7 +178,10 @@ def test_loop_note_passes_split_into_patterns_with_local_timing(window):
     row_index = window.project.rows.index(row)
     lanes = window.project.rows[row_index + 1 : row_index + 3]
     assert len(lanes) == 2
-    patterns = [next(pattern for pattern in window.project.patterns if pattern.id == lane.clips[0].ref) for lane in lanes]
+    patterns = [
+        next(pattern for pattern in window.project.patterns if pattern.id == lane.clips[0].ref)
+        for lane in lanes
+    ]
     assert [(note.pitch, note.start, note.duration) for note in patterns[0].notes] == [
         (60, 1.0, 0.5)
     ]
