@@ -18,11 +18,9 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
-    QInputDialog,
     QLabel,
     QListWidget,
     QMessageBox,
-    QPushButton,
     QSpinBox,
     QVBoxLayout,
 )
@@ -192,7 +190,9 @@ def _split_audio_loop(capture, row: Row, clip: Clip, session: dict) -> list[Row]
 
 def _split_note_loop(capture, row: Row, clip: Clip, session: dict) -> list[Row]:
     app = capture.app
-    source_pattern = next((pattern for pattern in app.project.patterns if pattern.id == clip.ref), None)
+    source_pattern = next(
+        (pattern for pattern in app.project.patterns if pattern.id == clip.ref), None
+    )
     if source_pattern is None:
         return []
     loop_beats = float(session["loop_length"])
@@ -572,7 +572,12 @@ class RecordingWorkflowController:
     def toggle_loop(self):
         settings = recording_settings(self.window.project)
         enabled = not bool(settings["loop_takes"])
-        result = self._commit({"loop_takes": enabled, "punch_enabled": False if enabled else settings["punch_enabled"]})
+        result = self._commit(
+            {
+                "loop_takes": enabled,
+                "punch_enabled": False if enabled else settings["punch_enabled"],
+            }
+        )
         self.window.status.showMessage(
             "Loop take recording enabled" if enabled else "Loop take recording disabled", 3500
         )
@@ -581,7 +586,9 @@ class RecordingWorkflowController:
     def toggle_punch(self):
         settings = recording_settings(self.window.project)
         enabled = not bool(settings["punch_enabled"])
-        result = self._commit({"punch_enabled": enabled, "loop_takes": False if enabled else settings["loop_takes"]})
+        result = self._commit(
+            {"punch_enabled": enabled, "loop_takes": False if enabled else settings["loop_takes"]}
+        )
         self.window.status.showMessage(
             "Punch recording enabled" if enabled else "Punch recording disabled", 3500
         )
