@@ -85,8 +85,14 @@ class AutomationLane:
         )
 
 
-def automation_targets():
-    return ["master"] + [f"track:{i}:{param}" for i in range(8) for param in ("gain", "pan")]
+def automation_targets(track_count=None):
+    # Local import avoids the model/music dataclass import cycle.
+    from .model import MAX_TRACKS
+
+    count = MAX_TRACKS if track_count is None else track_count
+    if type(count) is not int or not 1 <= count <= MAX_TRACKS:
+        raise ValueError("automation track count is outside the mixer limit")
+    return ["master"] + [f"track:{i}:{param}" for i in range(count) for param in ("gain", "pan")]
 
 
 def target_range(target):
@@ -109,13 +115,19 @@ def read_notes(data):
     return [Note(**{k: v for k, v in item.items() if k in Note.__annotations__}) for item in data]
 
 
-def read_automation(data):
-    if not isinstance(data, list) or len(data) > 17:
-        raise ValueError("automation must be an array of at most 17 lanes")
+def read_automation(data, *, track_count=None):
+    targets = set(automation_targets(track_count))
+    if not isinstance(data, list) or len(data) > len(targets):
+        raise ValueError(f"automation must be an array of at most {len(targets)} lanes")
     lanes = []
     for item in data:
         if not isinstance(item, dict):
             raise ValueError("automation lanes must be objects")
+        if (
+            not isinstance(item.get("target", "master"), str)
+            or item.get("target", "master") not in targets
+        ):
+            raise ValueError(f"unsupported automation target: {item.get('target')}")
         points = item.get("points", [])
         if not isinstance(points, list) or len(points) > 100_000:
             raise ValueError("automation points must be an array of at most 100000 points")

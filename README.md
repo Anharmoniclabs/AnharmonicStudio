@@ -41,6 +41,12 @@ are public GitHub release assets. Cloudflare R2 stores only the compiled install
 
 ## What is inside
 
+The capability-foundations development branch adds a 128-track mixer, named
+timeline markers/regions, and audio-file analysis. See the
+[usage guide and explicit limitations](planning/USAGE.md) and
+[full implementation backlog](planning/README.md). These additions are not yet
+qualified for release or deployed to Cloudflare.
+
 - **Sampler:** import audio, trim ranges, detect transients, and map slices to four 4×4 pad banks.
 - **Beats:** program step patterns and control per-hit velocity.
 - **Instruments:** explore factory sounds, shape analog synth patches, and record arpeggiator notes.

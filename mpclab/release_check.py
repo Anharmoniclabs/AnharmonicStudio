@@ -10,6 +10,74 @@ from unittest.mock import patch
 import weakref
 
 
+PRODUCTION_COMMANDS = (
+    "plugins.insert_chains",
+    "plugins.reload_chains",
+    "recording.settings",
+    "recording.take_comp",
+    "automation.mode.latch",
+    "mixer.track_add",
+    "markers.add",
+    "markers.cue",
+    "markers.region",
+    "markers.previous",
+    "markers.next",
+    "markers.manage",
+    "markers.export",
+    "audio.analyze_file",
+)
+
+
+def validate_production_features(window, controller):
+    """Require installed controls without executing dialogs or opening devices."""
+    from shiboken6 import isValid
+
+    for command_id in PRODUCTION_COMMANDS:
+        try:
+            callback = controller.registry.get(command_id).callback
+        except KeyError as exc:
+            raise RuntimeError(f"Production command is not attached: {command_id}") from exc
+        if not callable(callback):
+            raise RuntimeError(f"Production command is not attached: {command_id}")
+    automation = getattr(window, "automation_mode_controller", None)
+    if automation is None or automation.mode_combo is None:
+        raise RuntimeError("Production automation controls are not attached")
+    mixer = getattr(window, "mixer", None)
+    add_track = getattr(mixer, "add_track_button", None)
+    if (
+        not getattr(window, "_track_management_attached", False)
+        or add_track is None
+        or not isValid(add_track)
+        or not add_track.isEnabled()
+    ):
+        raise RuntimeError("Production add-track controls are not attached")
+    markers = getattr(window, "timeline_marker_controller", None)
+    if (
+        markers is None
+        or markers.strip is None
+        or not isValid(markers.strip)
+        or markers.strip.parentWidget() is not markers.panel
+        or markers.strip.objectName() != "timelineMarkerStrip"
+        or markers.panel.objectName() != "timelineMarkerTracks"
+    ):
+        raise RuntimeError("Production timeline marker tracks are not attached")
+    for command_id in PRODUCTION_COMMANDS:
+        if command_id.startswith("markers."):
+            button = markers.buttons.get(command_id)
+            if button is None or not isValid(button) or not button.isEnabled():
+                raise RuntimeError(f"Production marker control is not attached: {command_id}")
+    analyzer = getattr(window, "audio_analysis_controller", None)
+    if (
+        analyzer is None
+        or not isValid(analyzer.file_menu)
+        or not isValid(analyzer.file_menu_action)
+        or not isValid(analyzer.action)
+        or not analyzer.action.isEnabled()
+    ):
+        raise RuntimeError("Production audio-analysis menu is not attached")
+    return list(PRODUCTION_COMMANDS)
+
+
 def plugin_runtime_probe(connection, specification, sample_rate):
     """Exercise the shipped host libraries and spawned audio pipe without hardware."""
     import numpy as np
@@ -57,6 +125,7 @@ def main(report=None):
     from .plugin_host import IsolatedPlugin
     from .ui import main_window
     from .application_features import attach_application_features, install_application_runtime
+    from .audio_analysis import analyze_audio_file, save_analysis_report
 
     install_application_runtime()
 
@@ -121,18 +190,8 @@ def main(report=None):
         ):
             window = main_window.MainWindow(root, restore_session=False)
             controller = attach_application_features(window)
-            required_commands = (
-                "plugins.insert_chains",
-                "plugins.reload_chains",
-                "recording.settings",
-                "recording.take_comp",
-                "automation.mode.latch",
-            )
-            for command_id in required_commands:
-                _require_callable_command(controller.registry, command_id)
-            if window.automation_mode_controller.mode_combo is None:
-                raise RuntimeError("Production automation controls are not attached")
-            result["production_commands"] = list(required_commands)
+            result["production_commands"] = validate_production_features(window, controller)
+            result["production_feature_controls"] = True
             engine_ref = weakref.ref(window.engine)
             wave = (np.sin(np.arange(4800) * 0.08) * 0.2).astype(np.float32)
             clip = window.library.add_audio(np.column_stack((wave, wave)), "Release check")
@@ -155,6 +214,20 @@ def main(report=None):
             audio, rate = sf.read(destination)
             if rate != 48000 or not np.isfinite(audio).all() or np.max(np.abs(audio)) < 0.01:
                 raise RuntimeError("Exported audio is silent, invalid or at the wrong rate")
+            analysis = analyze_audio_file(destination, block_frames=257)
+            if (
+                analysis.frames != len(audio)
+                or analysis.sample_rate != rate
+                or not np.isclose(
+                    analysis.sample_peak_dbfs, 20 * np.log10(np.max(np.abs(audio))), atol=1e-8
+                )
+                or any(channel.nonfinite_samples for channel in analysis.channels)
+            ):
+                raise RuntimeError("Installed audio analysis disagrees with the actual export")
+            analysis_path = save_analysis_report(analysis, root / "exports/check.analysis.json")
+            if json.loads(analysis_path.read_text(encoding="utf-8"))["frames"] != len(audio):
+                raise RuntimeError("Installed audio analysis report was not saved correctly")
+            result["audio_analysis"] = True
             converted = root / "converted.wav"
             to_wav(destination, converted, sr=44100)
             if probe(converted)["sample_rate"] != 44100:

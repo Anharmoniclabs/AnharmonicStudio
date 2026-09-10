@@ -36,7 +36,7 @@ audio graph. Empty projects contain no invented library entries or audio clips.
 
 Browser support includes imported audio, 64 pads, sample trim/pitch/pan/gain and
 looping, step and note sequencing, oscillator instruments, arrangement clips,
-eight mixer tracks, microphone recording, real output meters, undo/redo, and WAV
+up to 128 mixer tracks, microphone recording, real output meters, undo/redo, and WAV
 export. Save retains original audio in IndexedDB and metadata in local storage;
 Project + audio is a portable **browser** bundle. Desktop JSON exports metadata
 separately: sounds must be imported/relinked in the desktop library, and browser

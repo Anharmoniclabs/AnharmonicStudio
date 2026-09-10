@@ -34,6 +34,11 @@ jobs:
         run: >-
           uv run --no-sync python scripts/profile_production.py
           --seconds 10 --profile-seconds 10 --output reports/audio-profile
+      # Separate from every release gate: these clocks add measurement overhead.
+      - name: Trace ten minutes of paced callback stages
+        run: >-
+          uv run --no-sync python scripts/trace_production.py --seconds 600 --frames 512
+          --output reports/audio-profile/chronological
       - name: Preserve diagnostic reports only
         if: always()
         uses: actions/upload-artifact@v4

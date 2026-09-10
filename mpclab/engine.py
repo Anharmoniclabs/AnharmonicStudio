@@ -27,7 +27,7 @@ from .audio_kernel import (
 )
 from .fx import MasterChain, MixRack, TrackChain
 from .linux_audio import LinuxAudioRuntime
-from .model import Project, Pad, NTRACKS, NPADS
+from .model import Project, Pad, NPADS
 from .music import Note
 from .synth import ArpState, SynthVoice
 from .orchestra import prepare_patch
@@ -111,8 +111,8 @@ class Engine:
         self._resume_audio = True
 
         # feedback for the GUI (written by the audio thread, read by the GUI)
-        self.meters = np.zeros(NTRACKS, dtype=np.float32)
-        self.peaks = np.zeros(NTRACKS, dtype=np.float32)
+        self.meters = np.zeros(len(self.project.tracks), dtype=np.float32)
+        self.peaks = np.zeros(len(self.project.tracks), dtype=np.float32)
         self.master_meter = np.zeros(2, dtype=np.float32)
         self.master_peak = 0.0
         self.underruns = 0
@@ -133,7 +133,7 @@ class Engine:
         # or None when nothing is previewing. Written by the audio thread.
         self.audition_time: float | None = None
 
-        self._tbuf = np.zeros((NTRACKS, blocksize, 2), dtype=np.float32)
+        self._tbuf = np.zeros((len(self.project.tracks), blocksize, 2), dtype=np.float32)
         self._master = np.zeros((blocksize, 2), dtype=np.float32)
         self._bus = np.zeros((blocksize, 2), dtype=np.float32)
         self._preview = np.zeros((blocksize, 2), dtype=np.float32)
@@ -155,15 +155,15 @@ class Engine:
         # Insert chains, the two send buses and the master chain.  Untouched
         # tracks cost nothing: the callback skips a chain whose settings are
         # still at their defaults.
-        self.rack = MixRack(NTRACKS)
+        self.rack = MixRack(len(self.project.tracks))
         self.rack.prepare(blocksize)
         # GUI-side request keys suppress duplicate tone builds when a non-EQ
         # control moves. Prepared kernels themselves cross to the callback via
         # ``cmds``; GUI code never mutates an installed convolver.
-        self._track_tone_requests: list[tuple | None] = [None] * NTRACKS
+        self._track_tone_requests: list[tuple | None] = [None] * len(self.project.tracks)
         self._master_tone_request: tuple | None = None
         self._send_tail = 0
-        self._track_tail = np.zeros(NTRACKS, dtype=np.int64)
+        self._track_tail = np.zeros(len(self.project.tracks), dtype=np.int64)
         self._click_plain = _make_click(sample_rate, False)
         self._click_accent = _make_click(sample_rate, True)
         self._lock_realtime_working_set()
@@ -233,7 +233,7 @@ class Engine:
     def prepare_track_tone(self, index: int, fx=None) -> None:
         """Build one track's IR and filter FFT on the calling (GUI) thread."""
         index = int(index)
-        if not 0 <= index < NTRACKS:
+        if not 0 <= index < len(self.rack.tracks):
             return
         settings = fx if fx is not None else self.project.tracks[index].fx
         request = (self.blocksize, TrackChain.tone_key(settings))
@@ -253,10 +253,41 @@ class Engine:
         self._master_tone_request = request
         self.cmds.put(("mastertone", prepared))
 
+    def configure_tracks(self, project: Project | None = None) -> None:
+        """Prepare a changed mixer layout while this engine's stream is stopped.
+
+        Callers publish the project and call prepare_fx before restarting audio.
+        No callback grows mixer arrays or silently maps a new track to slot eight.
+        """
+        proj = project or self.project
+        proj._validate_track_ids()
+        proj._validate_track_references()
+        count = len(proj.tracks)
+        if count == len(self.rack.tracks):
+            return
+        if self.stream is not None or self._live_starting:
+            raise RuntimeError("stop audio before changing the mixer track count")
+        # Prepare complete replacement storage before replacing engine state.
+        buffers = np.zeros((count, self.blocksize, 2), dtype=np.float32)
+        meters = np.zeros(count, dtype=np.float32)
+        peaks = np.zeros(count, dtype=np.float32)
+        tails = np.zeros(count, dtype=np.int64)
+        rack = MixRack(count)
+        rack.prepare(self.blocksize)
+        self.voices.clear()
+        self.synth_voices.clear()
+        self._tbuf, self.meters, self.peaks = buffers, meters, peaks
+        self._track_tail, self.rack = tails, rack
+        self._track_tone_requests = [None] * count
+        self._master_tone_request = None
+        self._send_tail = 0
+        self._lock_realtime_working_set()
+
     def prepare_fx(self, project: Project | None = None) -> None:
         """Prepare every project tone kernel before live processing needs it."""
         proj = project or self.project
-        for index, track in enumerate(proj.tracks[:NTRACKS]):
+        self.configure_tracks(proj)
+        for index, track in enumerate(proj.tracks):
             self.prepare_track_tone(index, track.fx)
         self.prepare_master_tone(proj.master_fx)
 
@@ -338,11 +369,12 @@ class Engine:
             raise ValueError("audio buffer must be a power of two from 64 to 4096")
         if self.stream is not None:
             raise RuntimeError("stop audio before changing its buffer")
+        self.configure_tracks(self.project)
         self.blocksize = frames
         self.voices.clear()
         self.synth_voices.clear()
         self.arp_state.held.clear()
-        self._tbuf = np.zeros((NTRACKS, frames, 2), dtype=np.float32)
+        self._tbuf = np.zeros((len(self.project.tracks), frames, 2), dtype=np.float32)
         self._master = np.zeros((frames, 2), dtype=np.float32)
         self._bus = np.zeros((frames, 2), dtype=np.float32)
         self._preview = np.zeros((frames, 2), dtype=np.float32)
@@ -355,7 +387,7 @@ class Engine:
         self.mastering = MasteringKernel(self.sr, blocksize=frames)
         self.rack.reset()
         self.rack.prepare(frames)
-        self._track_tone_requests = [None] * NTRACKS
+        self._track_tone_requests = [None] * len(self.project.tracks)
         self._master_tone_request = None
         self.prepare_fx(self.project)
         self._send_tail = 0
@@ -573,7 +605,7 @@ class Engine:
             attack=attack,
             release=release,
             length=length,
-            track=max(0, min(NTRACKS - 1, pad.track)),
+            track=self.project.validate_track_index(pad.track, "pad output"),
             choke=pad.choke,
             pad_index=-1,
             loop=(pad.mode == "loop"),
@@ -706,7 +738,7 @@ class Engine:
                 note=note,
                 velocity=float(velocity),
                 sample_rate=self.sr,
-                track=max(0, min(NTRACKS - 1, patch.track)),
+                track=self.project.validate_track_index(patch.track, "synth output"),
                 start_offset=max(0, offset),
                 gate_frames=gate_frames,
                 variant=variant,
@@ -762,7 +794,7 @@ class Engine:
                 attack=max(1, int(0.003 * self.sr)),
                 release=max(1, int(0.008 * self.sr)),
                 length=length,
-                track=max(0, min(NTRACKS - 1, clip.track)),
+                track=self.project.validate_track_index(clip.track, "clip output"),
                 choke=0,
                 pad_index=-1,
                 loop=bool(clip.loop),
@@ -1063,7 +1095,7 @@ class Engine:
         The caller must consume or copy each block before requesting the next.
         Each yielded value is already an independent array, so file writers can
         pass it straight to ``SoundFile.write``. Memory is bounded by events,
-        active voices and ``NTRACKS * blocksize`` rather than song duration."""
+        active voices and ``len(project.tracks) * blocksize`` rather than song duration."""
         yield from engine_offline.iter_offline_blocks(self, mode, repeats, tail, progress)
 
     def render_offline(

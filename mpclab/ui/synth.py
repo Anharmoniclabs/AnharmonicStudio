@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..model import NTRACKS
 from ..synth import PATCHES, PATCH_CATEGORIES, PATCH_DESCRIPTIONS, WAVEFORMS, patch_copy
 from .. import orchestra
 from .keymap import MUSICAL_OFFSET_LABELS
@@ -416,7 +415,7 @@ class SynthPanel(WindowClient, QWidget):
         hl.insertWidget(1, self.patch_name, 1)
         hl.addStretch(1)
         self.track = QComboBox()
-        self.track.addItems([f"{i + 1}" for i in range(NTRACKS)])
+        self.track.addItems([f"{i + 1}" for i in range(len(self.app.project.tracks))])
         self.track.currentIndexChanged.connect(self._track_changed)
         panic = QPushButton("Panic")
         panic.setToolTip("Release all sounding synth notes")
@@ -917,7 +916,11 @@ class SynthPanel(WindowClient, QWidget):
         for combo, attr in self._combos:
             index = combo.findData(getattr(patch, attr))
             combo.setCurrentIndex(max(0, index))
-        self.track.setCurrentIndex(max(0, min(NTRACKS - 1, patch.track)))
+        self.track.clear()
+        self.track.addItems(
+            [f"{i + 1} · {track.name}" for i, track in enumerate(self.app.project.tracks)]
+        )
+        self.track.setCurrentIndex(max(0, min(len(self.app.project.tracks) - 1, patch.track)))
         arp = self.app.project.arp
         self.arp_on.setChecked(arp.enabled)
         self.arp_on.setText("ARP ON" if arp.enabled else "ARP OFF")

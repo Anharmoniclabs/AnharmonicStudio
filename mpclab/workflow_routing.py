@@ -1,6 +1,6 @@
 """Compiled project routing graph shared by realtime playback and export.
 
-The core audio engine still owns eight source tracks. Advanced routing lives in
+The core audio engine owns the project's bounded source tracks. Advanced routing lives in
 validated workflow metadata and is compiled on the GUI thread into compact,
 callback-safe integer targets. The callback only clears fixed scratch buffers
 and performs NumPy adds/multiplies; it never walks arbitrary JSON or allocates a
@@ -319,7 +319,6 @@ def install_engine_routing_extensions() -> None:
         return
 
     from .engine import Engine
-    from .model import NTRACKS
     from .plugin_latency import PluginDelayCompensator, plugin_path_latency_samples
 
     original_init = Engine.__init__
@@ -329,8 +328,9 @@ def install_engine_routing_extensions() -> None:
     def allocate(engine) -> None:
         engine._routing_buses = np.zeros((MAX_ROUTING_BUSES, engine.blocksize, 2), dtype=np.float32)
         engine._external_instrument = np.zeros((engine.blocksize, 2), dtype=np.float32)
-        if not hasattr(engine, "plugin_pdc"):
-            engine.plugin_pdc = PluginDelayCompensator(NTRACKS, engine.blocksize)
+        count = len(engine.project.tracks)
+        if not hasattr(engine, "plugin_pdc") or engine.plugin_pdc.tracks != count:
+            engine.plugin_pdc = PluginDelayCompensator(count, engine.blocksize)
         else:
             engine.plugin_pdc.configure(0, engine.blocksize)
         engine._routing_plan = compile_routing(engine.project)
@@ -346,7 +346,16 @@ def install_engine_routing_extensions() -> None:
         allocate(engine)
 
     def prepare_routing(engine, project=None):
-        plan = compile_routing(project or engine.project)
+        proj = project or engine.project
+        count = len(proj.tracks)
+        if engine.plugin_pdc.tracks != count:
+            if engine.stream is not None or engine._live_starting:
+                raise RuntimeError("stop audio before changing the mixer track count")
+            delay = engine.plugin_pdc.delay_samples
+            engine.plugin_pdc = PluginDelayCompensator(count, engine.blocksize)
+            engine.plugin_pdc.configure(delay)
+            engine.linux_audio.lock_arrays(engine.plugin_pdc.history, engine.plugin_pdc.output)
+        plan = compile_routing(proj)
         engine._routing_plan = plan
         refresh = getattr(engine, "prepare_plugin_chain_latency", None)
         if refresh is not None:

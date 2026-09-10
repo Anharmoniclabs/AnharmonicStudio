@@ -92,6 +92,11 @@ jobs:
           tests/test_plugin_chain_host.py tests/test_plugin_chain_runtime.py
           tests/test_plugin_chain_ui.py tests/test_plugin_latency.py
           tests/test_automation_mode_state.py tests/test_automation_modes.py
+          tests/test_scalable_tracks.py tests/test_scalable_track_ui.py
+          tests/test_scalable_project_transactions.py
+          tests/test_timeline_markers.py tests/test_timeline_marker_ui.py
+          tests/test_audio_analysis.py tests/test_audio_analysis_ui.py
+          tests/test_release_feature_controls.py
           tests/test_paced_session.py
           --junitxml=reports/release-tests.xml
       - name: Ten minute mixed-instrument session (no physical devices)

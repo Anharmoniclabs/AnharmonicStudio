@@ -258,6 +258,19 @@ def main():
                 page.locator(".clip").first.click()
 
                 workspace("mix")
+                first_ids = [track["id"] for track in model()["tracks"]]
+                page.locator(".add-mixer-track").click()
+                added_id = model()["tracks"][-1]["id"]
+                check("add_mixer_track_is_wired", len(model()["tracks"]) == 9)
+                check(
+                    "add_mixer_track_preserves_identity",
+                    [track["id"] for track in model()["tracks"][:8]] == first_ids,
+                )
+                page.locator("#undo-project").click()
+                check("undo_added_track", len(model()["tracks"]) == 8)
+                page.locator("#redo-project").click()
+                check("redo_added_track_identity", model()["tracks"][-1]["id"] == added_id)
+                page.locator("#undo-project").click()
                 move_range('.track-gain[data-track="3"]', 60)
                 move_range('.track-pan-input[data-track="3"]', -25)
                 move_range("#tone-effect", 3)
@@ -539,6 +552,34 @@ def main():
                         "window.auditInjected !== 1 && document.querySelector('#stage img') === null"
                     ),
                 )
+                # High native track routes must remain editable after a real file import.
+                scalable = json.loads(json.dumps(portable))
+                scalable["project"]["tracks"] = [
+                    {
+                        **scalable["project"]["tracks"][index % 8],
+                        "id": f"large-{index}",
+                        "name": f"Channel {index + 1}",
+                    }
+                    for index in range(128)
+                ]
+                scalable["project"]["synth"]["track"] = 127
+                scalable["project"]["pads"][0]["track"] = 127
+                second.locator("#project-file").set_input_files(
+                    {
+                        "name": "128-tracks.json",
+                        "mimeType": "application/json",
+                        "buffer": json.dumps(scalable).encode(),
+                    }
+                )
+                second.wait_for_selector('.track-gain[data-track="127"]')
+                check("all_128_mixer_controls_render", second.locator(".track-gain").count() == 128)
+                check("track_limit_disables_add", second.locator(".add-mixer-track").is_disabled())
+                second.locator('[data-workspace="instruments"]').click()
+                check(
+                    "high_synth_route_survives_import",
+                    second.locator("#synth-track").input_value() == "127",
+                )
+                second.locator('[data-workspace="mix"]').click()
                 future_error = second.evaluate(
                     "() => {try {AnharmonicProject.normalize({format_version:999}); return '';} catch(error){return error.message;}}"
                 )

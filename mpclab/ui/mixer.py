@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
-from ..model import NTRACKS
+from ..model import MAX_TRACKS
 from ..music import automation_values
 from .fxrack import FXRack
 from .theme import q, TRACK_COLORS
@@ -322,11 +322,12 @@ class MixerPanel(WindowClient, QWidget):
         # narrow window instead of being pushed off the edge.
         board = QWidget()
         lay = QHBoxLayout(board)
+        self.strip_layout = lay
         lay.setContentsMargins(14, 14, 8, 14)
         lay.setSpacing(6)
         lay.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.strips = []
-        for i in range(NTRACKS):
+        for i in range(len(app.project.tracks)):
             strip = Strip(app, i)
             strip.changed.connect(self.changed.emit)
             strip.picked.connect(self.select_track)
@@ -335,6 +336,7 @@ class MixerPanel(WindowClient, QWidget):
         lay.addStretch(1)
 
         scroller = QScrollArea()
+        self.scroller = scroller
         scroller.setWidgetResizable(True)
         scroller.setFrameShape(QFrame.NoFrame)
         scroller.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
@@ -342,7 +344,7 @@ class MixerPanel(WindowClient, QWidget):
         outer.addWidget(scroller, 1)
 
         # The master never scrolls out of reach: it is pinned beside the rack
-        # while the eight track strips scroll behind it.
+        # while the project track strips scroll behind it.
         master_holder = QWidget()
         master_lay = QVBoxLayout(master_holder)
         master_lay.setContentsMargins(0, 14, 12, 14)
@@ -350,6 +352,10 @@ class MixerPanel(WindowClient, QWidget):
         self.master_strip = Strip(app, -1, master=True)
         self.master_strip.changed.connect(self.changed.emit)
         master_lay.addWidget(self.master_strip)
+        self.add_track_button = QPushButton("+ TRACK")
+        self.add_track_button.setToolTip("Add an independent mixer track (up to 128)")
+        self.add_track_button.clicked.connect(self._add_track)
+        master_lay.addWidget(self.add_track_button)
         outer.addWidget(master_holder)
 
         self.rack = FXRack(app)
@@ -362,10 +368,18 @@ class MixerPanel(WindowClient, QWidget):
         self._timer.start(50)
 
     def select_track(self, index: int):
-        self.selected = max(0, min(NTRACKS - 1, int(index)))
+        self.selected = max(0, min(len(self.app.project.tracks) - 1, int(index)))
         for i, strip in enumerate(self.strips):
             strip.set_selected(i == self.selected)
         self.rack.set_track(self.selected)
+
+    def _add_track(self):
+        from .track_management import add_mixer_track
+
+        try:
+            add_mixer_track(self.app)
+        except (ValueError, RuntimeError) as exc:
+            self.app.status.showMessage(str(exc), 6000)
 
     def _rack_changed(self):
         self.strips[self.rack.index].sync()
@@ -379,7 +393,30 @@ class MixerPanel(WindowClient, QWidget):
         self.master_strip.update_meter()
 
     def sync(self):
+        count = len(self.app.project.tracks)
+        while len(self.strips) > count:
+            strip = self.strips.pop()
+            self.strip_layout.removeWidget(strip)
+            strip.hide()
+            strip.deleteLater()
+        while len(self.strips) < count:
+            strip = Strip(self.app, len(self.strips))
+            strip.changed.connect(self.changed.emit)
+            strip.picked.connect(self.select_track)
+            self.strip_layout.insertWidget(len(self.strips), strip)
+            self.strips.append(strip)
+        self.add_track_button.setEnabled(count < MAX_TRACKS)
+        self.selected = min(self.selected, count - 1)
         for s in self.strips:
             s.sync()
         self.master_strip.sync()
-        self.rack.rebuild()
+        unchanged_rack_index = self.rack.index == self.selected
+        self.select_track(self.selected)
+        if unchanged_rack_index:
+            # A load/undo may replace every settings object without changing
+            # the selected index. Rebind the rack's controls to this project;
+            # set_track only rebuilds when the numerical index changes.
+            self.rack.rebuild()
+        automation = getattr(self.app, "automation_mode_controller", None)
+        if automation is not None:
+            automation.attach_mixer_controls()

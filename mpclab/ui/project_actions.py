@@ -37,6 +37,40 @@ def _project_name_changed(window, text: str):
 
 
 def _apply_project(window, project: Project):
+    if len(project.tracks) == len(window.engine._tbuf):
+        return _apply_project_state(window, project)
+    from .track_management import require_idle_capture
+
+    require_idle_capture(window)
+    previous = window.project
+    undo, redo, dirty = list(window._undo), list(window._redo), window._dirty
+    was_running = window.engine.stream is not None
+    window.engine.stop_transport(rewind=False)
+    window.engine.stop()
+    prepared = False
+    try:
+        _apply_project_state(window, project)
+        prepared = True
+    except Exception:
+        _apply_project_state(window, previous)
+        window._undo, window._redo = undo, redo
+        window._set_dirty(dirty)
+        prepared = True
+        raise
+    finally:
+        if was_running and prepared:
+            try:
+                window.engine.start()
+            except Exception as exc:
+                window.status.showMessage(
+                    f"Project retained; audio output could not restart: {exc}", 10000
+                )
+
+
+def _apply_project_state(window, project: Project):
+    automation = getattr(window, "automation_mode_controller", None)
+    if automation is not None:
+        automation.reset_for_project()
     window._cancel_record_count()
     window.playlist.select_clip(None)
     window.playlist.place_template = None
@@ -83,6 +117,7 @@ def _apply_project(window, project: Project):
     # Playlist media and reverse buffers, so the callback never reads disk
     # or copies a whole song on the first hit.
     window.engine.preload_project_audio(project)
+    window._playlist_selection_changed(window.playlist.selected_clip)
 
 
 def new_project(window):
@@ -125,6 +160,11 @@ def new_project(window):
     window.engine.stop_transport(rewind=True)
     window.engine.panic()
     window.btn_rec.setChecked(False)
+    try:
+        window._apply_project(project)
+    except Exception as exc:
+        QMessageBox.warning(window, "New project failed", str(exc))
+        return False
     window._undo.clear()
     window._redo.clear()
     window.project_path = None
@@ -135,7 +175,6 @@ def new_project(window):
     window.clip_label.setText("no sample loaded")
     window.browser.list.clearSelection()
     window.browser.list.setCurrentItem(None)
-    window._apply_project(project)
     window._rebuild_chips()
     window.proj_name.setToolTip("Project name · save to choose this project's file")
     window._set_dirty(False)
@@ -245,10 +284,14 @@ def load_project_path(window, path: Path, *, prepare_patch, clear_session: bool 
         QMessageBox.warning(window, "Load failed", str(exc))
         return False
     window.engine.stop_transport(rewind=True)
+    try:
+        window._apply_project(project)
+    except Exception as exc:
+        QMessageBox.warning(window, "Load failed", str(exc))
+        return False
     window.project_path = Path(path)
     window.history_path = window._project_history_path(Path(path))
     window._load_history(window.history_path)
-    window._apply_project(project)
     if clear_session:
         window.session_path.unlink(missing_ok=True)
         window.session_history_path.unlink(missing_ok=True)

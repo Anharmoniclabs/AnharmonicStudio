@@ -9,8 +9,9 @@ import re
 import threading
 import time
 
+from .model import MAX_TRACKS
 
-CONTROL_TARGETS = {"play", "stop", "record", "master", *(f"track:{i}" for i in range(8))}
+CONTROL_TARGETS = {"play", "stop", "record", "master", *(f"track:{i}" for i in range(MAX_TRACKS))}
 
 
 def controller_settings(value):
