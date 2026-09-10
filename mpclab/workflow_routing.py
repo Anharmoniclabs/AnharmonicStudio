@@ -25,6 +25,7 @@ class SendSpec:
     target: int
     gain: float
     pre_fader: bool = False
+    edge: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +37,7 @@ class BusSpec:
     mute: bool
     output: int
     sends: tuple[SendSpec, ...] = ()
+    output_edge: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +45,8 @@ class RoutingPlan:
     buses: tuple[BusSpec, ...]
     track_outputs: tuple[int, ...]
     track_sends: tuple[tuple[SendSpec, ...], ...]
+    track_ids: tuple[str, ...] = ()
+    track_output_edges: tuple[str, ...] = ()
 
     @property
     def active(self) -> bool:
@@ -53,8 +57,18 @@ class RoutingPlan:
         )
 
     @classmethod
-    def empty(cls, tracks: int) -> "RoutingPlan":
-        return cls((), (MASTER_TARGET,) * tracks, ((),) * tracks)
+    def empty(cls, tracks) -> "RoutingPlan":
+        if isinstance(tracks, int):
+            track_ids = tuple(str(index) for index in range(tracks))
+        else:
+            track_ids = tuple(str(item) for item in tracks)
+        return cls(
+            (),
+            (MASTER_TARGET,) * len(track_ids),
+            ((),) * len(track_ids),
+            track_ids,
+            tuple(f"track-output:{track_id}" for track_id in track_ids),
+        )
 
 
 def _workflow_routing(project) -> dict:
@@ -103,10 +117,11 @@ def compile_routing(project) -> RoutingPlan:
     routing = _workflow_routing(project)
     buses = list(routing.get("buses", [])) if isinstance(routing.get("buses", []), list) else []
     sends = list(routing.get("sends", [])) if isinstance(routing.get("sends", []), list) else []
+    track_ids = tuple(track.id for track in project.tracks)
     if len(buses) > MAX_ROUTING_BUSES:
         raise ValueError(f"routing supports at most {MAX_ROUTING_BUSES} buses")
     if not buses and not sends and not routing.get("track_outputs"):
-        return RoutingPlan.empty(len(project.tracks))
+        return RoutingPlan.empty(track_ids)
 
     ordered_ids = _topological_bus_ids(buses, sends)
     raw_by_id = {str(item.get("id", "")): item for item in buses}
@@ -129,6 +144,7 @@ def compile_routing(project) -> RoutingPlan:
             target=target_index(target),
             gain=max(0.0, min(2.0, float(item.get("gain", 1.0)))),
             pre_fader=bool(item.get("pre_fader", False)),
+            edge=f"send:{item.get('id', '')}",
         )
         if source in bus_sends:
             bus_sends[source].append(spec)
@@ -150,6 +166,7 @@ def compile_routing(project) -> RoutingPlan:
                 mute=bool(item.get("mute", False)),
                 output=target_index(output),
                 sends=tuple(bus_sends[bus_id]),
+                output_edge=f"bus-output:{bus_id}",
             )
         )
 
@@ -166,6 +183,8 @@ def compile_routing(project) -> RoutingPlan:
         buses=tuple(compiled_buses),
         track_outputs=tuple(outputs),
         track_sends=tuple(tuple(items) for items in track_sends),
+        track_ids=track_ids,
+        track_output_edges=tuple(f"track-output:{track_id}" for track_id in track_ids),
     )
 
 
@@ -181,7 +200,12 @@ def _accumulate(
     master: np.ndarray,
     buses: np.ndarray,
     scratch: np.ndarray,
+    *,
+    edge: str = "",
+    delays=None,
 ) -> None:
+    if delays is not None and edge:
+        source = delays.process(edge, source)
     destination = master if target == MASTER_TARGET else buses[target, : len(source)]
     if gain == 1.0:
         np.add(destination, source, out=destination)
@@ -198,12 +222,34 @@ def route_track(
     master: np.ndarray,
     buses: np.ndarray,
     scratch: np.ndarray,
+    delays=None,
 ) -> None:
     """Route one post-insert track to its output plus arbitrary sends."""
-    _accumulate(plan.track_outputs[track_index], post_fader, 1.0, master, buses, scratch)
+    output_edge = (
+        plan.track_output_edges[track_index] if track_index < len(plan.track_output_edges) else ""
+    )
+    _accumulate(
+        plan.track_outputs[track_index],
+        post_fader,
+        1.0,
+        master,
+        buses,
+        scratch,
+        edge=output_edge,
+        delays=delays,
+    )
     for send in plan.track_sends[track_index]:
         source = pre_fader if send.pre_fader else post_fader
-        _accumulate(send.target, source, send.gain, master, buses, scratch)
+        _accumulate(
+            send.target,
+            source,
+            send.gain,
+            master,
+            buses,
+            scratch,
+            edge=send.edge,
+            delays=delays,
+        )
 
 
 def finish_buses(
@@ -212,13 +258,28 @@ def finish_buses(
     buses: np.ndarray,
     scratch: np.ndarray,
     frames: int,
+    delays=None,
+    bus_processor=None,
 ) -> None:
     """Process buses in topological order and route them toward the master."""
     for index, bus in enumerate(plan.buses):
         block = buses[index, :frames]
+        # Bus inserts are pre-fader, matching track insert semantics. Running the
+        # processor even on silence lets effect tails drain deterministically.
+        if bus_processor is not None:
+            bus_processor(f"bus:{bus.id}", block)
         for send in bus.sends:
             if send.pre_fader:
-                _accumulate(send.target, block, send.gain, master, buses, scratch)
+                _accumulate(
+                    send.target,
+                    block,
+                    send.gain,
+                    master,
+                    buses,
+                    scratch,
+                    edge=send.edge,
+                    delays=delays,
+                )
 
         if bus.mute:
             block.fill(0.0)
@@ -227,10 +288,28 @@ def finish_buses(
             np.multiply(block[:, 0], np.float32(bus.gain * left), out=block[:, 0])
             np.multiply(block[:, 1], np.float32(bus.gain * right), out=block[:, 1])
 
-        _accumulate(bus.output, block, 1.0, master, buses, scratch)
+        _accumulate(
+            bus.output,
+            block,
+            1.0,
+            master,
+            buses,
+            scratch,
+            edge=bus.output_edge,
+            delays=delays,
+        )
         for send in bus.sends:
             if not send.pre_fader:
-                _accumulate(send.target, block, send.gain, master, buses, scratch)
+                _accumulate(
+                    send.target,
+                    block,
+                    send.gain,
+                    master,
+                    buses,
+                    scratch,
+                    edge=send.edge,
+                    delays=delays,
+                )
 
 
 def install_engine_routing_extensions() -> None:
@@ -269,6 +348,9 @@ def install_engine_routing_extensions() -> None:
     def prepare_routing(engine, project=None):
         plan = compile_routing(project or engine.project)
         engine._routing_plan = plan
+        refresh = getattr(engine, "prepare_plugin_chain_latency", None)
+        if refresh is not None:
+            refresh()
         return plan
 
     def prepare_plugin_latency(engine):
