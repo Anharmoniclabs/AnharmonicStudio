@@ -1,10 +1,43 @@
 cmake_minimum_required(VERSION 3.20)
-project(anharmonic_native LANGUAGES CXX)
+project(anharmonic_audio LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# Production code is identical on Windows, Linux and both macOS architectures.
+# Device APIs belong to host adapters, never the portable render target.
+set(CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../mpclab/native)
+add_library(anharmonic_audio SHARED
+    ${CORE_DIR}/synth.cpp
+    ${CORE_DIR}/sample.cpp
+    ${CORE_DIR}/mixer.cpp
+    ${CORE_DIR}/convolution.cpp
+    ${CORE_DIR}/sends.cpp
+)
+target_include_directories(anharmonic_audio PUBLIC ${CORE_DIR})
+if(MSVC)
+    target_compile_options(anharmonic_audio PRIVATE /W4 /fp:strict)
+else()
+    target_compile_options(anharmonic_audio PRIVATE -Wall -Wextra -Wpedantic -fno-fast-math -ffp-contract=off)
+endif()
+install(TARGETS anharmonic_audio LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(native_core_test tests/core_test.cpp)
+    target_link_libraries(native_core_test PRIVATE anharmonic_audio)
+    add_test(NAME portable_core COMMAND native_core_test)
+endif()
+
+# The historical ALSA/LV2 prototype is explicitly opt-in. It is not used by
+# production binaries and must never impose Linux dependencies on their build.
+option(ANHARMONIC_BUILD_LEGACY_LV2 "Build the Linux-only LV2 prototype" OFF)
+if(ANHARMONIC_BUILD_LEGACY_LV2)
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "The legacy ALSA/LV2 prototype is Linux-only")
+endif()
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PORTAUDIO REQUIRED IMPORTED_TARGET portaudio-2.0)
@@ -37,3 +70,4 @@ install(TARGETS anharmonic_native
     LIBRARY DESTINATION lib
     RUNTIME DESTINATION bin
 )
+endif()

@@ -101,7 +101,7 @@ def notices(bundle):
 def make_spec(stage, native, ffmpeg, ffprobe):
     windows, mac = sys.platform == "win32", sys.platform == "darwin"
     binaries = [(str(native), ".native"), (str(ffmpeg), "tools"), (str(ffprobe), "tools")]
-    datas = [(str(ROOT / "assets"), "assets"), (str(ROOT / "mpclab/native/dsp.c"), "mpclab/native")]
+    datas = [(str(ROOT / "assets"), "assets"), (str(ROOT / "mpclab/native"), "mpclab/native")]
     excluded = [
         "torch",
         "torchaudio",

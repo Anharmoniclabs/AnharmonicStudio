@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import re
 import subprocess
-import threading
 import time
-from collections import Counter
 from pathlib import Path
 
-import numpy as np
-import soundfile as sf
+# Compatibility for integrations that replace the workstation's file picker.
+from PySide6.QtWidgets import QFileDialog as QFileDialog
+
 from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QSettings
 from PySide6.QtGui import QKeySequence, QShortcut, QAction, QActionGroup, QColor
 from PySide6.QtWidgets import (
@@ -22,29 +20,19 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QComboBox,
     QDoubleSpinBox,
-    QSlider,
     QLineEdit,
     QScrollArea,
-    QTabWidget,
-    QSplitter,
     QFrame,
     QSpinBox,
-    QFileDialog,
     QMessageBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QApplication,
-    QProgressDialog,
-    QInputDialog,
-    QMenu,
     QTextEdit,
     QPlainTextEdit,
-    QButtonGroup,
-    QSizePolicy,
 )
 
 from .. import APP_NAME, APP_SLUG, ORGANIZATION_NAME
@@ -56,53 +44,41 @@ from ..audio_setup import (
 )
 from ..model import (
     Project,
-    Row,
-    Pad,
     PADS_PER_BANK,
     BANKS,
-    NPADS,
-    NTRACKS,
-    uid,
-    map_sample_range,
-    safe_filename,
 )
 from ..library import Library
 from ..engine import Engine
-from ..export import ExportJob
-from ..music import Note
 from ..native_dsp import STATUS as DSP_STATUS
 from ..runtime_paths import external_environment
-from ..synth import render_patch
 from ..orchestra import prepare_patch as prepare_instrument_patch
 from ..vocal import input_device_inventory
-from ..workflow import four_bar_phrase, pattern_arrangement_target
-from .. import detect, separate
+from .. import separate
 from . import theme
-from .track_recording import TrackCapture, TrackInspector
 from .session_history import SessionHistoryMixin
 from .pattern_actions import PatternActionsMixin
-from .window_client import emit_if_alive
-from .theme import stylesheet, C, hit_color
-from .browser import BrowserPanel
-from .studio import StudioPanel
-from .sample_drag import ArrangeDropFilter, SampleDragButton
+from .theme import stylesheet, C
 from .sample_workflow import SampleWorkflow, reserved_slots
 from .controls import transport_icon
-from .padgrid import PadGrid, PadInspector
-from .sequencer import StepGrid
-from .piano_roll import PianoRollPanel
-from .automation import AutomationPanel
-from .playlist import PlaylistView, ROW_H, RULER_H, TOOL_KEYS as PLAYLIST_TOOL_KEYS
-from .mixer import MixerPanel
-from .synth import SynthPanel
-from .vocals import VocalPanel
+from .playlist import TOOL_KEYS as PLAYLIST_TOOL_KEYS
 from .typing_keyboard import TypingKeyboardWindow
 from .audio_setup import AudioSetupDialog
-from .waveform import WaveformView, NavStrip
 from .color_picker import TonePickerDialog
-from .transport_meters import TransportMeters
 from .visual_assets import owner_icon, brand_pixmap
 from .devices import DevicesController
+from . import (
+    window_layout,
+    transport_layout,
+    sampler_layout,
+    sequencer_layout,
+    arrangement_layout,
+    window_transport,
+    window_sampling,
+    sample_analysis,
+    arrangement_actions,
+    project_actions,
+)
+from .layout_helpers import small
 
 # Numeric keypad → local pad index, matching PAD_KEYS. Every entry is matched
 # only when Qt.KeypadModifier is set, so the number row and the main Enter,
@@ -255,58 +231,6 @@ SHORTCUTS = (
 # Playlist tool letters come from `playlist.TOOL_KEYS`, imported above: the
 # widget handles them when it has focus, the window when it does not, and both
 # read the same table.
-
-
-def scrolling_bar(inner: QWidget) -> QScrollArea:
-    """Let a dense toolbar scroll sideways instead of crushing its own labels.
-
-    A narrow window used to squeeze `MAP RANGE → PAD A1` down to `ANGE → P`.
-    Holding every control at its natural width and scrolling the surplus keeps
-    the app readable beside another window, which is how it is meant to be used.
-    """
-    area = QScrollArea()
-    area.setObjectName("toolbarScroll")
-    area.setWidgetResizable(True)
-    area.setFrameShape(QFrame.NoFrame)
-    area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-    area.setWidget(inner)
-    inner.setMinimumWidth(inner.sizeHint().width())
-    area.setFixedHeight(inner.sizeHint().height() + 11)
-    area.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-    return area
-
-
-def separator() -> QFrame:
-    """A hairline that groups a toolbar into readable clusters."""
-    line = QFrame()
-    line.setObjectName("sep")
-    line.setFrameShape(QFrame.VLine)
-    line.setFixedWidth(1)
-    return line
-
-
-def header(text: str) -> QLabel:
-    lab = QLabel(text)
-    lab.setObjectName("header")
-    return lab
-
-
-def small(text: str) -> QLabel:
-    lab = QLabel(text)
-    lab.setObjectName("hint")
-    return lab
-
-
-def yielding(widget: QWidget) -> QWidget:
-    """Let a widget be squeezed before its toolbar resorts to scrolling.
-
-    Hints and readouts are the first things that should give up room; the
-    controls beside them are not.
-    """
-    widget.setSizePolicy(QSizePolicy.Ignored, widget.sizePolicy().verticalPolicy())
-    widget.setMinimumWidth(0)
-    return widget
 
 
 def output_device_inventory() -> tuple[list[dict], int | None]:
@@ -568,178 +492,10 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     # ── construction ─────────────────────────────────────────
     def _build(self):
-        central = QWidget()
-        outer = QVBoxLayout(central)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        transport = self._build_transport()
-        project_bar = QWidget()
-        self.project_bar = project_bar
-        project_bar.setObjectName("projectBar")
-        project_bar.setAttribute(Qt.WA_StyledBackground, True)
-        project_layout = QHBoxLayout(project_bar)
-        project_layout.setContentsMargins(14, 7, 14, 7)
-        project_layout.setSpacing(10)
-        project_widgets = [
-            self.logo,
-            self.proj_name,
-            *self.project_action_buttons.values(),
-            self.btn_theme,
-            self.btn_color,
-            self.btn_help,
-        ]
-        for widget in project_widgets:
-            transport.layout().removeWidget(widget)
-            project_layout.addWidget(widget)
-            if widget is self.logo:
-                project_layout.addStretch()
-        self.proj_name.setFixedWidth(200)
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 8, 0)
-        header_layout.addWidget(scrolling_bar(project_bar), 1)
-        header_layout.addWidget(self.transport_meters)
-        # Appearance stays reachable at the top right even in a narrow window.
-        for widget in (self.btn_theme, self.btn_color, self.btn_help):
-            project_layout.removeWidget(widget)
-            header_layout.addWidget(widget)
-        outer.addWidget(header)
-        outer.addWidget(scrolling_bar(transport))
-
-        self.main_splitter = QSplitter(Qt.Horizontal)
-        self.main_splitter.setHandleWidth(5)
-        self.main_splitter.setChildrenCollapsible(False)
-        self.main_splitter.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
-
-        self.browser = BrowserPanel(self)
-        self.browser.clipSelected.connect(self.load_clip_into_editor)
-        self.browser.clipActivated.connect(lambda cid: self.engine.audition(cid, 0.0, 0.0))
-        self.browser.libraryChanged.connect(self._library_changed)
-        self.browser_frame = QFrame()
-        self.browser_frame.setObjectName("panel")
-        bl = QVBoxLayout(self.browser_frame)
-        bl.setContentsMargins(0, 0, 0, 0)
-        bl.addWidget(self.browser)
-        self.browser_frame.setMinimumWidth(260)
-        self.main_splitter.addWidget(self.browser_frame)
-
-        self.main_splitter.addWidget(self._build_stage())
-        self.track_capture = TrackCapture(self)
-        self.pad_side = self._build_pad_side()
-        self.main_splitter.addWidget(self.pad_side)
-        self.main_splitter.setStretchFactor(0, 0)
-        self.main_splitter.setStretchFactor(1, 1)
-        self.main_splitter.setStretchFactor(2, 0)
-        self.main_splitter.setSizes([304, 1066, 300])
-        self._normal_split_sizes = [304, 1066, 300]
-        saved_sizes = self.settings.value("ui/panel_sizes", None)
-        if isinstance(saved_sizes, (list, tuple)) and len(saved_sizes) == 3:
-            try:
-                sizes = [max(1, int(size)) for size in saved_sizes]
-                self.main_splitter.setSizes(sizes)
-                self._normal_split_sizes = sizes
-            except (ValueError, TypeError):
-                pass
-        for name, panel in (("browser", self.browser_frame), ("pads", self.pad_side)):
-            visible = self.settings.value(f"ui/{name}_visible", True)
-            panel.setVisible(str(visible).lower() not in ("false", "0"))
-        outer.addWidget(self.main_splitter, 1)
-
-        self.setCentralWidget(central)
-        # Put the single navigation row across the workspace, above both panels.
-        self.studio.layout().removeWidget(self.studio.mode_scroll)
-        outer.insertWidget(2, self.studio.mode_scroll)
-        self.panel_controls = QWidget()
-        panel_controls = QHBoxLayout(self.panel_controls)
-        panel_controls.setContentsMargins(0, 0, 6, 0)
-        for text, callback in (
-            ("Browser", self.toggle_browser),
-            ("Pads", self.toggle_pads),
-            ("Focus", lambda: self.btn_playlist_focus.toggle()),
-        ):
-            button = QPushButton(text)
-            button.setObjectName("mini")
-            button.clicked.connect(callback)
-            panel_controls.addWidget(button)
-            if text == "Focus":
-                button.setCheckable(True)
-                self.btn_playlist_focus.toggled.connect(button.setChecked)
-        project_layout.addWidget(self.panel_controls)
-        project_bar.setMinimumWidth(project_bar.sizeHint().width())
-        self.studio.create_beat.clicked.connect(self.create_factory_beat)
-        self.studio.arrange_pattern.clicked.connect(self.append_pattern_to_arrangement)
-        self._build_menus()
-        self._build_audio_menu()
-        self.status = self.statusBar()
-        self.status.showMessage("ready")
-        self.apply_theme(theme.current)
-        self._install_shortcuts()
-        # Catch Space before focused playlist widgets and buttons can consume
-        # it. Text editors keep normal spaces while the user is naming things.
-        QApplication.instance().installEventFilter(self)
+        return window_layout._build(self)
 
     def _build_menus(self):
-        bar = self.menuBar()
-        bar.setNativeMenuBar(False)
-        groups = (
-            (
-                "File",
-                (
-                    ("New project\tCtrl+N", self.new_project),
-                    ("Open project…\tCtrl+O", self.load_project),
-                    ("Save project\tCtrl+S", self.save_project),
-                    ("Save project as…\tCtrl+Shift+S", self.save_project_as),
-                    ("Export audio…\tCtrl+E", self.export_dialog),
-                ),
-            ),
-            (
-                "Edit",
-                (
-                    ("Undo\tCtrl+Z", self.undo),
-                    ("Redo\tCtrl+Shift+Z", self.redo),
-                    ("New pattern\tF4", self.new_pattern),
-                    ("Duplicate pattern", self.dup_pattern),
-                    ("Double pattern length", self.double_pattern),
-                ),
-            ),
-            (
-                "View",
-                tuple(
-                    (self.tabs.tabText(i) + f"\tCtrl+{i + 1}", lambda index=i: self.show_tab(index))
-                    for i in range(self.tabs.count())
-                )
-                + (
-                    ("Toggle browser\tF8", self.toggle_browser),
-                    ("Find samples\tCtrl+F", self.search_samples),
-                    ("Toggle pads\tShift+F8", self.toggle_pads),
-                    ("Musical typing\tCtrl+T", self.toggle_typing_keyboard),
-                    ("Light / dark theme\tCtrl+Shift+T", self.toggle_theme),
-                ),
-            ),
-            (
-                "Transport",
-                (
-                    ("Play / pause\tSpace", self.toggle_play),
-                    ("Stop and rewind\tEsc", self.stop_all),
-                    ("Record with count-in", self.btn_rec.toggle),
-                    ("Metronome", self.btn_metro.toggle),
-                ),
-            ),
-            (
-                "Tools",
-                (
-                    ("Add pattern to arrangement", self.append_pattern_to_arrangement),
-                    ("Print synth to pad", self.print_synth_to_pad),
-                    ("Audio setup…", self.show_audio_setup),
-                    ("Devices & Plugins…", self.show_devices),
-                ),
-            ),
-            ("Help", (("Keyboard shortcuts\tF1", self.show_shortcuts),)),
-        )
-        for title, actions in groups:
-            menu = bar.addMenu(title)
-            for label, callback in actions:
-                menu.addAction(label, callback)
+        return window_layout._build_menus(self)
 
     def show_devices(self):
         self.devices.show()
@@ -1008,233 +764,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     # ── transport bar ────────────────────────────────────────
     def _build_transport(self) -> QWidget:
-        bar = QWidget()
-        self.transport_bar = bar
-        bar.setObjectName("transportBar")
-        bar.setAttribute(Qt.WA_StyledBackground, True)
-        lay = QHBoxLayout(bar)
-        lay.setContentsMargins(12, 7, 12, 7)
-        lay.setSpacing(9)
-
-        self.transport_meters = TransportMeters()
-        lay.addWidget(self.transport_meters)
-        self.logo = QLabel()
-        self.logo.setObjectName("logo")
-        self.logo.setFixedSize(218, 44)
-        self.logo.setAccessibleName(APP_NAME)
-        self.logo.setAccessibleDescription(f"Offline music workstation by {ORGANIZATION_NAME}")
-        self.logo.setToolTip(f"{APP_NAME} · by {ORGANIZATION_NAME} · offline music workstation")
-        lay.addWidget(self.logo)
-        lay.addSpacing(6)
-
-        self.btn_play = QPushButton("▶")
-        self.btn_play.setObjectName("play")
-        self.btn_play.setCheckable(True)
-        self.btn_play.setFixedWidth(38)
-        self.btn_play.setToolTip("Play / pause  (Space)")
-        self.btn_play.clicked.connect(self.toggle_play)
-        self.btn_stop = QPushButton("■")
-        self.btn_stop.setFixedWidth(38)
-        self.btn_stop.setToolTip("Stop, rewind and kill every voice  (Esc)")
-        self.btn_stop.clicked.connect(self.stop_all)
-        self.btn_rec = QPushButton("●")
-        self.btn_rec.setObjectName("rec")
-        self.btn_rec.setCheckable(True)
-        self.btn_rec.setFixedWidth(38)
-        self.btn_rec.setToolTip(
-            "Record into the armed Song track; otherwise record the current pattern (R)"
-        )
-        self.btn_rec.toggled.connect(self._record_toggled)
-        for b in (self.btn_play, self.btn_stop, self.btn_rec):
-            b.setFixedSize(42, 34)
-            lay.addWidget(b)
-        self.btn_play.setAccessibleName("Play or pause")
-        self.btn_stop.setAccessibleName("Stop and rewind")
-        self.btn_rec.setAccessibleName("Record with three-beat count-in")
-        self.record_count_label = QLabel()
-        self.record_count_label.setAccessibleName("Recording countdown")
-        self.record_count_label.setStyleSheet("font-size: 24px; font-weight: bold;")
-        self.record_count_label.hide()
-        lay.addWidget(self.record_count_label)
-
-        lay.addSpacing(8)
-        self.btn_pattern = QPushButton("PATTERN", self)
-        self.btn_pattern.setObjectName("accent2")
-        self.btn_pattern.setCheckable(True)
-        self.btn_pattern.setChecked(True)
-        self.btn_song = QPushButton("SONG", self)
-        self.btn_song.setObjectName("accent2")
-        self.btn_song.setCheckable(True)
-        self.btn_pattern.setToolTip("Play the current pattern on repeat  (L switches)")
-        self.btn_song.setToolTip("Play the Playlist arrangement  (L switches)")
-        self.btn_pattern.clicked.connect(lambda: self.set_mode("pattern"))
-        self.btn_song.clicked.connect(lambda: self.set_mode("song"))
-        self.btn_pattern.hide()
-        self.btn_song.hide()
-        self.playback_scope = QComboBox()
-        self.playback_scope.addItem("Current pattern", "pattern")
-        self.playback_scope.addItem("Song timeline", "song")
-        self.playback_scope.setToolTip("Transport playback scope · L switches")
-        self.playback_scope.currentIndexChanged.connect(
-            lambda: self.set_mode(self.playback_scope.currentData())
-        )
-        self.btn_song.toggled.connect(self._sync_playback_scope)
-        self.btn_pattern.toggled.connect(self._sync_playback_scope)
-        lay.addWidget(self.playback_scope)
-
-        lay.addSpacing(8)
-        lay.addWidget(small("BPM"))
-        self.bpm_box = QDoubleSpinBox()
-        self.bpm_box.setRange(40, 240)
-        self.bpm_box.setDecimals(2)
-        self.bpm_box.setValue(self.project.bpm)
-        self.bpm_box.setFixedWidth(78)
-        self.bpm_box.valueChanged.connect(self._bpm_changed)
-        lay.addWidget(self.bpm_box)
-
-        self.bpm_box.setToolTip("Project tempo  (T taps it in)")
-        self.btn_tap = QPushButton("TAP")
-        self.btn_tap.setObjectName("mini")
-        self.btn_tap.setToolTip("Tap four beats to set the tempo  (T)")
-        self.btn_tap.clicked.connect(self.tap_tempo)
-        lay.addWidget(self.btn_tap)
-
-        self.swing_title = small("SWING")
-        lay.addWidget(self.swing_title)
-        self.swing = QSlider(Qt.Horizontal)
-        self.swing.setFixedWidth(64)
-        self.swing.setRange(0, 70)
-        self.swing_label = small("0%")
-        self.swing.valueChanged.connect(self._swing_changed)
-        lay.addWidget(self.swing)
-        lay.addWidget(self.swing_label)
-
-        self.swing.setToolTip("Delay every off-eighth, for a shuffled feel")
-        self.btn_metro = QPushButton("MET")
-        self.btn_metro.setObjectName("mini")
-        self.btn_metro.setToolTip("Click track  (M)")
-        self.btn_metro.setCheckable(True)
-        self.btn_metro.toggled.connect(lambda b: setattr(self.engine, "metronome", b))
-        lay.addWidget(self.btn_metro)
-
-        self.btn_cut_self = QPushButton("CUT SOURCE")
-        self.btn_cut_self.setObjectName("mini")
-        self.btn_cut_self.setCheckable(True)
-        self.btn_cut_self.setToolTip(
-            "Live MPC taps cut earlier live slices of the same source across banks.\n"
-            "Each placed pattern cuts only its own hits, so pattern layers keep playing.  (Ctrl+K)"
-        )
-        self.btn_cut_self.toggled.connect(self._cut_self_changed)
-        lay.addWidget(self.btn_cut_self)
-
-        lay.addSpacing(10)
-        self.counter = QLabel("001 . 1 . 00")
-        self.counter.setObjectName("counter")
-        self.counter.setToolTip("bar . beat . hundredths")
-        lay.addWidget(self.counter)
-
-        self.master_title = small("MAIN")
-        lay.addWidget(self.master_title)
-        self.master_slider = QSlider(Qt.Horizontal)
-        self.master_slider.setFixedWidth(72)
-        self.master_slider.setRange(0, 130)
-        self.master_slider.setValue(int(self.project.master * 100))
-        self.master_slider.valueChanged.connect(self._master_changed)
-        lay.addWidget(self.master_slider)
-
-        lay.addStretch(1)
-        self.proj_name = QLineEdit(self.project.name)
-        self.proj_name.setFixedWidth(108)
-        self.proj_name.setToolTip("Project name — what SAVE writes to projects/")
-        self.proj_name.textChanged.connect(self._project_name_changed)
-        lay.addWidget(self.proj_name)
-        self.project_action_buttons = {}
-        for text, slot in (
-            ("SAVE", self.save_project),
-            ("LOAD", self.load_project),
-            ("EXPORT", self.export_dialog),
-        ):
-            b = QPushButton(text)
-            b.setObjectName("mini")
-            b.clicked.connect(slot)
-            lay.addWidget(b)
-            self.project_action_buttons[text.lower()] = b
-
-        self.btn_theme = QPushButton("DARK")
-        self.btn_theme.setObjectName("mini")
-        self.btn_theme.setMinimumWidth(52)
-        self.btn_theme.setToolTip("Switch light / dark theme  (Ctrl+Shift+T)")
-        self.btn_theme.clicked.connect(self.toggle_theme)
-        lay.addWidget(self.btn_theme)
-
-        self.btn_typing = QPushButton("KEYS")
-        self.btn_typing.setObjectName("mini")
-        self.btn_typing.setToolTip("Pop out the musical-typing keyboard  (Ctrl+T)")
-        self.btn_typing.clicked.connect(self.toggle_typing_keyboard)
-        lay.addWidget(self.btn_typing)
-
-        self.btn_color = QPushButton("COLOR")
-        self.btn_color.setObjectName("mini")
-        self.btn_color.setToolTip("Choose your own interface accent color")
-        self.btn_color.clicked.connect(self.pick_accent_color)
-        lay.addWidget(self.btn_color)
-
-        self.audio_buffer = QComboBox()
-        self.audio_buffer.setObjectName("mini")
-        for label, frames in AUDIO_BUFFER_PROFILES:
-            period = frames / self.engine.sr * 1000.0
-            self.audio_buffer.addItem(f"{label} · {period:.1f}ms", frames)
-        current_buffer = self.audio_buffer.findData(self.engine.blocksize)
-        self.audio_buffer.setCurrentIndex(max(0, current_buffer))
-        self.audio_buffer.setToolTip(
-            "Audio response profile. Lower is faster but leaves less DSP headroom.\n"
-            "512 is recommended during builds, 256 for normal production, and "
-            "128 is experimental for light tracking only."
-        )
-        self.audio_buffer.currentIndexChanged.connect(self._audio_buffer_changed)
-        lay.addWidget(self.audio_buffer)
-
-        self.btn_audio_retry = QPushButton("RETRY")
-        self.btn_audio_retry.setObjectName("mini")
-        self.btn_audio_retry.setToolTip(
-            "Retry an offline audio device, or clear DSP/xrun diagnostics"
-        )
-        self.btn_audio_retry.clicked.connect(self._retry_audio)
-        lay.addWidget(self.btn_audio_retry)
-
-        self.btn_help = QPushButton("?")
-        self.btn_help.setObjectName("mini")
-        self.btn_help.setFixedWidth(26)
-        self.btn_help.setToolTip("Every keyboard shortcut  (F1)")
-        self.btn_help.clicked.connect(self.show_shortcuts)
-        lay.addWidget(self.btn_help)
-
-        self.cpu_label = small("—")
-        self.cpu_label.setMinimumWidth(0)
-        self.cpu_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        yielding(self.cpu_label)
-        lay.addWidget(self.cpu_label)
-        # Focus mode keeps transport essentials within a half-screen window.
-        # Widgets are hidden, never destroyed, and return with their state intact.
-        self.transport_focus_hidden = [
-            self.logo,
-            self.btn_tap,
-            self.swing_title,
-            self.swing,
-            self.swing_label,
-            self.btn_metro,
-            self.btn_cut_self,
-            self.master_title,
-            self.master_slider,
-            self.project_action_buttons["load"],
-            self.project_action_buttons["export"],
-            self.btn_typing,
-            self.audio_buffer,
-            self.btn_audio_retry,
-            self.btn_help,
-            self.cpu_label,
-        ]
-        return bar
+        return transport_layout._build_transport(self)
 
     def _sync_playback_scope(self, *_args):
         self.playback_scope.blockSignals(True)
@@ -1308,45 +838,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     # ── centre stage ─────────────────────────────────────────
     def _build_stage(self) -> QWidget:
-        self.tabs = QTabWidget()
-        self.tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
-        self.tabs.setDocumentMode(True)
-        self.tabs.setUsesScrollButtons(True)
-        self.tabs.tabBar().setExpanding(False)
-        self.tabs.addTab(self._build_chop(), "Chop")
-        self.tabs.addTab(self._build_seq(), "Steps")
-        self.tabs.addTab(self._build_song(), "Arrange")
-        self.mixer = MixerPanel(self)
-        self.mixer.changed.connect(self._mixer_changed)
-        self.tabs.addTab(self.mixer, "Mixer")
-        self.synth_panel = SynthPanel(self)
-        self.tabs.addTab(self.synth_panel, "Synth")
-        self.vocal_panel = VocalPanel(self)
-        self.tabs.addTab(self.vocal_panel, "Autotune")
-        self.piano_roll = PianoRollPanel(self)
-        self.tabs.addTab(self.piano_roll, "Piano Roll")
-        self.automation_panel = AutomationPanel(self)
-        self.tabs.addTab(self.automation_panel, "Automation")
-        self.studio = StudioPanel(self.tabs)
-        self.tabs.addTab(self.studio, "Studio")
-        self._arrange_drop_filter = ArrangeDropFilter(self)
-        self.tabs.currentChanged.connect(self._stage_changed)
-        for index, tip in enumerate(
-            (
-                "Import, scan and chop a song into pads  (F2)",
-                "Draw the beat  (F6)",
-                "Arrange patterns and audio into a track  (F5)",
-                "Levels, effects, sends and the master bus  (F9)",
-                "The built-in analog instrument and arpeggiator  (F7)",
-                "Visually tune recorded vocals and compare takes  (F10)",
-                "Compose sample and synth notes  (F12 / Ctrl+7)",
-                "Draw arrangement levels and pan  (Ctrl+8)",
-                "Docked Playlist, channel rack and mix console  (Ctrl+9)",
-            )
-        ):
-            self.tabs.setTabToolTip(index, tip)
-        self.tabs.setCurrentIndex(8)
-        return self.tabs
+        return window_layout._build_stage(self)
 
     def _stage_changed(self, index):
         if index != 8:
@@ -1410,724 +902,19 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self._set_dirty(True)
 
     def _build_chop(self) -> QWidget:
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-
-        tools = QWidget()
-        tools.setObjectName("toolbar")
-        tools.setAttribute(Qt.WA_StyledBackground, True)
-        tl = QHBoxLayout(tools)
-        tl.setContentsMargins(10, 7, 10, 7)
-        tl.setSpacing(8)
-
-        self.clip_label = QLabel("no sample loaded")
-        self.clip_label.setObjectName("clipname")
-        self.btn_scan = QPushButton("Find slices")
-        self.btn_scan.setObjectName("go")
-        self.btn_scan.setToolTip(
-            "Detect cuts throughout the sample, including quiet attacks. Adjust sensitivity and scan again."
-        )
-        self.btn_scan.clicked.connect(
-            lambda: self.auto_chop() if self.chop_mode.currentIndex() == 0 else self.do_chop()
-        )
-
-        tl.addWidget(small("METHOD"))
-        self.chop_mode = QComboBox()
-        self.chop_mode.addItems(["transients", "equal grid", "beat grid"])
-        self.chop_mode.currentIndexChanged.connect(self._chop_mode_changed)
-        tl.addWidget(self.chop_mode)
-
-        self.sens_label = small("SENSITIVITY")
-        self.sens = QSlider(Qt.Horizontal)
-        self.sens.setRange(20, 250)
-        self.sens.setValue(100)
-        self.sens.setFixedWidth(90)
-        self.sens.setToolTip(
-            "Left: fewer cuts · Right: pick up quieter attacks · press Find slices to apply"
-        )
-        tl.addWidget(self.sens_label)
-        tl.addWidget(self.sens)
-
-        self.pieces_label = small("PIECES")
-        self.pieces = QSpinBox()
-        self.pieces.setRange(2, 64)
-        self.pieces.setValue(16)
-        self.pieces_label.setVisible(False)
-        self.pieces.setVisible(False)
-        tl.addWidget(self.pieces_label)
-        tl.addWidget(self.pieces)
-
-        tl.addWidget(self.btn_scan)
-
-        to_pads = QPushButton("Map slices to pads")
-        to_pads.setObjectName("go2")
-        to_pads.setToolTip("Assign the existing slices across the current pad bank")
-        to_pads.clicked.connect(self.slices_to_pads)
-        tl.addWidget(to_pads)
-
-        chop_options = QPushButton("Options")
-        chop_menu = QMenu(chop_options)
-        self.btn_auto_map = chop_menu.addAction(
-            "Detect and map hits, loops and drops", self.auto_map
-        )
-        chop_menu.addAction("Detect source tempo", self.detect_bpm)
-        chop_menu.addSeparator()
-        chop_menu.addAction("Clear all slices", self.clear_slices)
-        chop_options.setMenu(chop_menu)
-        tl.addWidget(chop_options)
-        tl.addStretch(1)
-
-        primary = QWidget()
-        primary_row = QHBoxLayout(primary)
-        primary_row.setContentsMargins(10, 8, 10, 8)
-        import_button = QPushButton("Import")
-        import_button.clicked.connect(lambda: self.browser.import_dialog())
-        primary_row.addWidget(import_button)
-        self.clip_label.setMinimumWidth(80)
-        self.clip_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        primary_row.addWidget(self.clip_label, 1)
-        preview_button = QPushButton("▶ Preview")
-        preview_button.clicked.connect(self.audition_selection)
-        primary_row.addWidget(preview_button)
-        self.cut_sample_button = QPushButton("✂ Cut sample")
-        self.cut_sample_button.setCheckable(True)
-        self.cut_sample_button.setMinimumHeight(36)
-        self.cut_sample_button.setToolTip(
-            "Turn on, then click the waveform to split it. Turn off to select and trim. "
-            "Shift-click also splits; Ctrl+Z undoes a cut."
-        )
-        self.cut_sample_button.toggled.connect(self._set_sample_cut_mode)
-        primary_row.addWidget(self.cut_sample_button)
-        advanced = QPushButton("Chop tools ▸")
-        self.sample_more = advanced
-        advanced.setToolTip("Open slicing and four-bar phrase tools")
-        advanced.setCheckable(True)
-        primary_row.addWidget(advanced)
-        for button in (import_button, preview_button, advanced):
-            button.setMinimumHeight(36)
-        lay.addWidget(scrolling_bar(primary))
-        advanced_tools = scrolling_bar(tools)
-        self.sample_tool_tabs = QTabWidget()
-        self.sample_tool_tabs.addTab(advanced_tools, "Slice sample")
-        self.sample_tool_tabs.hide()
-        advanced.toggled.connect(self.sample_tool_tabs.setVisible)
-        advanced.toggled.connect(
-            lambda opened: advanced.setText("Chop tools ▾" if opened else "Chop tools ▸")
-        )
-        lay.addWidget(self.sample_tool_tabs)
-
-        phrase_tools = QWidget()
-        phrase_row = QHBoxLayout(phrase_tools)
-        phrase_row.setContentsMargins(10, 5, 10, 5)
-        phrase_row.addWidget(small("SOURCE TEMPO"))
-        self.phrase_bpm = QDoubleSpinBox()
-        self.phrase_bpm.setRange(20, 400)
-        self.phrase_bpm.setDecimals(2)
-        self.phrase_bpm.setValue(self.project.bpm)
-        self.phrase_bpm.setSuffix(" BPM")
-        self.phrase_bpm.setKeyboardTracking(False)
-        self.phrase_bpm.setToolTip("Source tempo for selecting 16 beats from your range start")
-        phrase_row.addWidget(self.phrase_bpm)
-        self.btn_select_phrase = QPushButton("Select 4 bars")
-        self.btn_select_phrase.clicked.connect(self.select_four_bar_phrase)
-        phrase_row.addWidget(self.btn_select_phrase)
-        self.phrase_pieces = QComboBox()
-        for count in (4, 8, 16):
-            self.phrase_pieces.addItem(f"{count} chops", count)
-        self.phrase_pieces.setCurrentIndex(2)
-        phrase_row.addWidget(self.phrase_pieces)
-        self.btn_arrange_phrase = QPushButton("Create 4-bar pattern in Song")
-        self.btn_arrange_phrase.setToolTip(
-            "Treat the exact selection as four bars. Map unused pads and create an editable "
-            "pattern in the Playlist. Repitch follows song tempo and changes pitch like vinyl. "
-            "Select an existing song clip to append on its lane. Ctrl+Z undoes the whole action."
-        )
-        self.btn_arrange_phrase.clicked.connect(self.arrange_four_bar_phrase)
-        phrase_row.addWidget(self.btn_arrange_phrase)
-        phrase_row.addStretch(1)
-        phrase_bar = scrolling_bar(phrase_tools)
-        self.sample_tool_tabs.addTab(phrase_bar, "4-bar phrase")
-        self.sample_tool_tabs.setFixedHeight(
-            max(advanced_tools.height(), phrase_bar.height())
-            + self.sample_tool_tabs.tabBar().sizeHint().height()
-            + 6
-        )
-
-        self.wave = WaveformView()
-        self.wave.sliceSelected.connect(self._slice_selected)
-        self.wave.markersChanged.connect(self._markers_changed)
-        self.wave.markersAboutToChange.connect(self.snapshot)
-        self.wave.scrubbed.connect(self._scrubbed)
-        self.wave.selectionChanged.connect(self._selection_changed)
-        self.wave.selectionFinished.connect(self._selection_finished)
-        self.wave.playRequested.connect(self.audition_selection)
-        self.wave.menuRequested.connect(self._wave_menu)
-        lay.addWidget(self.wave, 1)
-
-        selection_tools = QWidget()
-        selection_tools.setObjectName("toolbar")
-        selection_tools.setAttribute(Qt.WA_StyledBackground, True)
-        sl = QHBoxLayout(selection_tools)
-        sl.setContentsMargins(10, 5, 10, 5)
-        sl.setSpacing(7)
-        sl.addWidget(small("SELECTION"))
-
-        self.selection_start = QDoubleSpinBox()
-        self.selection_end = QDoubleSpinBox()
-        for box in (self.selection_start, self.selection_end):
-            box.setRange(0.0, 0.0)
-            box.setDecimals(4)
-            box.setSingleStep(0.001)
-            box.setSuffix(" s")
-            box.setFixedWidth(105)
-            box.valueChanged.connect(self._selection_spin_changed)
-        sl.addWidget(small("START"))
-        sl.addWidget(self.selection_start)
-        sl.addWidget(small("END"))
-        sl.addWidget(self.selection_end)
-        self.selection_length = small("0.000 s")
-        self.selection_length.setMinimumWidth(78)
-        sl.addWidget(self.selection_length)
-        sl.addWidget(small("SNAP"))
-        self.selection_snap = QComboBox()
-        self.selection_snap.setMinimumWidth(104)
-        self.selection_snap.setToolTip("Where trims land — hold Alt while dragging to bypass it")
-        self.selection_snap.addItems(["zero crossing", "off", "1/16 grid", "1/8 grid", "beat grid"])
-        self.selection_snap.currentTextChanged.connect(
-            lambda mode: setattr(self.wave, "snap_mode", mode)
-        )
-        sl.addWidget(self.selection_snap)
-
-        self.btn_loop_range = QPushButton("⟳ LOOP")
-        self.btn_loop_range.setObjectName("mini")
-        self.btn_loop_range.setCheckable(True)
-        self.btn_loop_range.setToolTip("Keep the range cycling while you trim it")
-        self.btn_loop_range.toggled.connect(self._loop_range_toggled)
-        sl.addWidget(self.btn_loop_range)
-        sl.addStretch(1)
-
-        # These two must never be the controls that give up room when the
-        # window narrows — they are the point of the whole editor.
-        self.map_selection_button = QPushButton("Assign to pad A1")
-        self.map_selection_button.setObjectName("go2")
-        self.map_selection_button.setMinimumWidth(160)
-        self.map_selection_button.setToolTip("Assign the highlighted audio to the selected pad")
-        self.map_selection_button.clicked.connect(self.map_selection_to_pad)
-
-        destination = QWidget()
-        destination_row = QHBoxLayout(destination)
-        destination_row.setContentsMargins(10, 8, 10, 8)
-        destination_row.addWidget(QLabel("Use selection"))
-        self.sample_target = QComboBox()
-        self.sample_target.addItems([f"{chr(65 + i // 16)}{i % 16 + 1}" for i in range(64)])
-        self.sample_target.currentIndexChanged.connect(self.select_pad)
-        destination_row.addWidget(self.sample_target)
-        destination_row.addWidget(self.map_selection_button)
-        self.send_sample_button = SampleDragButton("Add to Song", self.wave._start_range_drag)
-        self.send_sample_button.setMinimumHeight(36)
-        self.send_sample_button.setObjectName("go2")
-        self.send_sample_button.setToolTip(
-            "Click to append the selected audio. Drag onto Song, pause to open it, "
-            "then drop onto a lane at the desired beat."
-        )
-        self.send_sample_button.clicked.connect(self.send_selection_to_arrangement)
-        destination_row.addWidget(self.send_sample_button)
-        selection_more = QPushButton("More destinations")
-        selection_more.setMinimumHeight(36)
-        selection_menu = QMenu(selection_more)
-        selection_menu.addAction(
-            "Play selection in Notes", lambda: self.sample_workflow.from_selection("notes")
-        )
-        selection_menu.addAction(
-            "Add selection to Beats", lambda: self.sample_workflow.from_selection("beats")
-        )
-        selection_menu.addSeparator()
-        selection_menu.addAction("Assign to pad and advance to next", self.map_selection_and_next)
-        selection_more.setMenu(selection_menu)
-        destination_row.addWidget(selection_more)
-        destination_row.addStretch()
-        self.map_selection_button.setMinimumHeight(36)
-        lay.addWidget(scrolling_bar(selection_tools))
-        lay.addWidget(scrolling_bar(destination))
-        lay.addWidget(self._build_view_bar())
-
-        chips_area = QScrollArea()
-        self.slice_chips_area = chips_area
-        chips_area.setWidgetResizable(True)
-        chips_area.setFixedHeight(74)
-        chips_area.setFrameShape(QFrame.NoFrame)
-        chips_area.setObjectName("chipsArea")
-        self.chips_host = QWidget()
-        self.chips_host.setObjectName("chipsHost")
-        self.chips_host.setAttribute(Qt.WA_StyledBackground, True)
-        self.chips = QHBoxLayout(self.chips_host)
-        self.chips.setContentsMargins(9, 8, 9, 8)
-        self.chips.setSpacing(4)
-        self.chips.addStretch(1)
-        chips_area.setWidget(self.chips_host)
-        lay.addWidget(chips_area)
-        self._rebuild_chips()
-        return page
+        return sampler_layout._build_chop(self)
 
     def _build_view_bar(self) -> QWidget:
-        """Zoom, and the whole-song overview, on one line.
-
-        Zoom used to live on the wheel alone, which is fine once you know and
-        invisible until then.  Grouping it with the overview strip puts every
-        way of moving around the sample in the same place.
-        """
-        bar = QWidget()
-        bar.setObjectName("toolbar")
-        bar.setAttribute(Qt.WA_StyledBackground, True)
-        lay = QHBoxLayout(bar)
-        lay.setContentsMargins(10, 4, 10, 4)
-        lay.setSpacing(6)
-
-        lay.addWidget(small("ZOOM"))
-        zoom_out = QPushButton("−")
-        zoom_out.setObjectName("mini")
-        zoom_out.setFixedWidth(26)
-        zoom_out.setToolTip("Zoom out  (-, or wheel down over the wave)")
-        zoom_out.clicked.connect(lambda: self.wave.zoom_by(1.6))
-        lay.addWidget(zoom_out)
-
-        self.wave_zoom = QSlider(Qt.Horizontal)
-        self.wave_zoom.setRange(0, 1000)
-        self.wave_zoom.setFixedWidth(150)
-        self.wave_zoom.setToolTip(
-            "Drag right to inspect a single transient, left for the whole song"
-        )
-        self.wave_zoom.valueChanged.connect(self._wave_zoom_slider)
-        lay.addWidget(self.wave_zoom)
-
-        zoom_in = QPushButton("+")
-        zoom_in.setObjectName("mini")
-        zoom_in.setFixedWidth(26)
-        zoom_in.setToolTip("Zoom in  (+, or wheel up over the wave)")
-        zoom_in.clicked.connect(lambda: self.wave.zoom_by(0.625))
-        lay.addWidget(zoom_in)
-
-        zoom_selection = QPushButton("⤢ RANGE")
-        zoom_selection.setObjectName("mini")
-        zoom_selection.setToolTip("Fill the editor with the selected range  (Z)")
-        zoom_selection.clicked.connect(lambda: self.wave.zoom_to_selection())
-        lay.addWidget(zoom_selection)
-        fit = QPushButton("FIT")
-        fit.setObjectName("mini")
-        fit.setToolTip("Show the whole sample  (0)")
-        fit.clicked.connect(self.wave.fit)
-        lay.addWidget(fit)
-
-        self.zoom_readout = QLabel("—")
-        self.zoom_readout.setObjectName("readout")
-        self.zoom_readout.setMinimumWidth(96)
-        self.zoom_readout.setToolTip("How much of the sample the editor is showing")
-        lay.addWidget(self.zoom_readout)
-        self.wave.viewChanged.connect(self._wave_view_changed)
-
-        lay.addWidget(separator())
-        self.nav = NavStrip(self.wave)
-        self.nav.setToolTip("The whole song at a glance — click or drag to move the view")
-        lay.addWidget(self.nav, 1)
-        return scrolling_bar(bar)
+        return window_layout._build_view_bar(self)
 
     def _build_seq(self) -> QWidget:
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-
-        tools = QWidget()
-        tools.setObjectName("toolbar")
-        tools.setAttribute(Qt.WA_StyledBackground, True)
-        tl = QHBoxLayout(tools)
-        tl.setContentsMargins(10, 7, 10, 7)
-        tl.setSpacing(8)
-
-        self.pattern_box = QComboBox()
-        self.pattern_box.setMinimumWidth(150)
-        self.pattern_box.currentIndexChanged.connect(self._pattern_picked)
-        tl.addWidget(self.pattern_box)
-        actions = QPushButton("Pattern")
-        pattern_menu = QMenu(actions)
-        for title, callback in (
-            ("New empty pattern", self.new_pattern),
-            ("Duplicate pattern", self.dup_pattern),
-            ("Rename pattern", self.rename_pattern),
-            ("Clear pattern", self.clear_pattern),
-        ):
-            pattern_menu.addAction(title, callback)
-        actions.setMenu(pattern_menu)
-        tl.addWidget(actions)
-
-        tl.addWidget(separator())
-        tl.addWidget(small("BARS"))
-        self.bars_box = QComboBox()
-        self.bars_box.addItems(["1", "2", "4", "8"])
-        self.bars_box.setCurrentText("2")
-        self.bars_box.setToolTip("How long the pattern is")
-        self.bars_box.currentTextChanged.connect(self._bars_changed)
-        tl.addWidget(self.bars_box)
-
-        double = QPushButton("×2")
-        double.setObjectName("mini")
-        double.setToolTip("Double the length and copy what is already there into the new half")
-        double.clicked.connect(self.double_pattern)
-        tl.addWidget(double)
-
-        tl.addWidget(small("GRID"))
-        self.grid_box = QComboBox()
-        for label, div in (("1/16", 4), ("1/8", 2), ("1/32", 8), ("1/8T", 3), ("1/16T", 6)):
-            self.grid_box.addItem(label, div)
-        self.grid_box.setToolTip("Step resolution — T divisions are triplets")
-        self.grid_box.currentIndexChanged.connect(self._div_changed)
-        tl.addWidget(self.grid_box)
-
-        tl.addWidget(separator())
-        self.btn_only_loaded = QPushButton("LOADED PADS")
-        self.btn_only_loaded.setObjectName("mini")
-        self.btn_only_loaded.setCheckable(True)
-        self.btn_only_loaded.setChecked(True)
-        self.btn_only_loaded.setToolTip(
-            "Show only lanes that have a sound or steps —\n"
-            "a four-piece kit becomes four rows instead of sixteen"
-        )
-        self.btn_only_loaded.toggled.connect(self.step_grid_only_loaded)
-        tl.addWidget(self.btn_only_loaded)
-
-        self.btn_follow = QPushButton("FOLLOW")
-        self.btn_follow.setObjectName("mini")
-        self.btn_follow.setCheckable(True)
-        self.btn_follow.setChecked(True)
-        self.btn_follow.setToolTip("Scroll the grid to keep the playhead in view")
-        self.btn_follow.toggled.connect(lambda on: setattr(self.step_grid, "follow", on))
-        tl.addWidget(self.btn_follow)
-
-        tl.addStretch(1)
-        hint = small("drag = draw · wheel = velocity · right-click a lane")
-        hint.setToolTip("Right-drag erases · F1 lists every key")
-        tl.addWidget(yielding(hint))
-        lay.addWidget(scrolling_bar(tools))
-
-        self.seq_scroll = QScrollArea()
-        self.seq_scroll.setWidgetResizable(False)
-        self.seq_scroll.setFrameShape(QFrame.NoFrame)
-        self.step_grid = StepGrid(self)
-        self.step_grid.stepEdited.connect(lambda: self._set_dirty(True))
-        self.step_grid.padAuditioned.connect(lambda gi: self.engine.trigger_pad(gi, 1.0))
-        self.step_grid.padSelected.connect(self.select_pad)
-        self.step_grid.followRequested.connect(self._follow_step)
-        self.seq_scroll.setWidget(self.step_grid)
-        lay.addWidget(self.seq_scroll, 1)
-        self._sync_pattern_controls()
-        return page
+        return sequencer_layout._build_seq(self)
 
     def _build_song(self) -> QWidget:
-        self._ensure_playlist_rows()
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-
-        tools = QWidget()
-        tools.setObjectName("toolbar")
-        tools.setAttribute(Qt.WA_StyledBackground, True)
-        tl = QHBoxLayout(tools)
-        tl.setContentsMargins(10, 7, 10, 7)
-        tl.setSpacing(8)
-
-        add_row = QPushButton("+ TRACK")
-        add_row.setObjectName("mini")
-        add_row.clicked.connect(self.add_song_row)
-        tl.addWidget(add_row)
-
-        self.track_controls_button = QPushButton("Track controls")
-        self.track_controls_button.setObjectName("mini")
-        self.track_controls_button.setCheckable(True)
-        self.track_controls_button.setToolTip(
-            "Show recording and routing for the selected Song track"
-        )
-        tl.addWidget(self.track_controls_button)
-
-        self.add_vocal_button = QPushButton("+ VOCAL TRACK")
-        self.add_vocal_button.setObjectName("mini")
-        self.add_vocal_button.setToolTip("Add and arm a dry microphone track at the Song playhead")
-        self.add_vocal_button.clicked.connect(self.add_vocal_track)
-        tl.addWidget(self.add_vocal_button)
-
-        self.btn_playlist_focus = QPushButton("⛶ FOCUS", self)
-        self.btn_playlist_focus.setObjectName("mini")
-        self.btn_playlist_focus.setCheckable(True)
-        self.btn_playlist_focus.setToolTip(
-            "Fill the window with the Playlist without closing Browser or Pads (F11)"
-        )
-        self.btn_playlist_focus.toggled.connect(self.set_playlist_focus)
-        self.btn_playlist_focus.hide()
-
-        self.playlist_tool_group = QButtonGroup(self)
-        self.playlist_tool_group.setExclusive(True)
-        self.playlist_tool_buttons = {}
-        for tool, label, tip in (
-            ("select", "↖", "Select, box-select and move clips  (E, or 1)"),
-            ("draw", "✎", "Draw and resize a block  (P, or 2)"),
-            ("paint", "▦", "Paint repeated blocks  (B, or 3)"),
-            ("slice", "✂", "Split a clip where you click  (C, or 4)"),
-            ("mute", "M", "Mute clips or tracks  (T, or 5)"),
-            ("erase", "⌫", "Delete clips where you click  (D, or 6)"),
-        ):
-            button = QPushButton(label)
-            button.setObjectName("mini")
-            button.setCheckable(True)
-            button.setFixedWidth(30)
-            button.setToolTip(tip)
-            button.clicked.connect(lambda _=False, name=tool: self.set_playlist_tool(name))
-            self.playlist_tool_group.addButton(button)
-            self.playlist_tool_buttons[tool] = button
-            tl.addWidget(button)
-        self.playlist_tool_buttons["draw"].setChecked(True)
-
-        self.playlist_place_label = small("PLACE")
-        tl.addWidget(self.playlist_place_label)
-        self.place_box = QComboBox()
-        self.place_box.setMinimumWidth(190)
-        self.place_box.setPlaceholderText("Choose a pattern")
-        self.place_box.setToolTip(
-            "Choose a pattern to place. Drag sounds from the Browser, or pick a timeline "
-            "clip to draw with its settings."
-        )
-        self.place_box.currentIndexChanged.connect(self._place_changed)
-        tl.addWidget(self.place_box)
-
-        self.playlist_snap_label = small("SNAP")
-        tl.addWidget(self.playlist_snap_label)
-        self.snap_box = QComboBox()
-        for label, beats in (("1 bar", 4.0), ("1 beat", 1.0), ("1/16", 0.25), ("off", 0.0)):
-            self.snap_box.addItem(label, beats)
-        self.snap_box.currentIndexChanged.connect(
-            lambda: setattr(self.playlist, "snap", self.snap_box.currentData())
-        )
-        tl.addWidget(self.snap_box)
-
-        self.playlist_zoom_label = small("ZOOM")
-        tl.addWidget(self.playlist_zoom_label)
-        self.zoom = QSlider(Qt.Horizontal)
-        self.zoom.setRange(6, 90)
-        self.zoom.setValue(26)
-        self.zoom.setFixedWidth(110)
-        self.zoom.valueChanged.connect(self._zoom_changed)
-        tl.addWidget(self.zoom)
-
-        tl.addStretch(1)
-        self.btn_song_loop = QPushButton("⟳ SONG LOOP")
-        self.btn_song_loop.setObjectName("mini")
-        self.btn_song_loop.setCheckable(True)
-        self.btn_song_loop.setToolTip("Loop the highlighted ruler range")
-        self.btn_song_loop.toggled.connect(self._song_loop_toggled)
-        self.btn_song_loop.setChecked(self.project.loop_enabled)
-        tl.addWidget(self.btn_song_loop)
-        self.btn_loop_setup = QPushButton()
-        self.btn_loop_setup.setObjectName("mini")
-        self.btn_loop_setup.clicked.connect(self.edit_playlist_loop)
-        tl.addWidget(self.btn_loop_setup)
-
-        # Exact values remain synchronized here; a compact dialog edits them.
-        self.playlist_loop_bars = QSpinBox(self)
-        self.playlist_loop_bars.setRange(1, 256)
-        self.playlist_loop_bars.setValue(
-            max(1, round((self.project.loop_end - self.project.loop_start) / 4))
-        )
-        self.playlist_loop_bars.setToolTip("Number of bars in the Playlist loop (1–256)")
-        self.playlist_loop_bars.setFixedWidth(62)
-        self.playlist_loop_bars.valueChanged.connect(self._playlist_loop_bars_changed)
-        self.loop_start_box = QDoubleSpinBox(self)
-        self.loop_start_box.setRange(0, 100000)
-        self.loop_start_box.setDecimals(2)
-        self.loop_start_box.setSuffix(" b")
-        self.loop_start_box.setValue(self.project.loop_start)
-        self.loop_start_box.setFixedWidth(76)
-        self.loop_start_box.valueChanged.connect(self._loop_boxes_changed)
-        self.loop_end_box = QDoubleSpinBox(self)
-        self.loop_end_box.setRange(0.25, 100000)
-        self.loop_end_box.setDecimals(2)
-        self.loop_end_box.setSuffix(" b")
-        self.loop_end_box.setValue(self.project.loop_end)
-        self.loop_end_box.setFixedWidth(76)
-        self.loop_end_box.valueChanged.connect(self._loop_boxes_changed)
-        for control in (self.playlist_loop_bars, self.loop_start_box, self.loop_end_box):
-            control.hide()
-        lay.addWidget(scrolling_bar(tools))
-
-        self.playlist_clip_tools = QWidget()
-        self.playlist_clip_tools.setObjectName("clipInspector")
-        self.playlist_clip_tools.setAttribute(Qt.WA_StyledBackground, True)
-        cl = QHBoxLayout(self.playlist_clip_tools)
-        cl.setContentsMargins(10, 5, 10, 5)
-        cl.setSpacing(7)
-        self.playlist_clip_name = small("NO CLIP SELECTED")
-        self.playlist_clip_name.setMinimumWidth(150)
-        cl.addWidget(self.playlist_clip_name)
-        self.btn_clip_loop = QPushButton("LOOP")
-        self.btn_clip_loop.setObjectName("mini")
-        self.btn_clip_loop.setCheckable(True)
-        self.btn_clip_loop.toggled.connect(self.set_selected_clip_loop)
-        cl.addWidget(self.btn_clip_loop)
-        self.btn_clip_reverse = QPushButton("REVERSE")
-        self.btn_clip_reverse.setObjectName("mini")
-        self.btn_clip_reverse.setCheckable(True)
-        self.btn_clip_reverse.toggled.connect(self.set_selected_clip_reverse)
-        cl.addWidget(self.btn_clip_reverse)
-        cl.addWidget(small("XFADE"))
-        self.clip_crossfade = QDoubleSpinBox()
-        self.clip_crossfade.setRange(0.0, 50.0)
-        self.clip_crossfade.setDecimals(1)
-        self.clip_crossfade.setSingleStep(0.5)
-        self.clip_crossfade.setSuffix(" ms")
-        self.clip_crossfade.setKeyboardTracking(False)
-        self.clip_crossfade.setToolTip("Blend the source tail into its head to remove loop clicks")
-        self.clip_crossfade.valueChanged.connect(self._selected_clip_crossfade)
-        cl.addWidget(self.clip_crossfade)
-        cl.addWidget(small("GAIN"))
-        self.clip_gain = QSpinBox()
-        self.clip_gain.setRange(0, 200)
-        self.clip_gain.setSuffix("%")
-        self.clip_gain.setKeyboardTracking(False)
-        self.clip_gain.setFixedWidth(68)
-        self.clip_gain.valueChanged.connect(self._selected_clip_gain)
-        cl.addWidget(self.clip_gain)
-        cl.addWidget(small("MIXER"))
-        self.clip_track = QComboBox()
-        for i in range(NTRACKS):
-            self.clip_track.addItem(str(i + 1), i)
-        self.clip_track.currentIndexChanged.connect(self._selected_clip_track)
-        cl.addWidget(self.clip_track)
-        self.btn_clip_unique = QPushButton("MAKE UNIQUE")
-        self.btn_clip_unique.setObjectName("mini")
-        self.btn_clip_unique.setToolTip(
-            "Give this clip its own notes and steps. Pad sounds and the synth remain shared."
-        )
-        self.btn_clip_unique.clicked.connect(lambda: self.make_pattern_unique())
-        cl.addWidget(self.btn_clip_unique)
-        self.btn_clip_notes = QPushButton("WRITE NOTES")
-        self.btn_clip_notes.setObjectName("mini")
-        self.btn_clip_notes.setToolTip(
-            "Play this sample across the piano roll · double-click the clip or press Enter"
-        )
-        self.btn_clip_notes.clicked.connect(lambda: self.sample_workflow.from_arrangement())
-        cl.addWidget(self.btn_clip_notes)
-        for text, slot in (
-            ("SPLIT @ PLAYHEAD", lambda: self.playlist.split_clip()),
-            ("DUPLICATE", lambda: self.playlist.duplicate_clip()),
-            ("SAVE WAV", self.export_selected_clip),
-            ("DELETE", lambda: self.playlist.delete_selected()),
-        ):
-            button = QPushButton(text)
-            button.setObjectName("mini")
-            button.clicked.connect(slot)
-            cl.addWidget(button)
-        cl.addStretch(1)
-        self.playlist_hint = small(
-            "pick clip → draw/paint copies · double-click = edit notes · "
-            "Alt-drag = copy · F1 for every key"
-        )
-        cl.addWidget(yielding(self.playlist_hint))
-        self.clip_controls = [
-            self.btn_clip_loop,
-            self.btn_clip_reverse,
-            self.clip_crossfade,
-            self.clip_gain,
-            self.clip_track,
-        ]
-        self.playlist_clip_scroll = scrolling_bar(self.playlist_clip_tools)
-        lay.addWidget(self.playlist_clip_scroll)
-
-        self.song_track_mount = QWidget()
-        track_layout = QVBoxLayout(self.song_track_mount)
-        track_layout.setContentsMargins(0, 0, 0, 0)
-        track_layout.setSpacing(0)
-        lay.addWidget(self.song_track_mount)
-
-        self.song_scroll = QScrollArea()
-        # Fill the whole Playlist tab. With a fixed-size scroll widget only the
-        # short white strip was interactive and the large area below was dead.
-        self.song_scroll.setWidgetResizable(True)
-        self.song_scroll.setFrameShape(QFrame.NoFrame)
-        # A scroll area must never publish its content's width as a minimum:
-        # PlaylistView asks for the whole arrangement (~1800 px at the default
-        # zoom), and with the default policy that number becomes the window's
-        # minimum width, so Playlist focus mode could not be narrowed enough to
-        # sit beside another window.  Ignored lets the viewport shrink and the
-        # horizontal scrollbar do its job.
-        self.song_scroll.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
-        self.song_scroll.setMinimumWidth(320)
-        self.playlist = PlaylistView(self)
-        self.playlist.seek.connect(self._seek_song)
-        self.playlist.changed.connect(self._refresh_place_box)
-        self.playlist.selectionChanged.connect(self._playlist_selection_changed)
-        self.song_scroll.setWidget(self.playlist)
-        lay.addWidget(self.song_scroll, 1)
-        self._refresh_place_box()
-        self._update_loop_button()
-        self._playlist_selection_changed(None)
-        return page
+        return arrangement_layout._build_song(self)
 
     def _build_pad_side(self) -> QWidget:
-        side = QFrame()
-        side.setObjectName("panel")
-        side.setMinimumWidth(268)
-        lay = QVBoxLayout(side)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-
-        self.track_inspector = TrackInspector(self)
-        self.track_controls_scroll = scrolling_bar(self.track_inspector)
-        self.song_track_mount.layout().addWidget(self.track_controls_scroll)
-        self.song_track_mount.hide()
-        self.track_controls_button.toggled.connect(self.song_track_mount.setVisible)
-        self.pad_page = side
-
-        head = QWidget()
-        head.setObjectName("padHead")
-        head.setAttribute(Qt.WA_StyledBackground, True)
-        hl = QHBoxLayout(head)
-        hl.setContentsMargins(9, 6, 9, 6)
-        hl.addWidget(small("PADS"))
-        hide = QPushButton("×")
-        hide.setFixedWidth(24)
-        hide.setToolTip("Hide pads · Shift+F8")
-        hide.clicked.connect(self.toggle_pads)
-
-        hl.addStretch(1)
-        self.bank_buttons = []
-        for b in range(BANKS):
-            btn = QPushButton(chr(ord("A") + b))
-            btn.setObjectName("mini")
-            btn.setCheckable(True)
-            btn.setChecked(b == 0)
-            btn.setFixedWidth(28)
-            btn.clicked.connect(lambda _=False, i=b: self.set_bank(i))
-            self.bank_buttons.append(btn)
-            hl.addWidget(btn)
-        lay.addWidget(head)
-
-        hl.addWidget(hide)
-
-        self.pads = PadGrid(self)
-        self.pads.padPressed.connect(self._pad_pressed)
-        self.pads.padReleased.connect(self._pad_released)
-        self.pads.padSelected.connect(self.select_pad)
-        self.pads.sampleDropped.connect(self.assign_sample_to_pad)
-        self.pads.rangeDropped.connect(self.assign_range_to_pad)
-        self.pads.padCleared.connect(self.clear_pad)
-        self.pads.setFixedHeight(268)
-        lay.addWidget(self.pads)
-
-        self.pad_inspector = PadInspector(self)
-        self.pad_inspector.changed.connect(self._pad_params_changed)
-        self.pad_inspector.editSample.connect(self.edit_sample)
-        lay.addWidget(self.pad_inspector, 1)
-        return side
+        return window_layout._build_pad_side(self)
 
     # ── shortcuts ────────────────────────────────────────────
     def _install_shortcuts(self):
@@ -2402,620 +1189,129 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     # ── transport actions ────────────────────────────────────
     def _record_toggled(self, enabled):
-        self._record_count_timer.stop()
-        self._record_count_deadline = None
-        self.record_count_label.hide()
-        capture = self.track_capture
-        if enabled and capture.armed_id is None and self.engine.mode == "song":
-            self.btn_rec.blockSignals(True)
-            self.btn_rec.setChecked(False)
-            self.btn_rec.blockSignals(False)
-            self.track_controls_button.setChecked(True)
-            self.show_tab(2)
-            self.status.showMessage("Arm a Song track with its R button, then press Record", 5000)
-            return
-        if not enabled and (capture.active or capture.pending):
-            capture.finish()
-            return
-        if enabled and capture.armed_id is not None:
-            if not capture.prepare():
-                self.btn_rec.blockSignals(True)
-                self.btn_rec.setChecked(False)
-                self.btn_rec.blockSignals(False)
-                return
-            self.show_tab(2)
-            self.engine.recording = False
-            self.engine.stop_transport(rewind=False)
-            self.engine.mode = "song"
-            self.btn_pattern.setChecked(False)
-            self.btn_song.setChecked(True)
-            self._record_count_beat_seconds = 60.0 / max(1.0, self.project.bpm)
-            count = capture.settings.count_in_bars * 4
-            if count == 0:
-                capture.start()
-                return
-            self._record_count_deadline = time.monotonic() + count * self._record_count_beat_seconds
-            self.record_count_label.setText(str(count))
-            self.record_count_label.show()
-            self._record_count_timer.start()
-            self.status.showMessage(f"Count-in · {capture.target.name} · Stop cancels")
-            return
-        if not enabled:
-            for note in tuple(self.sample_workflow.recorded):
-                self.sample_workflow.note_off(note)
-            for note in list(self._recorded_notes):
-                self.release_synth_note(note)
-            self.engine.recording = False
-            return
-        self.engine.recording = False
-        self.engine.stop_transport(rewind=False)
-        self._record_count_beat_seconds = 60.0 / max(1.0, self.project.bpm)
-        self._record_count_deadline = time.monotonic() + 3 * self._record_count_beat_seconds
-        self.record_count_label.setText("3")
-        self.record_count_label.show()
-        self.status.showMessage("Count-in · 3 · Record or Stop cancels")
-        self._record_count_timer.start()
+        return window_transport._record_toggled(self, enabled)
 
     def _advance_record_count(self):
-        if self._record_count_deadline is None:
-            return
-        remaining = self._record_count_deadline - time.monotonic()
-        if remaining > 0:
-            import math
-
-            count = max(1, math.ceil(remaining / self._record_count_beat_seconds))
-            self.record_count_label.setText(str(count))
-            return
-        self._record_count_timer.stop()
-        self._record_count_deadline = None
-        self.record_count_label.hide()
-        if self.track_capture.pending:
-            self.track_capture.start()
-            return
-        self.snapshot()
-        self.engine.recording = True
-        self.engine.play()
-        self.status.showMessage("Recording", 2500)
+        return window_transport._advance_record_count(self)
 
     def _cancel_record_count(self):
-        if self._record_count_deadline is not None:
-            self.btn_rec.setChecked(False)
+        return window_transport._cancel_record_count(self)
 
     def toggle_play(self):
-        if self.track_capture.active:
-            self.btn_rec.setChecked(False)
-            return
-        if self._record_count_deadline is not None:
-            self._cancel_record_count()
-            return
-        self.engine.toggle_play()
+        return window_transport.toggle_play(self)
 
     def play_selected_note(self, note: int, velocity: float = 1.0):
-        self.sample_workflow.note_on(note, velocity)
+        return window_transport.play_selected_note(self, note, velocity)
 
     def release_selected_note(self, note: int):
-        self.sample_workflow.note_off(note)
+        return window_transport.release_selected_note(self, note)
 
     def play_synth_note(self, note: int, velocity: float = 1.0):
-        if not self.project.arp.enabled:
-            self.track_capture.note_on(note, velocity)
-        if (
-            not self.project.arp.enabled
-            and self.engine.recording
-            and self.engine.playing
-            and self.engine.mode == "pattern"
-        ):
-            if note not in self._recorded_notes:
-                self.snapshot()
-                self._recorded_notes[note] = (self.project.pattern().id, self.engine.beat, velocity)
-        self.engine.synth_note_on(note, velocity)
-        self.synth_panel.keyboard.set_note_active(note, True)
-        if self.typing_keyboard is not None:
-            self.typing_keyboard.keyboard.set_note_active(note, True)
+        return window_transport.play_synth_note(self, note, velocity)
 
     def release_synth_note(self, note: int):
-        self.track_capture.note_off(note)
-        recorded = self._recorded_notes.pop(note, None)
-        if recorded:
-            pattern_id, start, velocity = recorded
-            pattern = next((p for p in self.project.patterns if p.id == pattern_id), None)
-            if pattern:
-                beat = start % pattern.length_beats
-                duration = min(max(0.03125, self.engine.beat - start), pattern.length_beats - beat)
-                pattern.notes.append(Note(note, beat, duration, velocity))
-                self._set_dirty(True)
-                self.piano_roll.canvas.refresh()
-        self.engine.synth_note_off(note)
-        self.synth_panel.keyboard.set_note_active(note, False)
-        if self.typing_keyboard is not None:
-            self.typing_keyboard.keyboard.set_note_active(note, False)
+        return window_transport.release_synth_note(self, note)
 
     def panic_synth(self):
-        self.sample_workflow.panic()
-        for note in list(self._recorded_notes):
-            self.release_synth_note(note)
-        self.engine.synth_panic()
-        self._held_synth_keys.clear()
-        self.synth_panel.keyboard.active.clear()
-        self.synth_panel.keyboard.update()
-        if self.typing_keyboard is not None:
-            self.typing_keyboard.panic(send=False)
+        return window_transport.panic_synth(self)
 
     def stop_all(self):
-        if self.track_capture.active or self.track_capture.pending:
-            self.btn_rec.setChecked(False)
-        self.sample_workflow.panic()
-        self._cancel_record_count()
-        for note in list(self._recorded_notes):
-            self.release_synth_note(note)
-        self.engine.stop_transport(rewind=True)
-        self.engine.panic()
-        self._held_pads.clear()
-        self._held_synth_keys.clear()
-        self.synth_panel.keyboard.active.clear()
-        self.synth_panel.keyboard.update()
-        if self.typing_keyboard is not None:
-            self.typing_keyboard.panic(send=False)
+        return window_transport.stop_all(self)
 
     def set_mode(self, mode: str):
-        if self.track_capture.active or self.track_capture.pending:
-            if mode == self.engine.mode:
-                return
-            self.btn_rec.setChecked(False)
-        self.sample_workflow.panic()
-        self._cancel_record_count()
-        for note in list(self._recorded_notes):
-            self.release_synth_note(note)
-        self.engine.mode = mode
-        self.btn_pattern.setChecked(mode == "pattern")
-        self.btn_song.setChecked(mode == "song")
-        self.engine.stop_transport(rewind=True)
-        if mode == "song":
-            self.tabs.setCurrentIndex(2)
+        return window_transport.set_mode(self, mode)
 
     def _song_loop_toggled(self, on: bool):
-        capture = getattr(self, "track_capture", None)
-        if capture is not None and capture.busy:
-            self.btn_song_loop.blockSignals(True)
-            self.btn_song_loop.setChecked(self.project.loop_enabled)
-            self.btn_song_loop.blockSignals(False)
-            self.status.showMessage("Stop and save the take before changing the loop", 3000)
-            return
-        self.engine.loop_song = bool(on)
-        self.project.loop_enabled = bool(on)
-        self._set_dirty(True)
-        if on:
-            self.set_mode("song")
-            if not (self.project.loop_start <= self.engine.beat < self.project.loop_end):
-                self.engine.set_position(self.project.loop_start)
-        self.playlist.update()
-        self.status.showMessage(
-            f"song loop {'on' if on else 'off'} · "
-            f"{self.project.loop_start:g}–{self.project.loop_end:g} beats",
-            2600,
-        )
+        return window_transport._song_loop_toggled(self, on)
 
     def _seek_song(self, beat):
-        if self.track_capture.active or self.track_capture.pending:
-            self.status.showMessage("Stop the take before moving the playhead", 3000)
-            return
-        self.engine.set_position(beat)
+        return window_transport._seek_song(self, beat)
 
     def set_song_loop_range(self, start: float, end: float, enable: bool = False):
-        start = max(0.0, float(start))
-        end = max(start + 0.25, float(end))
-        self.project.loop_start, self.project.loop_end = start, end
-        for box, value in ((self.loop_start_box, start), (self.loop_end_box, end)):
-            box.blockSignals(True)
-            box.setValue(value)
-            box.blockSignals(False)
-        bars = max(1, round((end - start) / 4.0))
-        self.playlist_loop_bars.blockSignals(True)
-        self.playlist_loop_bars.setValue(bars)
-        self.playlist_loop_bars.blockSignals(False)
-        if enable:
-            self.btn_song_loop.setChecked(True)
-        self._update_loop_button()
-        self.playlist.update()
+        return window_transport.set_song_loop_range(self, start, end, enable)
 
     def _loop_boxes_changed(self):
-        start = self.loop_start_box.value()
-        end = max(start + 0.25, self.loop_end_box.value())
-        if end != self.loop_end_box.value():
-            self.loop_end_box.blockSignals(True)
-            self.loop_end_box.setValue(end)
-            self.loop_end_box.blockSignals(False)
-        self.project.loop_start, self.project.loop_end = start, end
-        bars = max(1, round((end - start) / 4.0))
-        self.playlist_loop_bars.blockSignals(True)
-        self.playlist_loop_bars.setValue(bars)
-        self.playlist_loop_bars.blockSignals(False)
-        self._update_loop_button()
-        self.playlist.update()
+        return window_transport._loop_boxes_changed(self)
 
     def _playlist_loop_bars_changed(self, bars: int):
-        """Set loop duration from the Playlist, measured in four-beat bars."""
-        start = self.loop_start_box.value()
-        self.set_song_loop_range(start, start + int(bars) * 4.0)
+        return window_transport._playlist_loop_bars_changed(self, bars)
 
     def _update_loop_button(self):
-        if not hasattr(self, "btn_loop_setup"):
-            return
-        start_bar = int(self.project.loop_start // 4) + 1
-        bars = max(1, round((self.project.loop_end - self.project.loop_start) / 4))
-        self.btn_loop_setup.setText(f"BAR {start_bar} · {bars} BARS")
+        return window_transport._update_loop_button(self)
 
     def edit_playlist_loop(self):
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Playlist loop")
-        form = QFormLayout(dlg)
-        start = QDoubleSpinBox()
-        start.setRange(0, 100000)
-        start.setDecimals(2)
-        start.setSuffix(" beats")
-        start.setValue(self.project.loop_start)
-        bars = QSpinBox()
-        bars.setRange(1, 256)
-        bars.setValue(max(1, round((self.project.loop_end - self.project.loop_start) / 4)))
-        form.addRow("Start", start)
-        form.addRow("Length", bars)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        form.addRow(buttons)
-        if dlg.exec() == QDialog.Accepted:
-            self.snapshot()
-            self.set_song_loop_range(start.value(), start.value() + bars.value() * 4, enable=True)
+        return window_transport.edit_playlist_loop(self)
 
     def tap_tempo(self):
-        now = time.monotonic()
-        self._taps = [t for t in self._taps if now - t < 2.4] + [now]
-        if len(self._taps) < 2:
-            self.status.showMessage("tap…", 1500)
-            return
-        gaps = np.diff(self._taps)
-        bpm = float(np.clip(60.0 / gaps.mean(), 40, 240))
-        self.project.bpm = round(bpm, 2)
-        self.bpm_box.setValue(self.project.bpm)
-        self.status.showMessage(f"{self.project.bpm} BPM", 1800)
+        return window_transport.tap_tempo(self)
 
     def _bpm_changed(self, value: float):
-        capture = getattr(self, "track_capture", None)
-        if capture is not None and capture.busy:
-            self.bpm_box.blockSignals(True)
-            self.bpm_box.setValue(self.project.bpm)
-            self.bpm_box.blockSignals(False)
-            self.status.showMessage("Stop and save the take before changing tempo", 3000)
-            return
-        self.project.bpm = float(value)
-        self._set_dirty(True)
+        return window_transport._bpm_changed(self, value)
 
     def _swing_changed(self, v):
-        self.project.swing = float(v)
-        self.swing_label.setText(f"{v}%")
-        self._set_dirty(True)
+        return window_transport._swing_changed(self, v)
 
     def _cut_self_changed(self, on: bool):
-        self.project.self_choke = bool(on)
-        self._set_dirty(True)
-        self.status.showMessage(
-            "cut source on — cuts stay within each pattern or live performance; layers keep playing"
-            if on
-            else "cut source off — same-sample slices may overlap",
-            1800,
-        )
+        return window_transport._cut_self_changed(self, on)
 
     def _master_changed(self, v):
-        self.project.master = v / 100.0
-        self.mixer.master_strip.sync()
-        self._set_dirty(True)
+        return window_transport._master_changed(self, v)
 
     def _audio_buffer_changed(self, index: int):
-        frames = int(self.audio_buffer.itemData(index) or self.engine.blocksize)
-        if frames == self.engine.blocksize:
-            return
-        old = self.engine.blocksize
-        self.status.showMessage(
-            f"restarting audio · {frames} frames / {frames / self.engine.sr * 1000:.1f} ms"
-        )
-        try:
-            if self.engine.stream is None:
-                self.engine.configure_blocksize(frames)
-                self.engine.start()
-            else:
-                self.engine.restart(frames)
-        except Exception as exc:
-            # ``restart`` rolls a running stream back. If an offline retry
-            # failed, restore the previous prepared size as well.
-            if self.engine.stream is None and self.engine.blocksize != old:
-                self.engine.configure_blocksize(old)
-            previous = self.audio_buffer.findData(old)
-            self.audio_buffer.blockSignals(True)
-            self.audio_buffer.setCurrentIndex(max(0, previous))
-            self.audio_buffer.blockSignals(False)
-            error = str(exc) or type(exc).__name__
-            if self.engine.stream is not None:
-                # Engine.restart() was able to reopen the previous profile.
-                # The requested period failed, but audio itself is still live.
-                self._audio_start_error = None
-                self.status.showMessage(
-                    f"audio profile failed · restored {old} frames · {error}", 8000
-                )
-            else:
-                self._audio_start_error = error
-                self.status.showMessage(f"audio offline · {self._audio_start_error}", 8000)
-            return
-        self._audio_start_error = None
-        self.settings.setValue("audio/buffer_frames", frames)
-        if hasattr(self, "devices") and self.project.plugins:
-            self.devices.sync_project()
-        self.status.showMessage(
-            f"audio · {frames} frames · {self.engine.period_ms:.1f} ms block", 4000
-        )
+        return window_transport._audio_buffer_changed(self, index)
 
     def _retry_audio(self):
-        if self.engine.stream is not None:
-            self.engine.reset_timing()
-            self._last_audio_warning_xruns = 0
-            self._last_audio_warning_at = 0.0
-            self.status.showMessage("audio diagnostics reset", 2500)
-            return
-        try:
-            self.engine.start()
-        except Exception as exc:
-            self._audio_start_error = str(exc) or type(exc).__name__
-            self.status.showMessage(f"audio still offline · {self._audio_start_error}", 8000)
-            return
-        self._audio_start_error = None
-        self.status.showMessage(f"audio online · {self.engine.blocksize} frames", 4000)
+        return window_transport._retry_audio(self)
 
     # ── pads ─────────────────────────────────────────────────
     def set_bank(self, bank: int):
-        self.pads.bank = bank
-        self.step_grid.bank = bank
-        for i, b in enumerate(self.bank_buttons):
-            b.setChecked(i == bank)
-        self.pads.update()
-        # Which lanes are worth showing depends on the bank, so the grid has to
-        # be re-measured rather than merely repainted.
-        self.step_grid.refresh()
+        return window_sampling.set_bank(self, bank)
 
     def select_pad(self, gi: int):
-        self.pads.selected = gi
-        if hasattr(self, "sample_target"):
-            self.sample_target.blockSignals(True)
-            self.sample_target.setCurrentIndex(gi)
-            self.sample_target.blockSignals(False)
-        self.pad_inspector.set_pad(gi)
-        if hasattr(self, "map_selection_button"):
-            bank = chr(ord("A") + gi // PADS_PER_BANK)
-            self.map_selection_button.setText(f"Assign to pad {bank}{gi % PADS_PER_BANK + 1}")
-        if hasattr(self, "synth_panel"):
-            self.synth_panel.sync_target_pad()
-        self.pads.update()
+        return window_sampling.select_pad(self, gi)
 
     def print_synth_to_pad(self):
-        """Render the current analog patch and place it on the active pad."""
-        patch = self.project.synth
-        note = self.synth_panel.base_note
-        hold = (60.0 / self.project.bpm) * 2.0
-        self.status.showMessage(f"printing {patch.name}…")
-        QApplication.processEvents()
-        audio = render_patch(patch, note, hold, self.engine.sr)
-        self.snapshot()
-        clip = self.library.add_audio(
-            audio, f"{patch.name} C{self.synth_panel.octave}", kind="render"
-        )
-        gi = self.pads.selected
-        map_sample_range(self.project.pads[gi], clip.id, 0.0, clip.duration, clip.name)
-        self.pad_inspector.set_pad(gi)
-        self.browser.refresh(select=clip.id)
-        self._library_changed()
-        self.step_grid.update()
-        bank = chr(ord("A") + gi // PADS_PER_BANK)
-        self.status.showMessage(f"printed {patch.name} → pad {bank}{gi % PADS_PER_BANK + 1}", 4000)
+        return window_sampling.print_synth_to_pad(self)
 
     def _pad_pressed(self, gi: int, vel: float):
-        pad = self.project.pads[gi]
-        if not pad.empty:
-            self.track_capture.note_on(pad.root_note, vel, gi)
-        self.engine.trigger_pad(gi, vel)
+        return window_sampling._pad_pressed(self, gi, vel)
 
     def _pad_released(self, gi: int):
-        self.track_capture.note_off(self.project.pads[gi].root_note, gi)
-        self.engine.release_pad(gi)
+        return window_sampling._pad_released(self, gi)
 
     def _pad_params_changed(self):
-        pad = self.project.pads[self.pads.selected]
-        if pad.sample_id:
-            self.library.audio(pad.sample_id)
-            if pad.reverse:
-                self.library.reversed_audio(pad.sample_id)
-        self.pads.update()
-        self.step_grid.update()
-        self.mixer.sync()
-        self._set_dirty(True)
+        return window_sampling._pad_params_changed(self)
 
     def normalize_pad(self, gi: int):
-        """Set a pad slice peak to -1 dBFS with non-destructive pad gain."""
-        pad = self.project.pads[gi]
-        data = self.library.audio(pad.sample_id) if pad.sample_id else None
-        if data is None or not len(data):
-            self.status.showMessage("pad source is missing", 2500)
-            return
-        s0 = max(0, min(len(data), int(pad.start * self.engine.sr)))
-        end = pad.end if pad.end > pad.start else len(data) / self.engine.sr
-        s1 = max(s0, min(len(data), int(end * self.engine.sr)))
-        peak = float(np.max(np.abs(data[s0:s1]))) if s1 > s0 else 0.0
-        if peak <= 1e-7:
-            self.status.showMessage("cannot normalize a silent slice", 2500)
-            return
-        target = 10.0 ** (-1.0 / 20.0)
-        gain = min(4.0, target / peak)
-        self.snapshot()
-        pad.gain = gain
-        self.pad_inspector.set_pad(gi)
-        self.pads.update()
-        capped = " · +12 dB cap" if gain >= 4.0 and peak * gain < target else ""
-        self.status.showMessage(f"pad normalized · {20 * np.log10(gain):+.1f} dB{capped}", 3500)
+        return window_sampling.normalize_pad(self, gi)
 
     def tighten_pad(self, gi: int):
-        """Trim near-silence around a pad while retaining tiny edge padding."""
-        pad = self.project.pads[gi]
-        data = self.library.audio(pad.sample_id) if pad.sample_id else None
-        if data is None or not len(data):
-            self.status.showMessage("pad source is missing", 2500)
-            return
-        sr = self.engine.sr
-        s0 = max(0, min(len(data), int(pad.start * sr)))
-        end = pad.end if pad.end > pad.start else len(data) / sr
-        s1 = max(s0, min(len(data), int(end * sr)))
-        segment = data[s0:s1]
-        if not len(segment):
-            return
-        amplitude = np.max(np.abs(segment), axis=1)
-        peak = float(amplitude.max())
-        if peak <= 1e-7:
-            self.status.showMessage("cannot tighten a silent slice", 2500)
-            return
-        active = np.flatnonzero(amplitude >= max(1e-6, peak * 0.002))
-        if not len(active):
-            return
-        new_s0 = s0 + max(0, int(active[0]) - int(0.001 * sr))
-        new_s1 = s0 + min(len(segment), int(active[-1]) + 1 + int(0.003 * sr))
-        if new_s0 == s0 and new_s1 == s1:
-            self.status.showMessage("slice is already tight", 2200)
-            return
-        self.snapshot()
-        pad.start = new_s0 / sr
-        pad.end = new_s1 / sr
-        self.pad_inspector.set_pad(gi)
-        self.pads.update()
-        self.status.showMessage(
-            f"trimmed {(new_s0 - s0) / sr * 1000:.1f} ms front · "
-            f"{(s1 - new_s1) / sr * 1000:.1f} ms tail",
-            3500,
-        )
+        return window_sampling.tighten_pad(self, gi)
 
     def clear_pad(self, gi: int):
-        self.snapshot()
-        self.project.pads[gi] = Pad()
-        self.pad_inspector.set_pad(gi)
-        self.pads.update()
-        self.step_grid.update()
+        return window_sampling.clear_pad(self, gi)
 
     def assign_sample_to_pad(self, gi: int, clip_id: str):
-        clip = self.library.clips.get(clip_id)
-        if not clip:
-            return
-        self.snapshot()
-        pad = self.project.pads[gi]
-        pad.sample_id = clip_id
-        pad.name = clip.name
-        pad.start = 0.0
-        pad.end = 0.0
-        pad.sync_beats = 0.0
-        self.library.audio(clip_id)  # warm the cache off the audio thread
-        self.select_pad(gi)
-        self.pads.update()
-        self.step_grid.update()
-        self.status.showMessage(
-            f"{clip.name} → pad {chr(ord('A') + gi // PADS_PER_BANK)}{gi % PADS_PER_BANK + 1}", 2500
-        )
+        return window_sampling.assign_sample_to_pad(self, gi, clip_id)
 
     def assign_range_to_pad(self, gi: int, clip_id: str, start: float, end: float):
-        """A range dragged out of the CHOP editor and dropped on a pad."""
-        clip = self.library.clips.get(clip_id)
-        if not clip or end <= start:
-            return
-        self.snapshot()
-        self.library.audio(clip_id)
-        kinds = self._scan_kinds.get(clip_id, {})
-        index = self.wave.slice_at(start) if clip_id == self.current_clip else -1
-        kind = kinds.get(index, "cut")
-        map_sample_range(self.project.pads[gi], clip_id, start, end, f"{kind} {clip.name[:8]}")
-        self.select_pad(gi)
-        self.pads.update()
-        self.step_grid.update()
-        bank = chr(ord("A") + gi // PADS_PER_BANK)
-        self.status.showMessage(
-            f"{start:.3f}s → {end:.3f}s dropped on pad {bank}{gi % PADS_PER_BANK + 1}", 4000
-        )
+        return window_sampling.assign_range_to_pad(self, gi, clip_id, start, end)
 
     # ── chop / editor ────────────────────────────────────────
     def _set_sample_cut_mode(self, enabled):
-        self.wave.cut_mode = enabled
-        self.wave.setCursor(Qt.CrossCursor if enabled else Qt.ArrowCursor)
+        return window_sampling._set_sample_cut_mode(self, enabled)
 
     def send_selection_to_arrangement(self):
-        if not self.current_clip:
-            self.status.showMessage("Select a sample first", 2500)
-            return None
-        return self.append_sample_to_arrangement(self.current_clip, *self.wave.selection())
+        return window_sampling.send_selection_to_arrangement(self)
 
     def append_sample_to_arrangement(self, ref, start, end):
-        meta = self.library.clips.get(ref)
-        if meta is None or not 0 <= start < end <= meta.duration + 1e-6:
-            return None
-        selected_row = self.playlist.row_for_clip(self.playlist.selected_clip)
-        rows = self.project.rows
-        row_index = next(
-            (i for i, row in enumerate(rows) if row is selected_row),
-            next((i for i, row in enumerate(rows) if not row.clips), len(rows)),
-        )
-        self.snapshot()
-        if row_index == len(rows):
-            rows.append(Row(name=f"TRACK {row_index + 1}"))
-        tail = max((c.start_beat + c.length_beats for c in rows[row_index].clips), default=0.0)
-        snap = self.playlist.snap
-        beat = float(np.ceil((tail - 1e-9) / snap) * snap) if snap else tail
-        clip = self.playlist.place_sample_range(
-            row_index, max(0.0, beat), ref, start, end, snapshot=False
-        )
-        self._arrange_drop_filter.reveal()
-        self.song_scroll.ensureVisible(
-            int(self.playlist.beat_to_x(clip.start_beat) + 20),
-            int(RULER_H + (row_index + 0.5) * ROW_H),
-            40,
-            ROW_H,
-        )
-        return clip
+        return window_sampling.append_sample_to_arrangement(self, ref, start, end)
 
     def load_clip_into_editor(self, clip_id: str):
-        self._syncing_zoom = False
-        clip = self.library.clips.get(clip_id)
-        if not clip:
-            return
-        self.current_clip = clip_id
-        audio = self.library.audio(clip_id)
-        peaks = self.library.peaks(clip_id)
-        markers = self.project.slices.get(clip_id, [])
-        for box in (self.selection_start, self.selection_end):
-            box.blockSignals(True)
-            box.setRange(0.0, clip.duration)
-            box.blockSignals(False)
-        self.wave.set_clip(audio, peaks, clip.duration, markers, clip.bpm, clip_id=clip_id)
-        self._apply_scan_to_wave(clip_id)
-        self.nav.set_overview(self.library.overview(clip_id))
-        label = f"{clip.name}   ·   {clip.duration:.2f}s"
-        if clip.bpm:
-            label += f"   ·   {clip.bpm} BPM"
-        self.clip_label.setText(label)
-        self.phrase_bpm.setValue(clip.bpm or self.project.bpm)
-        self._rebuild_chips()
+        return window_sampling.load_clip_into_editor(self, clip_id)
 
     def edit_sample(self, clip_id: str):
-        self.browser.refresh(select=clip_id)
-        self.load_clip_into_editor(clip_id)
-        gi = self.pads.selected
-        pad = self.project.pads[gi]
-        if pad.sample_id == clip_id:
-            clip = self.library.clips[clip_id]
-            self.wave.set_selection(pad.start, pad.end or clip.duration, ensure_visible=True)
-        if self.tabs.currentIndex() == 8:
-            self.studio.select(0)
-        else:
-            self.tabs.setCurrentIndex(0)
+        return window_sampling.edit_sample(self, clip_id)
 
     # ── zoom ─────────────────────────────────────────────────
     # The slider is logarithmic: a linear one spends nine tenths of its travel
@@ -3024,1277 +1320,202 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
     ZOOM_MIN_SPAN = 0.0002
 
     def _span_to_slider(self, span: float) -> int:
-        span = min(1.0, max(self.ZOOM_MIN_SPAN, span))
-        return int(round(1000 * np.log(span) / np.log(self.ZOOM_MIN_SPAN)))
+        return window_sampling._span_to_slider(self, span)
 
     def _slider_to_span(self, ticks: int) -> float:
-        return float(self.ZOOM_MIN_SPAN ** (ticks / 1000.0))
+        return window_sampling._slider_to_span(self, ticks)
 
     def _wave_zoom_slider(self, ticks: int):
-        if self._syncing_zoom or self.wave.duration <= 0:
-            return
-        span = self.wave.view_b - self.wave.view_a
-        want = self._slider_to_span(ticks)
-        # Zoom about the selection when there is one, so trimming a chop keeps
-        # the chop on screen instead of drifting off the edge.
-        start, end = self.wave.selection()
-        focus = (start + end) / 2 / self.wave.duration if end > start else None
-        self.wave.zoom_by(want / max(1e-9, span), focus)
+        return window_sampling._wave_zoom_slider(self, ticks)
 
     def _wave_view_changed(self):
-        span = self.wave.view_b - self.wave.view_a
-        self._syncing_zoom = True
-        self.wave_zoom.setValue(self._span_to_slider(span))
-        self._syncing_zoom = False
-        seconds = span * self.wave.duration
-        if self.wave.duration <= 0:
-            self.zoom_readout.setText("—")
-        elif seconds < 1.0:
-            self.zoom_readout.setText(f"{seconds * 1000:.0f} ms visible")
-        else:
-            self.zoom_readout.setText(f"{seconds:.2f} s visible")
-        self.nav.update()
+        return window_sampling._wave_view_changed(self)
 
     def _selection_changed(self, start: float, end: float):
-        self.selection_start.blockSignals(True)
-        self.selection_end.blockSignals(True)
-        self.selection_start.setValue(start)
-        self.selection_end.setValue(end)
-        self.selection_start.blockSignals(False)
-        self.selection_end.blockSignals(False)
-        self.selection_length.setText(f"{max(0.0, end - start):.3f} s")
+        return window_sampling._selection_changed(self, start, end)
 
     def _selection_spin_changed(self, _value: float):
-        if not self.current_clip:
-            return
-        start = self.selection_start.value()
-        end = self.selection_end.value()
-        if end <= start:
-            sender = self.sender()
-            if sender is self.selection_start:
-                end = min(self.wave.duration, start + 0.001)
-            else:
-                start = max(0.0, end - 0.001)
-        self.wave.set_selection(start, end, snap=True)
+        return window_sampling._selection_spin_changed(self, _value)
 
     def _selection_finished(self, start: float, end: float):
-        if self.current_clip and end > start:
-            self.engine.audition(
-                self.current_clip, start, end, loop=self.btn_loop_range.isChecked()
-            )
-            self.status.showMessage(f"range {start:.3f}s → {end:.3f}s · {(end - start):.3f}s", 2500)
+        return window_sampling._selection_finished(self, start, end)
 
     def audition_selection(self):
-        if not self.current_clip:
-            self.status.showMessage("select a sample first", 2500)
-            return
-        start, end = self.wave.selection()
-        self.engine.audition(self.current_clip, start, end, loop=self.btn_loop_range.isChecked())
+        return window_sampling.audition_selection(self)
 
     def _loop_range_toggled(self, on: bool):
-        if on:
-            self.audition_selection()
-        else:
-            self.engine.stop_audition()
+        return window_sampling._loop_range_toggled(self, on)
 
     def _scrubbed(self, seconds: float):
-        """Clicking the ruler plays from there to the end of the range."""
-        if not self.current_clip:
-            return
-        end = max(seconds + 0.05, self.wave.selection_end)
-        self.engine.audition(
-            self.current_clip,
-            seconds,
-            min(end, self.wave.duration),
-            loop=self.btn_loop_range.isChecked(),
-        )
+        return window_sampling._scrubbed(self, seconds)
 
     # ── waveform context menu ────────────────────────────────
     def _wave_menu(self, position, seconds: float):
-        if not self.current_clip:
-            return
-        menu = QMenu(self)
-        start, end = self.wave.selection()
-        index = self.wave.slice_at(seconds)
-
-        act_play = menu.addAction("Play from here")
-        act_range = menu.addAction("Play range")
-        menu.addSeparator()
-        act_mark = menu.addAction("Split here")
-        act_select = menu.addAction("Select this slice") if index >= 0 else None
-        act_bar = menu.addAction("Select one bar from here") if self.wave.bpm else None
-        act_all = menu.addAction("Select whole sample")
-        menu.addSeparator()
-        gi = self.pads.selected
-        bank = chr(ord("A") + gi // PADS_PER_BANK)
-        act_map = menu.addAction(f"Map range → pad {bank}{gi % PADS_PER_BANK + 1}")
-        act_new = menu.addAction("Save range as a new sample")
-        act_arrange = menu.addAction("Send range to Arrange")
-        menu.addSeparator()
-        act_zoom = menu.addAction("Zoom to range")
-        act_fit = menu.addAction("Fit whole sample")
-
-        chosen = menu.exec(position)
-        if chosen is None:
-            return
-        if chosen is act_play:
-            self._scrubbed(seconds)
-        elif chosen is act_range:
-            self.audition_selection()
-        elif chosen is act_mark:
-            self.wave.add_marker(seconds)
-        elif act_select is not None and chosen is act_select:
-            self.wave.select_slice(index)
-        elif act_bar is not None and chosen is act_bar:
-            bar = (60.0 / self.wave.bpm) * 4
-            self.wave.set_selection(seconds, min(self.wave.duration, seconds + bar))
-            self.audition_selection()
-        elif chosen is act_all:
-            self.wave.set_selection(0.0, self.wave.duration)
-        elif chosen is act_map:
-            self.map_selection_to_pad()
-        elif chosen is act_new:
-            self.save_range_as_sample(start, end)
-        elif chosen is act_arrange:
-            self.send_selection_to_arrangement()
-        elif chosen is act_zoom:
-            self.wave.zoom_to_selection()
-        elif chosen is act_fit:
-            self.wave.fit()
+        return window_sampling._wave_menu(self, position, seconds)
 
     def save_range_as_sample(self, start: float, end: float):
-        """Bounce the chosen range into the library as a sample of its own."""
-        audio = self.library.audio(self.current_clip)
-        if audio is None or end <= start:
-            return
-        sr = self.engine.sr
-        cut = audio[int(start * sr) : int(end * sr)]
-        if not len(cut):
-            self.status.showMessage("range is empty", 2500)
-            return
-        source = self.library.clips[self.current_clip]
-        self.snapshot()
-        clip = self.library.add_audio(cut, f"{source.name[:20]} cut", kind="chop")
-        self.browser.refresh(select=clip.id)
-        self._library_changed()
-        self.status.showMessage(f"{clip.name} · {clip.duration:.3f}s → library", 5000)
+        return window_sampling.save_range_as_sample(self, start, end)
 
     def map_selection_to_pad(self):
-        self._map_selection_to_pad()
+        return window_sampling.map_selection_to_pad(self)
 
     def _map_selection_to_pad(self) -> bool:
-        if not self.current_clip:
-            self.status.showMessage("select a sample first", 2500)
-            return False
-        start, end = self.wave.selection()
-        if end - start < 0.001:
-            self.status.showMessage("drag a range on the waveform first", 2500)
-            return False
-        gi = self.pads.selected
-        clip = self.library.clips[self.current_clip]
-        self.library.audio(self.current_clip)
-        self.snapshot()
-        pad = self.project.pads[gi]
-        map_sample_range(pad, self.current_clip, start, end, f"{clip.name[:12]} cut")
-        self.pad_inspector.set_pad(gi)
-        self.pads.update()
-        self.step_grid.update()
-        bank = chr(ord("A") + gi // PADS_PER_BANK)
-        self.status.showMessage(
-            f"{start:.3f}s → {end:.3f}s mapped to pad {bank}{gi % PADS_PER_BANK + 1}", 4000
-        )
-        return True
+        return window_sampling._map_selection_to_pad(self)
 
     def map_selection_and_next(self):
-        start, end = self.wave.selection()
-        if not self._map_selection_to_pad():
-            return
-        gi = (self.pads.selected + 1) % NPADS
-        bank = gi // PADS_PER_BANK
-        if bank != self.pads.bank:
-            self.set_bank(bank)
-        self.select_pad(gi)
-
-        length = end - start
-        next_start = end
-        next_end = min(self.wave.duration, next_start + length)
-        if next_end - next_start < 0.001:
-            next_start = max(0.0, self.wave.duration - length)
-            next_end = self.wave.duration
-        self.wave.set_selection(next_start, next_end, ensure_visible=True, snap=True)
+        return window_sampling.map_selection_and_next(self)
 
     def _chop_mode_changed(self, idx):
-        transient = idx == 0
-        self.sens.setVisible(transient)
-        self.sens_label.setVisible(transient)
-        self.pieces.setVisible(not transient)
-        self.pieces_label.setVisible(not transient)
-        self.btn_scan.setText("Find slices" if transient else "Slice sample")
-        self.btn_scan.setToolTip(
-            "Detect cuts throughout the sample using the sensitivity setting"
-            if transient
-            else "Divide the sample using the selected grid and piece count"
-        )
+        return window_sampling._chop_mode_changed(self, idx)
 
     def select_four_bar_phrase(self):
-        if not self.current_clip:
-            self.status.showMessage("Select a sample first", 2500)
-            return
-        clip = self.library.clips[self.current_clip]
-        start = self.wave.selection_start
-        end = start + 16 * 60 / self.phrase_bpm.value()
-        if end > clip.duration + 0.5 / self.engine.sr:
-            self.status.showMessage("Not enough audio for four bars from this start", 4000)
-            return
-        self.wave.set_selection(start, min(end, clip.duration), ensure_visible=True)
-        self.status.showMessage(
-            "Four bars selected · preview and refine the range before chopping", 4500
-        )
+        return window_sampling.select_four_bar_phrase(self)
 
     def arrange_four_bar_phrase(self):
-        if not self.current_clip:
-            self.status.showMessage("Select a sample and its four-bar phrase first", 3500)
-            return
-        source = self.library.clips[self.current_clip]
-        audio = self.library.audio(source.id)
-        if audio is None:
-            self.status.showMessage("Sample audio is unavailable", 3500)
-            return
-        try:
-            plan = four_bar_phrase(
-                self.project,
-                source.id,
-                source.name,
-                self.wave.selection_start,
-                self.wave.selection_end,
-                len(audio),
-                self.engine.sr,
-                self.phrase_pieces.currentData(),
-                self.pads.bank,
-            )
-        except ValueError as exc:
-            self.status.showMessage(str(exc), 5000)
-            return
-        row_index, start = pattern_arrangement_target(
-            self.project, plan.pattern, self.playlist.selected_clip, 4.0
-        )
-        self.snapshot()
-        for index, pad in plan.pads:
-            self.project.pads[index] = pad
-        self.project.patterns.append(plan.pattern)
-        self.project.current_pattern = plan.pattern.id
-        if row_index == len(self.project.rows):
-            self.project.rows.append(Row(name=f"TRACK {row_index + 1}"))
-        clip = self.playlist._place_ref(row_index, start, "pattern", plan.pattern.id)
-        self._sync_pattern_controls()
-        self._refresh_place_box()
-        self._choose_pattern_to_place(plan.pattern.id)
-        self.set_bank(plan.bank)
-        self.select_pad(plan.pads[0][0])
-        self.playlist.select_clip(clip)
-        self.phrase_bpm.setValue(plan.source_bpm)
-        if self.studio.enabled:
-            self.studio.select(self.TAB_PLAYLIST)
-        else:
-            self.show_tab(self.TAB_PLAYLIST)
-        self.song_scroll.ensureVisible(
-            int(self.playlist.beat_to_x(start) + 20),
-            int(RULER_H + (row_index + 0.5) * ROW_H),
-            40,
-            ROW_H,
-        )
-        self.status.showMessage(
-            f"{len(plan.pads)} chops · bank {chr(65 + plan.bank)} · 4 bars at song tempo "
-            f"(repitch) · double-click to rearrange · Ctrl+Z to undo",
-            8000,
-        )
-        return clip
+        return window_sampling.arrange_four_bar_phrase(self)
 
     def do_chop(self):
-        if not self.current_clip:
-            self.status.showMessage("select a sample first", 2500)
-            return
-        clip = self.library.clips[self.current_clip]
-        self.snapshot()
-        mode = self.chop_mode.currentIndex()
-
-        if mode == 0:
-            self.status.showMessage("finding transients…")
-            QApplication.processEvents()
-            res = self.library.analyze(self.current_clip, self.sens.value() / 100.0)
-            markers = list(res["onsets"])
-            self.status.showMessage(f"{len(markers)} slices · {res['bpm']} BPM detected", 4000)
-        elif mode == 1:
-            n = self.pieces.value()
-            step = clip.duration / n
-            markers = [round(i * step, 5) for i in range(n)]
-            self.status.showMessage(f"{n} equal slices", 3000)
-        else:
-            bpm = clip.bpm or self.project.bpm
-            per_bar = self.pieces.value()
-            step = (60.0 / bpm) * 4 / per_bar
-            n = max(1, int(clip.duration / step))
-            markers = [round(i * step, 5) for i in range(n)]
-            self.status.showMessage(f"{n} slices on a {bpm:.2f} BPM grid", 3000)
-
-        self.project.slices[self.current_clip] = markers
-        self.wave.markers = markers
-        self.wave.selected = 0
-        self.wave.slice_kinds = {}
-        self.wave.slice_ends = {}
-        self.wave.bpm = self.library.clips[self.current_clip].bpm
-        if markers:
-            self.wave.set_selection(*self.wave.slice_bounds(0))
-        self.wave.update()
-        self.nav.update()
-        self._rebuild_chips()
+        return sample_analysis.do_chop(self)
 
     # ── auto chop ────────────────────────────────────────────
     def auto_chop(self, *, then_map: bool = False):
-        """Scan the loaded song for hits, loops and drops, off the GUI thread."""
-        if not self.current_clip:
-            self.status.showMessage("select a sample first", 2500)
-            return
-        if self._scanning:
-            self.status.showMessage("already scanning…", 2000)
-            return
-        clip_id = self.current_clip
-        audio = self.library.audio(clip_id)
-        if audio is None or not len(audio):
-            self.status.showMessage("nothing to scan", 2500)
-            return
-
-        self._scanning = True
-        self._scan_project = self.project
-        self._scan_then_map = then_map
-        self.btn_scan.setEnabled(False)
-        self.btn_auto_map.setEnabled(False)
-        self.status.showMessage(f"scanning {self.library.clips[clip_id].name}…")
-
-        sens = self.sens.value() / 100.0
-
-        def work():
-            # A four-minute song takes a few seconds; the GUI and the audio
-            # thread both keep running while it does.
-            try:
-                mono = detect.analysis_mono(audio)
-                result = detect.scan(mono, self.engine.sr, sensitivity=sens)
-            except Exception as exc:  # keep the app alive
-                emit_if_alive(self, "scanFailed", clip_id, str(exc))
-                return
-            emit_if_alive(self, "scanFinished", clip_id, result)
-
-        threading.Thread(target=work, name="mpclab-scan", daemon=True).start()
+        return sample_analysis.auto_chop(self, then_map=then_map)
 
     def _scan_failed(self, clip_id: str, message: str):
-        self._scanning = False
-        self._scan_then_map = False
-        self.btn_scan.setEnabled(True)
-        self.btn_auto_map.setEnabled(True)
-        self.status.showMessage(f"scan failed: {message[:80]}", 6000)
+        return sample_analysis._scan_failed(self, clip_id, message)
 
     def _scan_finished(self, clip_id: str, result: dict):
-        self._scanning = False
-        self.btn_scan.setEnabled(True)
-        self.btn_auto_map.setEnabled(True)
-        if getattr(self, "_scan_project", self.project) is not self.project:
-            self._scan_then_map = False
-            self.status.showMessage("Scan discarded because the project changed", 3500)
-            return
-        if clip_id not in self.library.clips:
-            self._scan_then_map = False
-            return
-        self._scans[clip_id] = result
-
-        clip = self.library.clips.get(clip_id)
-        if clip and result.get("bpm"):
-            clip.bpm = round(float(result["bpm"]), 2)
-            self.library.update(clip)
-
-        hits = self.hits_for(clip_id)
-        if clip_id == self.current_clip:
-            self.snapshot()
-            markers = list(result.get("onsets", [c.start for c in hits]))
-            self.project.slices[clip_id] = markers
-            self.wave.markers = markers
-            self.wave.selected = 0 if markers else -1
-            self.wave.bpm = clip.bpm if clip else None
-            self.phrase_bpm.setValue(clip.bpm or self.project.bpm)
-            self._apply_scan_to_wave(clip_id)
-            if markers:
-                self.wave.set_selection(*self.wave.slice_bounds(0))
-            self.wave.update()
-            self.nav.update()
-            self._rebuild_chips()
-
-        counts = Counter(c.kind for c in hits)
-        summary = " · ".join(f"{n} {k}" for k, n in counts.most_common())
-        self.status.showMessage(
-            f"{len(result.get('onsets', hits))} cuts · {summary}   ·   "
-            f"{len(result['loops'])} loops · {len(result['drops'])} drops   "
-            f"({result['bpm']:.2f} BPM)",
-            9000,
-        )
-        if self._scan_then_map:
-            self._scan_then_map = False
-            if clip_id == self.current_clip:
-                self.auto_map()
-            else:
-                self.status.showMessage(
-                    "Scan ready for the original sample; select it to map", 4500
-                )
+        return sample_analysis._scan_finished(self, clip_id, result)
 
     def _apply_scan_to_wave(self, clip_id: str) -> list:
-        """Hand a clip's detector result to the editor. Returns the hits."""
-        hits = self.hits_for(clip_id)
-        by_start = {round(c.start, 5): c for c in hits}
-        kinds: dict[int, str] = {}
-        for i, marker in enumerate(self.wave.markers):
-            cand = by_start.get(round(marker, 5))
-            if cand is not None:
-                kinds[i] = cand.kind
-        self.wave.slice_kinds = kinds
-        # Keep contiguous editor slices; decay trimming belongs to pad auto-mapping.
-        self.wave.slice_ends = {}
-        self.wave.regions = self.regions_for(clip_id)
-        self._scan_kinds[clip_id] = kinds
-        return hits
+        return sample_analysis._apply_scan_to_wave(self, clip_id)
 
     def hits_for(self, clip_id: str) -> list:
-        """All classified hits for editing; pad mapping keeps its own shortlist."""
-        result = self._scans.get(clip_id)
-        if not result:
-            return []
-        picked = list(result.get("hits", []))
-        picked.sort(key=lambda c: c.start)
-        return picked
+        return sample_analysis.hits_for(self, clip_id)
 
     def regions_for(self, clip_id: str) -> list[tuple[float, float, str]]:
-        """Loops and drops, which are spans of the song rather than cut points."""
-        result = self._scans.get(clip_id)
-        if not result:
-            return []
-        return [(c.start, c.end, c.kind) for c in result["loops"] + result["drops"]]
+        return sample_analysis.regions_for(self, clip_id)
 
     def auto_map(self):
-        """Fill this bank with the best hits, then loops, then drops."""
-        if not self.current_clip:
-            self.status.showMessage("select a sample first", 2500)
-            return
-        result = self._scans.get(self.current_clip)
-        if not result:
-            # Nothing scanned yet — do that first and come back here.
-            self.auto_chop(then_map=True)
-            return
-
-        clip = self.library.clips[self.current_clip]
-        self.library.audio(self.current_clip)  # warm the cache off the audio thread
-        self.snapshot()
-
-        placed = 0
-        bank = self.pads.bank
-        hits = detect.layout_hits(result["by_kind"])
-        for local, cand in sorted(hits.items()):
-            gi = bank * PADS_PER_BANK + local
-            if gi >= NPADS:
-                break
-            self._place_candidate(gi, cand, clip.name)
-            placed += 1
-
-        # Loops and drops are bars, not hits, so they get banks of their own.
-        for offset, group in ((1, result["loops"]), (2, result["drops"])):
-            target = bank + offset
-            if target >= BANKS or not group:
-                continue
-            for n, cand in enumerate(group[:PADS_PER_BANK]):
-                gi = target * PADS_PER_BANK + n
-                self._place_candidate(gi, cand, clip.name)
-                placed += 1
-
-        self.pads.update()
-        self.step_grid.update()
-        self.pad_inspector.rebuild()
-        letters = "".join(chr(ord("A") + b) for b in range(bank, min(BANKS, bank + 3)))
-        self.status.showMessage(
-            f"{placed} samples mapped across banks {letters} — "
-            f"hits on {chr(ord('A') + bank)}, loops and drops after",
-            9000,
-        )
+        return sample_analysis.auto_map(self)
 
     def _place_candidate(self, gi: int, cand, clip_name: str) -> None:
-        pad = self.project.pads[gi]
-        map_sample_range(
-            pad, self.current_clip, cand.start, cand.end, f"{cand.kind} {clip_name[:8]}"
-        )
-        pad.name = f"{cand.kind} {clip_name[:8]}"
-        pad.mode = "one-shot"
-        # Hats choke each other the way they do on a kit, so a closed hat
-        # cuts an open one instead of ringing through it.
-        pad.choke = 1 if cand.kind == "hat" else 0
+        return sample_analysis._place_candidate(self, gi, cand, clip_name)
 
     def detect_bpm(self):
-        if not self.current_clip:
-            return
-        self.status.showMessage("analysing…")
-        QApplication.processEvents()
-        res = self.library.analyze(self.current_clip)
-        self.project.bpm = res["bpm"]
-        self.bpm_box.setValue(res["bpm"])
-        self.wave.bpm = res["bpm"]
-        self.wave.update()
-        self.load_clip_into_editor(self.current_clip)
-        self.status.showMessage(f"detected {res['bpm']} BPM", 4000)
+        return sample_analysis.detect_bpm(self)
 
     def clear_slices(self):
-        if not self.current_clip:
-            return
-        self.snapshot()
-        self.project.slices[self.current_clip] = []
-        self.wave.markers = self.project.slices[self.current_clip]
-        self.wave.selected = -1
-        self.wave.set_selection(0.0, self.wave.duration)
-        self.wave.update()
-        self._rebuild_chips()
+        return sample_analysis.clear_slices(self)
 
     def _markers_changed(self):
-        self.project.slices[self.current_clip] = self.wave.markers
-        # Detection annotations are indexed by the original marker ordering.
-        # Once a user changes that ordering, discard stale labels rather than
-        # showing a kick/loop boundary on the wrong slice.
-        self.wave.slice_kinds.clear()
-        self.wave.slice_ends.clear()
-        self._rebuild_chips()
-        self._set_dirty(True)
+        return sample_analysis._markers_changed(self)
 
     def _slice_selected(self, index: int):
-        if not self.current_clip:
-            return
-        s, e = self.wave.slice_bounds(index)
-        self.wave.set_selection(s, e)
-        self.engine.audition(self.current_clip, s, e, loop=self.btn_loop_range.isChecked())
-        self._highlight_chip(index)
+        return sample_analysis._slice_selected(self, index)
 
     def _highlight_chip(self, index: int):
-        """Selection must not destroy and relayout hundreds of chop buttons."""
-        buttons = getattr(self, "_slice_buttons", [])
-        previous = getattr(self, "_highlighted_chip", -1)
-        if 0 <= previous < len(buttons):
-            buttons[previous].setChecked(False)
-        if 0 <= index < len(buttons):
-            buttons[index].setChecked(True)
-        self._highlighted_chip = index
+        return sample_analysis._highlight_chip(self, index)
 
     def _rebuild_chips(self):
-        self._slice_buttons = []
-        self._highlighted_chip = self.wave.selected
-        while self.chips.count():
-            item = self.chips.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.setParent(None)
-                w.deleteLater()
-        if not self.current_clip or (not self.wave.markers and not self.wave.regions):
-            self.slice_chips_area.hide()
-            self.chips.addStretch(1)
-            return
-        self.slice_chips_area.show()
-        kinds = self.wave.slice_kinds
-        for i, (s, e) in enumerate(self.wave.all_slices()):
-            kind = kinds.get(i)
-            btn = SampleDragButton(
-                f"{i + 1}  {kind or ''}  {e - s:.2f}s".replace("  ", " "),
-                lambda: self.wave._start_range_drag(),
-            )
-            btn.setObjectName("mini")
-            btn.setCheckable(True)
-            btn.setChecked(i == self.wave.selected)
-            if kind:
-                colour = hit_color(kind)
-                btn.setStyleSheet(f"QPushButton {{ border-left: 3px solid {colour}; }}")
-            btn.setToolTip(
-                f"{kind or 'Slice'} · {s:.3f}s → {e:.3f}s\n"
-                "Click to audition · drag onto Arrange or a pad"
-            )
-            # Audition at finger-down, without waiting for mouse/key release.
-            btn.pressed.connect(lambda idx=i: self._chip_clicked(idx))
-            btn.clicked.connect(lambda _=False, idx=i: self._highlight_chip(idx))
-            self._slice_buttons.append(btn)
-            self.chips.addWidget(btn)
-        for n, (s, e, kind) in enumerate(self.wave.regions):
-            btn = SampleDragButton(
-                f"{kind} {n + 1}  {e - s:.2f}s", lambda: self.wave._start_range_drag()
-            )
-            btn.setObjectName("mini")
-            colour = hit_color(kind)
-            btn.setStyleSheet(f"QPushButton {{ border: 1px solid {colour}; }}")
-            btn.setToolTip(
-                f"{kind} · {s:.2f}s → {e:.2f}s\n"
-                "Click to audition and trim · drag onto Arrange or a pad"
-            )
-            btn.pressed.connect(lambda a=s, b=e: self._region_clicked(a, b))
-            self.chips.addWidget(btn)
-        self.chips.addWidget(small("Drag a slice onto Arrange or a pad"))
-        self.chips.addStretch(1)
+        return sample_analysis._rebuild_chips(self)
 
     def _chip_clicked(self, index: int):
-        self.wave.selected = index
-        self.wave.update()
-        self._slice_selected(index)
+        return sample_analysis._chip_clicked(self, index)
 
     def _region_clicked(self, start: float, end: float):
-        """Pick up a whole loop or drop as the pad range."""
-        self.wave.selected = -1
-        self.wave.set_selection(start, end, ensure_visible=True)
-        self.engine.audition(self.current_clip, start, end, loop=self.btn_loop_range.isChecked())
-        self._highlight_chip(-1)
+        return sample_analysis._region_clicked(self, start, end)
 
     def slices_to_pads(self):
-        if not self.current_clip:
-            self.status.showMessage("select a sample first", 2500)
-            return
-        slices = self.wave.all_slices()
-        clip = self.library.clips[self.current_clip]
-        self.library.audio(self.current_clip)  # warm the cache off the audio thread
-        self.snapshot()
-        start = self.pads.bank * PADS_PER_BANK
-        placed = 0
-        for n, (s, e) in enumerate(slices):
-            gi = start + n
-            if gi >= NPADS:
-                break
-            pad = self.project.pads[gi]
-            pad.sample_id = self.current_clip
-            pad.name = f"{clip.name[:10]} {n + 1}"
-            pad.start = s
-            pad.end = e
-            pad.sync_beats = 0.0
-            pad.mode = "one-shot"
-            pad.reverse = False
-            placed += 1
-        self.pads.update()
-        self.step_grid.update()
-        self.pad_inspector.rebuild()
-        self.tabs.setCurrentIndex(1)
-        self.status.showMessage(
-            f"{placed} slices → pads from bank {chr(ord('A') + self.pads.bank)}", 4000
-        )
+        return sample_analysis.slices_to_pads(self)
 
     # ── patterns ─────────────────────────────────────────────
     def set_playlist_focus(self, on: bool):
-        """Give the arrangement the window without destroying either sidebar."""
-        self._playlist_focus = bool(on)
-        if on:
-            self._normal_split_sizes = self.main_splitter.sizes()
-            self._focus_panel_visibility = (
-                not self.browser_frame.isHidden(),
-                not self.pad_side.isHidden(),
-            )
-            # Focus mode exists so the timeline can sit beside another window.
-            # A maximized window ignores resize(), so leave that state — and
-            # remember it, to put the workspace back the way it was on exit.
-            self._was_maximized = self.isMaximized()
-            if self._was_maximized:
-                self.showNormal()
-            self.browser_frame.hide()
-            self.pad_side.hide()
-            self.tabs.setCurrentIndex(2)
-        else:
-            visible = getattr(self, "_focus_panel_visibility", (True, True))
-            self.browser_frame.setVisible(visible[0])
-            self.pad_side.setVisible(visible[1])
-            self.main_splitter.setSizes(self._normal_split_sizes or [304, 1066, 300])
-            if getattr(self, "_was_maximized", False):
-                self.showMaximized()
-                self._was_maximized = False
-        for widget in self.transport_focus_hidden:
-            widget.setVisible(not on)
-        self._sync_compact_playlist_ui()
-        self.btn_playlist_focus.setText("⛶ EXIT" if on else "⛶ FOCUS")
-        # Showing and hiding widgets only *queues* the layout requests that
-        # move the window's minimum size.  Flush them here, after every
-        # visibility change above, or the first resize following a focus-mode
-        # toggle — a drag of the window edge, or a tiling window manager
-        # placing us — is still clamped by the full-workspace minimum.
-        QApplication.sendPostedEvents(None, QEvent.LayoutRequest)
-        self.status.showMessage("Playlist focus mode" if on else "sidebars restored", 1800)
+        return arrangement_actions.set_playlist_focus(self, on)
 
     def _sync_compact_playlist_ui(self):
-        """Keep the Playlist's primary controls usable in narrow/focused windows."""
-        if not hasattr(self, "playlist_hint"):
-            return
-        focused = bool(getattr(self, "_playlist_focus", False))
-        narrow = self.width() < 1200
-        self.playlist_hint.setVisible(not focused and self.width() >= 1450)
-        self.playlist_place_label.setVisible(not focused and not narrow)
-        self.playlist_snap_label.setVisible(not focused and not narrow)
-        self.playlist_zoom_label.setVisible(not focused and not narrow)
-        self.zoom.setVisible(not focused and not narrow)
-        self.place_box.setMinimumWidth(120 if focused else (140 if narrow else 190))
+        return arrangement_actions._sync_compact_playlist_ui(self)
 
     def set_playlist_tool(self, tool: str):
-        if hasattr(self, "playlist"):
-            self.playlist.tool = tool
-            self.playlist.update_cursor()
-        button = self.playlist_tool_buttons.get(tool)
-        if button and not button.isChecked():
-            button.setChecked(True)
-        self.status.showMessage(f"Playlist tool · {tool}", 1200)
+        return arrangement_actions.set_playlist_tool(self, tool)
 
     def _playlist_selection_changed(self, clip):
-        if clip is not None:
-            source = (clip.kind, clip.ref)
-            if clip.kind == "pattern" and not any(
-                self.place_box.itemData(i) == source for i in range(self.place_box.count())
-            ):
-                self._refresh_place_box()
-            self.place_box.blockSignals(True)
-            self.place_box.setCurrentIndex(-1)
-            for i in range(self.place_box.count()):
-                if self.place_box.itemData(i) == source:
-                    self.place_box.setCurrentIndex(i)
-                    break
-            self.place_box.blockSignals(False)
-        if clip is not None and hasattr(self, "track_inspector"):
-            row = self.playlist.row_for_clip(clip)
-            if row is not None:
-                self.track_inspector.select_row(row)
-        self.playlist_clip_scroll.setVisible(bool(clip))
-        self.playlist_clip_tools.setVisible(bool(clip))
-        audio = bool(clip and clip.kind == "audio")
-        pattern = bool(clip and clip.kind == "pattern")
-        self.btn_clip_unique.setVisible(pattern)
-        self.btn_clip_notes.setVisible(audio)
-        self.playlist_clip_name.setText(
-            (
-                self.library.clips.get(clip.ref).name
-                if audio and clip.ref in self.library.clips
-                else next(
-                    (p.name for p in self.project.patterns if clip and p.id == clip.ref),
-                    "NO CLIP SELECTED",
-                )
-            )
-        )
-        if pattern:
-            count = sum(
-                other.kind == "pattern" and other.ref == clip.ref
-                for row in self.project.rows
-                for other in row.clips
-            )
-            if count > 1:
-                self.playlist_clip_name.setText(
-                    f"{self.playlist_clip_name.text()} · shared by {count} clips"
-                )
-        self.btn_clip_loop.blockSignals(True)
-        self.btn_clip_reverse.blockSignals(True)
-        self.clip_gain.blockSignals(True)
-        self.clip_track.blockSignals(True)
-        self.clip_crossfade.blockSignals(True)
-        self.btn_clip_loop.setChecked(bool(audio and clip.loop))
-        self.btn_clip_reverse.setChecked(bool(audio and clip.reverse))
-        self.clip_gain.setValue(round((clip.gain if clip else 1.0) * 100))
-        self.clip_track.setCurrentIndex(clip.track if clip else 0)
-        self.clip_crossfade.setValue((clip.loop_crossfade if audio else 0.0) * 1000.0)
-        self.btn_clip_loop.blockSignals(False)
-        self.btn_clip_reverse.blockSignals(False)
-        self.clip_gain.blockSignals(False)
-        self.clip_track.blockSignals(False)
-        self.clip_crossfade.blockSignals(False)
-        self.btn_clip_loop.setEnabled(audio)
-        self.btn_clip_reverse.setEnabled(audio)
-        self.clip_gain.setEnabled(bool(clip))
-        self.clip_track.setEnabled(audio)
-        self.clip_crossfade.setEnabled(audio)
+        return arrangement_actions._playlist_selection_changed(self, clip)
 
     def rename_song_row(self, row):
-        name, ok = QInputDialog.getText(self, "Rename Playlist track", "Track name:", text=row.name)
-        if ok and name.strip():
-            self.snapshot()
-            row.name = name.strip()
-            self.playlist.update()
+        return arrangement_actions.rename_song_row(self, row)
 
     def set_selected_clip_loop(self, on: bool):
-        clip = self.playlist.selected_clip
-        if not clip or clip.kind != "audio" or clip.loop == bool(on):
-            return
-        self.snapshot()
-        clip.loop = bool(on)
-        self.playlist.update()
-        self.status.showMessage(
-            "audio source will repeat to fill the block" if on else "audio source loop off", 2200
-        )
+        return arrangement_actions.set_selected_clip_loop(self, on)
 
     def set_selected_clip_reverse(self, on: bool):
-        clip = self.playlist.selected_clip
-        if not clip or clip.kind != "audio" or clip.reverse == bool(on):
-            return
-        self.snapshot()
-        if on:
-            self.library.reversed_audio(clip.ref)
-        clip.reverse = bool(on)
-        self.playlist.update()
+        return arrangement_actions.set_selected_clip_reverse(self, on)
 
     def _selected_clip_gain(self, value: int):
-        clip = self.playlist.selected_clip
-        if clip and clip.gain != value / 100.0:
-            self.snapshot()
-            clip.gain = value / 100.0
-            self._set_dirty(True)
-            self.playlist.update()
+        return arrangement_actions._selected_clip_gain(self, value)
 
     def _selected_clip_crossfade(self, value: float):
-        clip = self.playlist.selected_clip
-        crossfade = max(0.0, float(value) / 1000.0)
-        if clip and clip.kind == "audio" and clip.loop_crossfade != crossfade:
-            self.snapshot()
-            clip.loop_crossfade = crossfade
-            self._set_dirty(True)
+        return arrangement_actions._selected_clip_crossfade(self, value)
 
     def _selected_clip_track(self, index: int):
-        clip = self.playlist.selected_clip
-        track = self.clip_track.itemData(index)
-        if clip and clip.kind == "audio" and track is not None and clip.track != track:
-            self.snapshot()
-            clip.track = int(track)
-            self._set_dirty(True)
+        return arrangement_actions._selected_clip_track(self, index)
 
     def export_selected_clip(self):
-        clip = self.playlist.selected_clip
-        if not clip or clip.kind != "audio":
-            self.status.showMessage("select an audio clip first", 2200)
-            return
-        data = self.library.audio(clip.ref)
-        if data is None:
-            QMessageBox.warning(self, "Save WAV failed", "The source audio is missing.")
-            return
-        s0 = max(0, min(len(data), int(clip.offset * self.engine.sr)))
-        source_frames = (
-            int(clip.source_length * self.engine.sr) if clip.source_length > 0 else len(data) - s0
-        )
-        segment = data[s0 : min(len(data), s0 + source_frames)]
-        if not len(segment):
-            QMessageBox.warning(
-                self, "Save WAV failed", "This clip has no audio in its trim range."
-            )
-            return
-        if clip.reverse:
-            segment = segment[::-1]
-        arranged = max(1, int(clip.length_beats * (60.0 / self.project.bpm) * self.engine.sr))
-        if clip.loop:
-            copies = int(np.ceil(arranged / len(segment)))
-            segment = np.tile(segment, (copies, 1))[:arranged]
-        else:
-            segment = segment[:arranged]
-        segment = np.clip(segment * clip.gain, -1.0, 1.0)
-        source_name = self.library.clips.get(clip.ref).name
-        stamp = time.strftime("%Y%m%d-%H%M%S")
-        out = self.exports_dir / f"{source_name}-clip-{stamp}.wav"
-        sf.write(str(out), segment, self.engine.sr, subtype="PCM_24")
-        self.status.showMessage(f"saved clip WAV → {out}", 8000)
+        return arrangement_actions.export_selected_clip(self)
 
     def prepare_vocal_recording(self):
-        """Prepare dry Song capture; never open a device until Record is pressed."""
-        if self.track_capture.busy:
-            self.show_tab(2)
-            return
-        row = next((r for r in self.project.rows if r.id == self.track_capture.armed_id), None)
-        if row is None or row.record_source != "audio":
-            row = self.track_inspector.row()
-        if row is None or row.record_source != "audio":
-            self.add_vocal_track()
-            return
-        if self.engine.mode != "song":
-            position = self.engine.beat
-            self.set_mode("song")
-            self.engine.set_position(position)
-        self.show_tab(2)
-        self.track_inspector.select_row(row)
-        if self.track_capture.armed_id != row.id:
-            self.track_capture.arm(row)
-        self.status.showMessage(
-            "Microphone track armed · choose input, then press Record · Stop saves the waveform in Song",
-            7000,
-        )
+        return arrangement_actions.prepare_vocal_recording(self)
 
     def add_vocal_track(self):
-        if self.track_capture.busy:
-            self.status.showMessage(
-                "Finish the current recording before adding a vocal track", 3500
-            )
-            return
-        self.snapshot()
-        number = 1 + sum(r.name.startswith("Vocal ") for r in self.project.rows)
-        row = Row(name=f"Vocal {number}", record_source="audio", record_track=3)
-        index = next(
-            (i for i, r in enumerate(self.project.rows) if not r.clips), len(self.project.rows)
-        )
-        self.project.rows.insert(index, row)
-        self.track_inspector.select_row(row)
-        self.track_capture.arm(row)
-        self.playlist.refresh()
-        self.prepare_vocal_recording()
-        self.song_scroll.ensureVisible(0, RULER_H + index * ROW_H)
+        return arrangement_actions.add_vocal_track(self)
 
     def open_vocal_clip(self, clip=None):
-        clip = clip if clip is not None else self.playlist.selected_clip
-        if clip is None or clip.kind != "audio":
-            self.status.showMessage(
-                "Select a recorded audio clip in Song to open in Autotune", 4500
-            )
-            return
-        self.vocal_panel.open_arranged_take(clip)
-        self.show_tab(5)
+        return arrangement_actions.open_vocal_clip(self, clip)
 
     def add_song_row(self):
-        self.snapshot()
-        row = Row(name=f"TRACK {len(self.project.rows) + 1}")
-        self.project.rows.append(row)
-        self.track_inspector.select_row(row)
-        self.track_controls_button.setChecked(True)
-        self.playlist.refresh()
-        self.song_scroll.ensureVisible(
-            int(self.playlist.beat_to_x(0)), RULER_H + len(self.project.rows) * ROW_H
-        )
+        return arrangement_actions.add_song_row(self)
 
     def _ensure_playlist_rows(self, minimum: int = 12):
-        """Give the Playlist a useful FL-style lane stack, including old projects."""
-        while len(self.project.rows) < minimum:
-            self.project.rows.append(Row(name=f"TRACK {len(self.project.rows) + 1}"))
+        return arrangement_actions._ensure_playlist_rows(self, minimum)
 
     def _library_changed(self):
-        self._refresh_place_box()
-        self.pads.update()
-        if hasattr(self, "vocal_panel"):
-            self.vocal_panel.refresh_takes()
+        return arrangement_actions._library_changed(self)
 
     def adopt_stems(self, job) -> list[str]:
-        """Move a finished Demucs job into the normal clip library."""
-        self.snapshot()
-        imported: list[str] = []
-        folder = self.separator.out_root / job.id
-        preferred = list(separate.MODELS.get(job.model, {}).get("stems", ()))
-        names = preferred + sorted(name for name in job.stems if name not in preferred)
-        for stem in names:
-            filename = job.stems.get(stem)
-            if not filename:
-                continue
-            source = folder / filename
-            if not source.is_file():
-                continue
-            clip = self.library.import_file(
-                source,
-                name=f"{job.name} · {stem.upper()}",
-                kind="stem",
-                parent=job.source_clip,
-                stem=stem,
-                move=True,
-            )
-            imported.append(clip.id)
-        if not imported:
-            self.discard_snapshot()
-            raise RuntimeError("the stem output folder contained no readable audio")
-        if folder.exists():
-            archived = self.library.root / "_trash" / "stem-jobs" / f"{job.id}-{uid()}"
-            archived.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(folder, archived)
-        return imported
+        return arrangement_actions.adopt_stems(self, job)
 
     # ── project I/O ──────────────────────────────────────────
     def _project_name_changed(self, text: str):
-        self.project.name = text or "untitled"
-        self._set_dirty(True)
+        return project_actions._project_name_changed(self, text)
 
     def _apply_project(self, project: Project):
-        self._cancel_record_count()
-        self.playlist.select_clip(None)
-        self.playlist.place_template = None
-        self._recorded_notes.clear()
-        self.sample_workflow.held.clear()
-        self.sample_workflow.recorded.clear()
-        self.engine.sample_panic()
-        self.engine.synth_panic()
-        self.project = project
-        self.track_capture.armed_id = None
-        self.track_inspector.row_id = None
-        self.track_inspector.sync()
-        self._ensure_playlist_rows()
-        self.engine.project = project
-        if hasattr(self, "devices"):
-            self.devices.sync_project()
-        self.engine.reset_fx()
-        self.engine.prepare_fx(project)
-        self.bpm_box.setValue(project.bpm)
-        self.swing.setValue(int(project.swing))
-        self.btn_cut_self.setChecked(project.self_choke)
-        self.master_slider.setValue(int(project.master * 100))
-        self.proj_name.setText(project.name)
-        self.set_song_loop_range(project.loop_start, project.loop_end)
-        self.btn_song_loop.blockSignals(True)
-        self.btn_song_loop.setChecked(project.loop_enabled)
-        self.btn_song_loop.blockSignals(False)
-        self.engine.loop_song = project.loop_enabled
-        self.apply_theme(theme.current)
-        self._sync_pattern_controls()
-        self._refresh_place_box()
-        self.btn_only_loaded.blockSignals(True)
-        self.btn_only_loaded.setChecked(self.step_grid.only_loaded)
-        self.btn_only_loaded.blockSignals(False)
-        self.mixer.sync()
-        self.synth_panel.sync()
-        self.vocal_panel.sync()
-        self.automation_panel.sync()
-        self.pad_inspector.set_pad(self.pads.selected)
-        self.pads.update()
-        self.step_grid.refresh()
-        self.playlist.refresh()
-        # Sample resolution belongs to the GUI/worker side. This includes
-        # Playlist media and reverse buffers, so the callback never reads disk
-        # or copies a whole song on the first hit.
-        self.engine.preload_project_audio(project)
+        return project_actions._apply_project(self, project)
 
     def new_project(self):
-        """Start an untitled session while retaining the shared sample library."""
-        if self.track_capture.busy:
-            self.status.showMessage(
-                "Stop and save the track take before starting a new project", 5000
-            )
-            return False
-        if (
-            self.vocal_panel.recorder.recording
-            or self.vocal_panel.recorder.temporary_path is not None
-            or self.vocal_panel._counting
-        ):
-            self.status.showMessage(
-                "Finish the vocal take or cancel count-in before starting a new project", 5000
-            )
-            return False
-        if self._dirty:
-            answer = QMessageBox.question(
-                self,
-                "Save current project?",
-                "Save your changes before starting a new project?",
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                QMessageBox.Save,
-            )
-            if answer != QMessageBox.Discard and (
-                answer != QMessageBox.Save or not self.save_project()
-            ):
-                return False
-        if self.session_path.exists():
-            try:
-                self._archive_session_recovery()
-            except OSError as exc:
-                QMessageBox.warning(self, "Could not preserve recovery", str(exc))
-                return False
-        project = Project()
-        project.vocal_record.input_device = self.project.vocal_record.input_device
-        project.vocal_record.input_latency_ms = self.project.vocal_record.input_latency_ms
-        self.engine.stop_transport(rewind=True)
-        self.engine.panic()
-        self.btn_rec.setChecked(False)
-        self._undo.clear()
-        self._redo.clear()
-        self.project_path = None
-        self.history_path = self.session_history_path
-        self.current_clip = None
-        self.wave.set_clip(None, None, 0.0, [], clip_id=None)
-        self.nav.set_overview(None)
-        self.clip_label.setText("no sample loaded")
-        self.browser.list.clearSelection()
-        self.browser.list.setCurrentItem(None)
-        self._apply_project(project)
-        self._rebuild_chips()
-        self.proj_name.setToolTip("Project name · save to choose this project's file")
-        self._set_dirty(False)
-        self.status.showMessage("New untitled project", 3000)
-        return True
+        return project_actions.new_project(self)
 
     def save_project(self):
-        name = self.proj_name.text().strip() or "untitled"
-        path = self.project_path or self.projects_dir / f"{safe_filename(name)}.json"
-        if self.project_path is None and path.exists():
-            answer = QMessageBox.question(
-                self,
-                "Replace existing project?",
-                f"Replace {path.name}?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if answer != QMessageBox.Yes:
-                return False
-        return self._save_project_to(path)
+        return project_actions.save_project(self)
 
     def save_project_as(self):
-        initial = (
-            self.project_path or self.projects_dir / f"{safe_filename(self.project.name)}.json"
-        )
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save project as", str(initial), f"{APP_NAME} project (*.json)"
-        )
-        if not path:
-            return False
-        destination = Path(path)
-        if destination.suffix.lower() != ".json":
-            destination = destination.with_suffix(".json")
-            if (
-                destination.exists()
-                and QMessageBox.question(
-                    self,
-                    "Replace existing project?",
-                    f"Replace {destination.name}?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No,
-                )
-                != QMessageBox.Yes
-            ):
-                return False
-        return self._save_project_to(destination)
+        return project_actions.save_project_as(self)
 
     def _save_project_to(self, path):
-        name = self.proj_name.text().strip() or "untitled"
-        self.project.name = name
-        try:
-            self.project.save(path)
-        except (OSError, ValueError, TypeError) as exc:
-            QMessageBox.warning(self, "Save failed", str(exc))
-            return False
-        self.project_path = Path(path)
-        self.history_path = self._project_history_path(path)
-        self._try_save_history()
-        self.session_path.unlink(missing_ok=True)
-        self.session_history_path.unlink(missing_ok=True)
-        self._set_dirty(False)
-        self.status.showMessage(f"saved → {path}", 4000)
-        self.proj_name.setToolTip(f"Project name · saving to {path}")
-        return True
+        return project_actions._save_project_to(self, path)
 
     def load_project(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open project", str(self.projects_dir), f"{APP_NAME} project (*.json)"
-        )
-        if not path:
-            return
-        if self._dirty:
-            answer = QMessageBox.question(
-                self,
-                "Save current project?",
-                "Save your changes before opening another project?",
-                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-                QMessageBox.Save,
-            )
-            if answer == QMessageBox.Cancel or (
-                answer == QMessageBox.Save and not self.save_project()
-            ):
-                return
-        self.load_project_path(Path(path))
+        return project_actions.load_project(self)
 
     def load_project_path(self, path: Path, *, clear_session: bool = True) -> bool:
-        """Load an explicit project path for the dialog and command-line tools."""
-        if self.track_capture.busy:
-            self.status.showMessage("Stop and save the track take before opening a project", 5000)
-            return False
-        if (
-            self.vocal_panel.recorder.recording
-            or self.vocal_panel.recorder.temporary_path is not None
-            or self.vocal_panel._counting
-        ):
-            self.status.showMessage("Save or discard the vocal take before opening a project", 5000)
-            return False
-        try:
-            project = Project.load(Path(path))
-            prepare_instrument_patch(project.synth)
-        except Exception as exc:
-            QMessageBox.warning(self, "Load failed", str(exc))
-            return False
-        self.engine.stop_transport(rewind=True)
-        self.project_path = Path(path)
-        self.history_path = self._project_history_path(Path(path))
-        self._load_history(self.history_path)
-        self._apply_project(project)
-        if clear_session:
-            self.session_path.unlink(missing_ok=True)
-            self.session_history_path.unlink(missing_ok=True)
-        self._set_dirty(False)
-        self.status.showMessage(f"loaded {Path(path).stem}", 3000)
-        return True
+        return project_actions.load_project_path(
+            self, path, clear_session=clear_session, prepare_patch=prepare_instrument_patch
+        )
 
     def export_dialog(self):
-        if self.export_job is not None:
-            self.status.showMessage("An export is already running", 3000)
-            return
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Export WAV")
-        dlg.setStyleSheet(stylesheet())
-        form = QFormLayout(dlg)
-        mode = QComboBox()
-        mode.addItem("full arrangement (Playlist)", "song")
-        mode.addItem("current pattern", "pattern")
-        mode.setCurrentIndex(1 if self.engine.mode == "pattern" else 0)
-        reps = QSpinBox()
-        reps.setRange(1, 64)
-        reps.setValue(4)
-        name = QLineEdit(self.project.name)
-        form.addRow("Source", mode)
-        form.addRow("Pattern repeats", reps)
-        form.addRow("File name", name)
-        depth = QComboBox()
-        depth.addItem("24-bit PCM", "PCM_24")
-        depth.addItem("16-bit PCM", "PCM_16")
-        depth.addItem("32-bit float", "FLOAT")
-        tail = QDoubleSpinBox()
-        tail.setRange(0, 30)
-        tail.setValue(2.5)
-        tail.setSuffix(" s")
-        form.addRow("WAV format · 48 kHz stereo", depth)
-        form.addRow("Effect tail", tail)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        form.addRow(buttons)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        if dlg.exec() != QDialog.Accepted:
-            return
-
-        stamp = time.strftime("%Y%m%d-%H%M%S")
-        out = (
-            self.exports_dir / f"{safe_filename(name.text() or 'mixdown')}-{stamp}-{uid()[:4]}.wav"
-        )
-        self.start_export(
-            out,
-            mode=mode.currentData(),
-            repeats=reps.value(),
-            tail=tail.value(),
-            subtype=depth.currentData(),
-        )
+        return project_actions.export_dialog(self)
 
     def start_export(self, destination, **options):
-        if self.export_job is not None:
-            return False
-        job = ExportJob(self.project, self.library, destination, self, **options)
-        self.export_job = job
-        progress = QProgressDialog("Rendering project snapshot…", "Cancel export", 0, 100, self)
-        progress.setWindowTitle("Export audio")
-        progress.setWindowModality(Qt.NonModal)
-        progress.setAutoClose(False)
-        progress.setAutoReset(False)
-        progress.canceled.connect(job.cancel)
-        job.progress.connect(progress.setValue)
-        job.succeeded.connect(
-            lambda path, seconds: self.status.showMessage(
-                f"Exported {seconds:.1f}s → {path}", 12000
-            )
-        )
-        job.failed.connect(lambda error: QMessageBox.warning(self, "Export failed", error))
-        job.cancelled.connect(lambda: self.status.showMessage("Export cancelled", 5000))
-
-        def finished():
-            progress.close()
-            progress.deleteLater()
-            self.export_job = None
-            job.deleteLater()
-
-        job.finished.connect(finished)
-        progress.show()
-        job.start()
-        return True
+        return project_actions.start_export(self, destination, **options)
 
     # ── periodic UI refresh ──────────────────────────────────
     def _tick(self):

@@ -1,0 +1,95 @@
+name: Portable C++ engine
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: linux-x86_64
+          - os: windows-2022
+            target: windows-x86_64
+          - os: macos-14
+            target: macos-arm64
+          - os: macos-15-intel
+            target: macos-x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Linux runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libsndfile1 libportaudio2
+      - name: macOS runtime dependencies
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg portaudio
+      - name: Windows runtime dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install ffmpeg --no-progress -y
+          $media = Get-ChildItem C:\ProgramData\chocolatey\lib\ffmpeg -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+          if (!$media) { throw 'FFmpeg executable not found' }
+          $media.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Build and test without Python or platform audio SDKs
+        run: |
+          cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build native/build --config Release --parallel 2
+          ctest --test-dir native/build -C Release --output-on-failure
+      - name: Compile packaged C++ library
+        run: |
+          uv sync --locked --group dev
+          uv run --no-sync python scripts/build_native.py
+      - name: Native and reference audio regressions
+        run: >-
+          uv run --no-sync python -m pytest -q
+          tests/test_native_core.py tests/test_native_dsp.py
+          tests/test_sampler_voice.py tests/test_pad_loop_reference.py
+          tests/test_convolution_scratch.py tests/test_fx.py tests/test_fx_preparation.py
+          tests/test_engine_fx.py tests/test_engine_synth.py tests/test_transport_boundaries.py
+          tests/test_audio_quality.py tests/test_engine_modules.py
+          tests/test_project_persistence.py tests/test_product_hardening_ui.py
+          tests/test_four_bar_sampling.py tests/test_window_lifecycle.py
+          tests/test_plugin_chain_runtime.py tests/test_plugin_latency.py
+          --junitxml=reports/native.xml
+      - name: Device-independent performance report
+        run: >-
+          uv run --no-sync python scripts/bench_production.py --seconds 2
+          --rates 48000 --frames 256 512 --workloads pads piano mixed
+          --json reports/performance.json
+      - name: Preserve reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-reports-${{ matrix.target }}
+          path: reports/
+          retention-days: 14
