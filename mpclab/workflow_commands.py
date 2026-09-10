@@ -236,10 +236,7 @@ class CommandRegistry:
             "version": self.VERSION,
             "preset": self.preset,
             "bindings": dict(sorted(self.bindings.items())),
-            "macros": {
-                name: list(spec.commands)
-                for name, spec in sorted(self.macros.items())
-            },
+            "macros": {name: list(spec.commands) for name, spec in sorted(self.macros.items())},
         }
 
     def save(self) -> None:

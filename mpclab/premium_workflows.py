@@ -1,7 +1,7 @@
 """Attach the premium workflow layer to the existing desktop workstation.
 
-The core MainWindow remains the stable editor.  This controller owns user
-commands, remappable keymaps, macros and the advanced non-destructive workflow
+The core MainWindow remains the stable editor. This controller owns user
+commands, remappable keymaps, macros and advanced non-destructive workflow
 menus so feature growth does not turn the main window into another monolith.
 """
 
@@ -15,12 +15,10 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
-    QFormLayout,
     QHBoxLayout,
     QInputDialog,
     QKeySequenceEdit,
@@ -28,7 +26,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -36,7 +33,7 @@ from PySide6.QtWidgets import (
 
 from .model import MasterFX, TrackFX, uid
 from .time_stretch import MODES
-from .workflow_commands import CommandRegistry, CommandSpec, PRESET_BINDINGS
+from .workflow_commands import PRESET_BINDINGS, CommandRegistry, CommandSpec
 from .workflow_mixing import install_advanced_track_controls
 from .workflow_notes import (
     SCALES,
@@ -105,8 +102,6 @@ class PremiumWorkflowController(QObject):
         self._build_menu()
         QApplication.instance().installEventFilter(self)
 
-    # ------------------------------------------------------------------
-    # command catalog
     def _register_commands(self) -> None:
         w = self.window
 
@@ -124,12 +119,24 @@ class PremiumWorkflowController(QObject):
             if shortcut:
                 self._legacy_sequences.add(self._normal(shortcut))
 
-        # Existing application actions now also have stable command ids.
         spec("project.new", "New project", w.new_project, "Project", "Ctrl+N")
         spec("project.save", "Save project", w.save_project, "Project", "Ctrl+S")
-        spec("project.save_as", "Save project as", w.save_project_as, "Project", "Ctrl+Shift+S")
+        spec(
+            "project.save_as",
+            "Save project as",
+            w.save_project_as,
+            "Project",
+            "Ctrl+Shift+S",
+        )
         spec("project.open", "Open project", w.load_project, "Project", "Ctrl+O")
-        spec("project.export", "Export mix", w.export_dialog, "Project", "Ctrl+E", ("render", "bounce"))
+        spec(
+            "project.export",
+            "Export mix",
+            w.export_dialog,
+            "Project",
+            "Ctrl+E",
+            ("render", "bounce"),
+        )
         spec("project.export_fl", "Export mix (FL key)", w.export_dialog, "Project", "Ctrl+R")
         spec("history.undo", "Undo", w.undo, "Project", "Ctrl+Z")
         spec("history.redo", "Redo", w.redo, "Project", "Ctrl+Shift+Z")
@@ -141,22 +148,81 @@ class PremiumWorkflowController(QObject):
 
         spec("workspace.chop", "Open Chop / Edit", lambda: w.show_tab(w.TAB_CHOP), "Windows", "F2")
         spec("pattern.new", "New pattern", w.new_pattern, "Pattern", "F4")
-        spec("workspace.playlist", "Open Playlist", lambda: w.show_tab(w.TAB_PLAYLIST), "Windows", "F5")
-        spec("workspace.sequencer", "Open Sequencer", lambda: w.show_tab(w.TAB_SEQ), "Windows", "F6")
-        spec("workspace.instrument", "Open Analog / Arp", lambda: w.show_tab(w.TAB_SYNTH), "Windows", "F7")
+        spec(
+            "workspace.playlist",
+            "Open Playlist",
+            lambda: w.show_tab(w.TAB_PLAYLIST),
+            "Windows",
+            "F5",
+        )
+        spec(
+            "workspace.sequencer",
+            "Open Sequencer",
+            lambda: w.show_tab(w.TAB_SEQ),
+            "Windows",
+            "F6",
+        )
+        spec(
+            "workspace.instrument",
+            "Open Analog / Arp",
+            lambda: w.show_tab(w.TAB_SYNTH),
+            "Windows",
+            "F7",
+        )
         spec("workspace.browser", "Show / hide Browser", w.toggle_browser, "Windows", "F8")
         spec("workspace.pads", "Show / hide Pads", w.toggle_pads, "Windows", "Shift+F8")
-        spec("workspace.mixer", "Open Mixer", lambda: w.show_tab(w.TAB_MIXER), "Windows", "F9")
-        spec("workspace.vocals", "Open Autotune / Vocals", lambda: w.show_tab(w.TAB_VOCALS), "Windows", "F10")
-        spec("workspace.focus", "Playlist focus mode", lambda: w.btn_playlist_focus.toggle(), "Windows", "F11")
-        spec("workspace.piano", "Open Piano Roll", lambda: w.show_tab(w.TAB_PIANO), "Windows", "F12")
-        spec("workspace.automation", "Open Automation", lambda: w.show_tab(w.TAB_AUTO), "Windows")
+        spec(
+            "workspace.mixer",
+            "Open Mixer",
+            lambda: w.show_tab(w.TAB_MIXER),
+            "Windows",
+            "F9",
+        )
+        spec(
+            "workspace.vocals",
+            "Open Autotune / Vocals",
+            lambda: w.show_tab(w.TAB_VOCALS),
+            "Windows",
+            "F10",
+        )
+        spec(
+            "workspace.focus",
+            "Playlist focus mode",
+            lambda: w.btn_playlist_focus.toggle(),
+            "Windows",
+            "F11",
+        )
+        spec(
+            "workspace.piano",
+            "Open Piano Roll",
+            lambda: w.show_tab(w.TAB_PIANO),
+            "Windows",
+            "F12",
+        )
+        spec(
+            "workspace.automation",
+            "Open Automation",
+            lambda: w.show_tab(w.TAB_AUTO),
+            "Windows",
+        )
 
         spec("transport.play_toggle", "Play / pause", w.toggle_play, "Transport", "Space")
         spec("transport.stop", "Stop and rewind", w.stop_all, "Transport", "Esc")
-        spec("transport.rewind", "Jump to start", lambda: w.engine.set_position(0.0), "Transport", "Home")
+        spec(
+            "transport.rewind",
+            "Jump to start",
+            lambda: w.engine.set_position(0.0),
+            "Transport",
+            "Home",
+        )
         spec("transport.record", "Record arm", lambda: w.btn_rec.toggle(), "Transport", "R")
-        spec("transport.record_alt", "Record arm (legacy K)", lambda: w.btn_rec.toggle(), "Transport", "K")
+        spec(
+            "transport.record_alt",
+            "Record arm (legacy K)",
+            lambda: w.btn_rec.toggle(),
+            "Transport",
+            "K",
+        )
         spec(
             "transport.pattern_song",
             "Pattern / Song mode",
@@ -164,33 +230,120 @@ class PremiumWorkflowController(QObject):
             "Transport",
             "L",
         )
-        spec("transport.metronome", "Toggle metronome", lambda: w.btn_metro.toggle(), "Transport", "M")
+        spec(
+            "transport.metronome",
+            "Toggle metronome",
+            lambda: w.btn_metro.toggle(),
+            "Transport",
+            "M",
+        )
         spec("transport.tap_tempo", "Tap tempo", w.tap_tempo, "Transport", "T")
-        spec("pads.previous_bank", "Previous pad bank", lambda: w.set_bank((w.pads.bank - 1) % 4), "Pads", ",")
-        spec("pads.next_bank", "Next pad bank", lambda: w.set_bank((w.pads.bank + 1) % 4), "Pads", ".")
+        spec(
+            "pads.previous_bank",
+            "Previous pad bank",
+            lambda: w.set_bank((w.pads.bank - 1) % 4),
+            "Pads",
+            ",",
+        )
+        spec(
+            "pads.next_bank",
+            "Next pad bank",
+            lambda: w.set_bank((w.pads.bank + 1) % 4),
+            "Pads",
+            ".",
+        )
 
-        spec("playlist.split", "Split selected clip at playhead", self._playlist_split, "Playlist", "Shift+S")
-        spec("playlist.duplicate", "Duplicate selected clip(s)", self._playlist_duplicate, "Playlist", "Ctrl+D")
-        spec("clip.consolidate", "Consolidate selected audio", lambda: self._run(consolidate_selected_audio, w), "Audio", "Ctrl+J")
-        spec("clip.bounce_in_place", "Bounce selected audio in place", lambda: self._run(bounce_selected_in_place, w), "Audio", "Ctrl+Alt+B")
+        spec(
+            "playlist.split",
+            "Split selected clip at playhead",
+            self._playlist_split,
+            "Playlist",
+            "Shift+S",
+        )
+        spec(
+            "playlist.duplicate",
+            "Duplicate selected clip(s)",
+            self._playlist_duplicate,
+            "Playlist",
+            "Ctrl+D",
+        )
+        spec(
+            "clip.consolidate",
+            "Consolidate selected audio",
+            lambda: self._run(consolidate_selected_audio, w),
+            "Audio",
+            "Ctrl+J",
+        )
+        spec(
+            "clip.bounce_in_place",
+            "Bounce selected audio in place",
+            lambda: self._run(bounce_selected_in_place, w),
+            "Audio",
+            "Ctrl+Alt+B",
+        )
         spec("clip.loop_toggle", "Toggle selected clip loop", self._toggle_clip_loop, "Audio")
-        spec("clip.reverse_toggle", "Toggle selected clip reverse", self._toggle_clip_reverse, "Audio")
+        spec(
+            "clip.reverse_toggle",
+            "Toggle selected clip reverse",
+            self._toggle_clip_reverse,
+            "Audio",
+        )
         spec("clip.gain", "Set selected clip gain", self.set_clip_gain, "Audio")
         spec("clip.fade", "Render clip fades", self.fade_dialog, "Audio")
         spec("clip.stretch", "Time-stretch selected clip", self.stretch_dialog, "Audio")
-        spec("clip.tempo_conform", "Conform selected clip to arranged length", self.tempo_conform_dialog, "Audio")
+        spec(
+            "clip.tempo_conform",
+            "Conform selected clip to arranged length",
+            self.tempo_conform_dialog,
+            "Audio",
+        )
 
-        spec("notes.quantize", "Quantize selected notes", lambda: self._run(quantize_notes, w), "Piano Roll", "Ctrl+Q")
+        spec(
+            "notes.quantize",
+            "Quantize selected notes",
+            lambda: self._run(quantize_notes, w),
+            "Piano Roll",
+            "Ctrl+Q",
+        )
         spec("notes.strum", "Strum selected notes", self.strum_dialog, "Piano Roll")
         spec("notes.chop", "Chop selected notes", self.chop_dialog, "Piano Roll")
-        spec("notes.legato", "Make selected notes legato", lambda: self._run(legato_notes, w), "Piano Roll")
-        spec("notes.random_velocity", "Randomize selected-note velocity", self.velocity_dialog, "Piano Roll")
+        spec(
+            "notes.legato",
+            "Make selected notes legato",
+            lambda: self._run(legato_notes, w),
+            "Piano Roll",
+        )
+        spec(
+            "notes.random_velocity",
+            "Randomize selected-note velocity",
+            self.velocity_dialog,
+            "Piano Roll",
+        )
         spec("notes.scale_lock", "Lock selected notes to scale", self.scale_dialog, "Piano Roll")
 
-        spec("track.freeze", "Freeze selected mixer track", self.freeze_selected_track, "Mixer", "Ctrl+Alt+F")
-        spec("track.unfreeze", "Unfreeze selected mixer track", self.unfreeze_selected_track, "Mixer")
-        spec("track.bounce", "Bounce selected mixer track to library", self.bounce_selected_track, "Mixer")
-        spec("track.new_take_lane", "Create and arm new take lane", lambda: self._run(new_take_lane, w), "Recording", "Ctrl+Alt+T")
+        spec(
+            "track.freeze",
+            "Freeze selected mixer track",
+            self.freeze_selected_track,
+            "Mixer",
+            "Ctrl+Alt+F",
+        )
+        spec(
+            "track.unfreeze", "Unfreeze selected mixer track", self.unfreeze_selected_track, "Mixer"
+        )
+        spec(
+            "track.bounce",
+            "Bounce selected mixer track to library",
+            self.bounce_selected_track,
+            "Mixer",
+        )
+        spec(
+            "track.new_take_lane",
+            "Create and arm new take lane",
+            lambda: self._run(new_take_lane, w),
+            "Recording",
+            "Ctrl+Alt+T",
+        )
         spec("mixer.create_group", "Create VCA track group", self.create_group_dialog, "Mixer")
         spec("mixer.edit_group", "Edit track group", self.edit_group_dialog, "Mixer")
         spec("mixer.sidechain", "Create sidechain duck route", self.sidechain_dialog, "Mixer")
@@ -198,18 +351,28 @@ class PremiumWorkflowController(QObject):
         spec("track.preset_recall", "Recall track preset", self.recall_track_preset, "Mixer")
         spec("master.preset", "Apply mastering preset", self.mastering_dialog, "Mastering")
 
-        spec("automation.smooth", "Smooth current automation lane", lambda: self._run(smooth_current_automation, w), "Automation")
+        spec(
+            "automation.smooth",
+            "Smooth current automation lane",
+            lambda: self._run(smooth_current_automation, w),
+            "Automation",
+        )
         spec("scene.capture", "Capture current pattern as scene", self.capture_scene, "Scenes")
         spec("scene.launch", "Launch scene", self.launch_scene_dialog, "Scenes")
 
-        spec("workflow.command_palette", "Command palette", self.show_command_palette, "Workflow", "Ctrl+Shift+P", ("search", "actions"))
+        spec(
+            "workflow.command_palette",
+            "Command palette",
+            self.show_command_palette,
+            "Workflow",
+            "Ctrl+Shift+P",
+            ("search", "actions"),
+        )
         spec("workflow.keymap", "Edit keyboard shortcuts", self.show_keymap_editor, "Workflow")
         spec("workflow.macro_create", "Create macro", self.create_macro_dialog, "Workflow")
         spec("workflow.macro_run", "Run macro", self.run_macro_dialog, "Workflow")
 
     def _disable_legacy_qshortcuts(self) -> None:
-        # MainWindow regression tests keep validating its original shortcut
-        # table.  Production attachment takes ownership only after construction.
         for shortcut in getattr(self.window, "_shortcuts", []):
             shortcut.setEnabled(False)
 
@@ -219,15 +382,14 @@ class PremiumWorkflowController(QObject):
 
     def _reindex_bindings(self) -> None:
         self._binding_index.clear()
+        known = {spec.id for spec in self.registry.commands}
         for command_id, sequence in self.registry.bindings.items():
-            if command_id not in {spec.id for spec in self.registry.commands}:
+            if command_id not in known:
                 continue
             normalized = self._normal(sequence)
             if normalized:
                 self._binding_index[normalized] = command_id
 
-    # ------------------------------------------------------------------
-    # keyboard ownership
     def eventFilter(self, watched, event):
         if event.type() != QEvent.KeyPress or event.isAutoRepeat():
             return False
@@ -253,8 +415,6 @@ class PremiumWorkflowController(QObject):
             self._execute(command_id)
             event.accept()
             return True
-        # Once a legacy global gesture is reassigned, stop the old MainWindow
-        # hard-wired path from firing behind the user's custom keymap.
         if normalized in self._legacy_sequences:
             event.accept()
             return True
@@ -262,20 +422,18 @@ class PremiumWorkflowController(QObject):
 
     def _execute(self, command_id: str):
         try:
-            result = self.registry.execute(command_id)
-            return result
+            return self.registry.execute(command_id)
         except Exception as exc:
-            self.window.status.showMessage(f"{self.registry.get(command_id).title} · {exc}", 6000)
+            title = self.registry.get(command_id).title
+            self.window.status.showMessage(f"{title} · {exc}", 6000)
             return None
 
     def _run(self, function, *args, **kwargs):
         return function(*args, **kwargs)
 
-    # ------------------------------------------------------------------
-    # menus
     def _build_menu(self) -> None:
         menu = self.window.menuBar().addMenu("Workflow")
-        for title, command_ids in (
+        groups = (
             (
                 "Audio",
                 (
@@ -326,15 +484,13 @@ class PremiumWorkflowController(QObject):
                     "workflow.macro_run",
                 ),
             ),
-        ):
+        )
+        for title, command_ids in groups:
             sub = menu.addMenu(title)
             for command_id in command_ids:
-                spec = self.registry.get(command_id)
-                action = sub.addAction(spec.title)
+                action = sub.addAction(self.registry.get(command_id).title)
                 action.triggered.connect(lambda _=False, cid=command_id: self._execute(cid))
 
-    # ------------------------------------------------------------------
-    # existing-context commands
     def _playlist_split(self):
         if self.window.studio.selected != self.window.TAB_PLAYLIST:
             self.window.show_tab(self.window.TAB_PLAYLIST)
@@ -360,10 +516,18 @@ class PremiumWorkflowController(QObject):
         return self.window.set_selected_clip_reverse(not clip.reverse)
 
     def set_clip_gain(self):
+        import math
+
         clip = self._selected_audio_clip()
-        current = 20.0 * __import__("math").log10(max(1e-6, clip.gain))
+        current = 20.0 * math.log10(max(1e-6, clip.gain))
         value, ok = QInputDialog.getDouble(
-            self.window, "Clip gain", "Gain (dB)", current, -60.0, 24.0, 2
+            self.window,
+            "Clip gain",
+            "Gain (dB)",
+            current,
+            -60.0,
+            24.0,
+            2,
         )
         if not ok:
             return None
@@ -373,8 +537,6 @@ class PremiumWorkflowController(QObject):
         self.window._set_dirty(True)
         return clip.gain
 
-    # ------------------------------------------------------------------
-    # audio editing dialogs
     def stretch_dialog(self):
         clip = self._selected_audio_clip()
         beats, ok = QInputDialog.getDouble(
@@ -389,7 +551,12 @@ class PremiumWorkflowController(QObject):
         if not ok:
             return None
         mode, ok = QInputDialog.getItem(
-            self.window, "Stretch mode", "Algorithm", list(MODES), list(MODES).index("complex"), False
+            self.window,
+            "Stretch mode",
+            "Algorithm",
+            list(MODES),
+            list(MODES).index("complex"),
+            False,
         )
         if not ok:
             return None
@@ -400,7 +567,12 @@ class PremiumWorkflowController(QObject):
     def tempo_conform_dialog(self):
         self._selected_audio_clip()
         mode, ok = QInputDialog.getItem(
-            self.window, "Tempo conform", "Algorithm", list(MODES), list(MODES).index("complex"), False
+            self.window,
+            "Tempo conform",
+            "Algorithm",
+            list(MODES),
+            list(MODES).index("complex"),
+            False,
         )
         if not ok:
             return None
@@ -411,12 +583,24 @@ class PremiumWorkflowController(QObject):
     def fade_dialog(self):
         self._selected_audio_clip()
         fade_in, ok = QInputDialog.getDouble(
-            self.window, "Clip fade", "Fade in (ms)", 5.0, 0.0, 60000.0, 1
+            self.window,
+            "Clip fade",
+            "Fade in (ms)",
+            5.0,
+            0.0,
+            60000.0,
+            1,
         )
         if not ok:
             return None
         fade_out, ok = QInputDialog.getDouble(
-            self.window, "Clip fade", "Fade out (ms)", 10.0, 0.0, 60000.0, 1
+            self.window,
+            "Clip fade",
+            "Fade out (ms)",
+            10.0,
+            0.0,
+            60000.0,
+            1,
         )
         if not ok:
             return None
@@ -424,23 +608,38 @@ class PremiumWorkflowController(QObject):
         self.window.status.showMessage("clip fades rendered non-destructively", 3500)
         return result
 
-    # ------------------------------------------------------------------
-    # piano-roll dialogs
     def strum_dialog(self):
         spread, ok = QInputDialog.getDouble(
-            self.window, "Strum notes", "Spread (beats)", 0.04, 0.0, 2.0, 4
+            self.window,
+            "Strum notes",
+            "Spread (beats)",
+            0.04,
+            0.0,
+            2.0,
+            4,
         )
         return strum_notes(self.window, spread) if ok else None
 
     def chop_dialog(self):
         divisions, ok = QInputDialog.getInt(
-            self.window, "Chop notes", "Retriggers per note", 2, 2, 32
+            self.window,
+            "Chop notes",
+            "Retriggers per note",
+            2,
+            2,
+            32,
         )
         return chop_notes(self.window, divisions) if ok else None
 
     def velocity_dialog(self):
         amount, ok = QInputDialog.getDouble(
-            self.window, "Randomize velocity", "Maximum change", 0.15, 0.0, 1.0, 2
+            self.window,
+            "Randomize velocity",
+            "Maximum change",
+            0.15,
+            0.0,
+            1.0,
+            2,
         )
         return randomize_note_velocity(self.window, amount) if ok else None
 
@@ -450,19 +649,26 @@ class PremiumWorkflowController(QObject):
         if not ok:
             return None
         scale, ok = QInputDialog.getItem(
-            self.window, "Scale lock", "Scale", list(SCALES), 0, False
+            self.window,
+            "Scale lock",
+            "Scale",
+            list(SCALES),
+            0,
+            False,
         )
         return scale_lock_notes(self.window, roots.index(root), scale) if ok else None
 
-    # ------------------------------------------------------------------
-    # freeze, routing and presets
     def _selected_track_index(self) -> int:
-        return max(0, min(len(self.window.project.tracks) - 1, int(self.window.mixer.selected)))
+        last = len(self.window.project.tracks) - 1
+        return max(0, min(last, int(self.window.mixer.selected)))
 
     def freeze_selected_track(self):
         index = self._selected_track_index()
-        if self.window.engine.external.instrument is not None and self.window.project.synth.track == index:
-            raise ValueError("freeze the external instrument after bouncing it; live host state cannot be muted safely")
+        external = self.window.engine.external.instrument
+        if external is not None and self.window.project.synth.track == index:
+            raise ValueError(
+                "freeze the external instrument after bouncing it; live host state cannot be muted safely"
+            )
         result = freeze_mixer_track(self.window, index)
         self.window.status.showMessage(f"froze {self.window.project.tracks[index].name}", 4000)
         return result
@@ -470,7 +676,10 @@ class PremiumWorkflowController(QObject):
     def unfreeze_selected_track(self):
         index = self._selected_track_index()
         result = unfreeze_mixer_track(self.window, index)
-        self.window.status.showMessage(f"restored {self.window.project.tracks[index].name}", 4000)
+        self.window.status.showMessage(
+            f"restored {self.window.project.tracks[index].name}",
+            4000,
+        )
         return result
 
     def bounce_selected_track(self):
@@ -495,12 +704,20 @@ class PremiumWorkflowController(QObject):
         return numbers
 
     def create_group_dialog(self):
-        name, ok = QInputDialog.getText(self.window, "Track group", "Group name", text="GROUP")
+        name, ok = QInputDialog.getText(
+            self.window,
+            "Track group",
+            "Group name",
+            text="GROUP",
+        )
         if not ok:
             return None
         default = str(self._selected_track_index() + 1)
         text, ok = QInputDialog.getText(
-            self.window, "Track group", "Mixer track numbers (comma separated)", text=default
+            self.window,
+            "Track group",
+            "Mixer track numbers (comma separated)",
+            text=default,
         )
         if not ok:
             return None
@@ -523,12 +740,25 @@ class PremiumWorkflowController(QObject):
         if not groups:
             raise ValueError("no track groups exist yet")
         labels = [group["name"] for group in groups]
-        label, ok = QInputDialog.getItem(self.window, "Track group", "Group", labels, 0, False)
+        label, ok = QInputDialog.getItem(
+            self.window,
+            "Track group",
+            "Group",
+            labels,
+            0,
+            False,
+        )
         if not ok:
             return None
         group = groups[labels.index(label)]
         gain, ok = QInputDialog.getDouble(
-            self.window, "Track group", "Gain", float(group.get("gain", 1.0)), 0.0, 2.0, 3
+            self.window,
+            "Track group",
+            "Gain",
+            float(group.get("gain", 1.0)),
+            0.0,
+            2.0,
+            3,
         )
         if not ok:
             return None
@@ -538,17 +768,41 @@ class PremiumWorkflowController(QObject):
         return group
 
     def sidechain_dialog(self):
-        tracks = [f"{index + 1}: {track.name}" for index, track in enumerate(self.window.project.tracks)]
-        source, ok = QInputDialog.getItem(self.window, "Sidechain", "Source", tracks, 0, False)
+        tracks = [
+            f"{index + 1}: {track.name}" for index, track in enumerate(self.window.project.tracks)
+        ]
+        source, ok = QInputDialog.getItem(
+            self.window,
+            "Sidechain",
+            "Source",
+            tracks,
+            0,
+            False,
+        )
         if not ok:
             return None
-        target, ok = QInputDialog.getItem(self.window, "Sidechain", "Target", tracks, min(1, len(tracks)-1), False)
+        target, ok = QInputDialog.getItem(
+            self.window,
+            "Sidechain",
+            "Target",
+            tracks,
+            min(1, len(tracks) - 1),
+            False,
+        )
         if not ok:
             return None
         source_index, target_index = tracks.index(source), tracks.index(target)
         if source_index == target_index:
             raise ValueError("sidechain source and target must differ")
-        amount, ok = QInputDialog.getDouble(self.window, "Sidechain", "Duck amount", 4.0, 0.0, 32.0, 2)
+        amount, ok = QInputDialog.getDouble(
+            self.window,
+            "Sidechain",
+            "Duck amount",
+            4.0,
+            0.0,
+            32.0,
+            2,
+        )
         if not ok:
             return None
         self.window.snapshot()
@@ -567,7 +821,10 @@ class PremiumWorkflowController(QObject):
         index = self._selected_track_index()
         track = self.window.project.tracks[index]
         name, ok = QInputDialog.getText(
-            self.window, "Track preset", "Preset name", text=track.name
+            self.window,
+            "Track preset",
+            "Preset name",
+            text=track.name,
         )
         if not ok:
             return None
@@ -576,7 +833,8 @@ class PremiumWorkflowController(QObject):
             "pan": track.pan,
             "fx": asdict(track.fx),
         }
-        ensure_workflow(self.window.project).setdefault("track_presets", {})[name.strip() or track.name] = preset
+        presets = ensure_workflow(self.window.project).setdefault("track_presets", {})
+        presets[name.strip() or track.name] = preset
         self.window._set_dirty(True)
         return preset
 
@@ -585,7 +843,14 @@ class PremiumWorkflowController(QObject):
         if not presets:
             raise ValueError("no track presets have been saved")
         names = sorted(presets)
-        name, ok = QInputDialog.getItem(self.window, "Track preset", "Preset", names, 0, False)
+        name, ok = QInputDialog.getItem(
+            self.window,
+            "Track preset",
+            "Preset",
+            names,
+            0,
+            False,
+        )
         if not ok:
             return None
         index = self._selected_track_index()
@@ -606,7 +871,12 @@ class PremiumWorkflowController(QObject):
             "Presence": MasterFX(mid=0.3, high=0.5, glue=True, glue_amount=0.2),
         }
         name, ok = QInputDialog.getItem(
-            self.window, "Mastering preset", "Preset", list(presets), 0, False
+            self.window,
+            "Mastering preset",
+            "Preset",
+            list(presets),
+            0,
+            False,
         )
         if not ok:
             return None
@@ -616,8 +886,6 @@ class PremiumWorkflowController(QObject):
         self.window._set_dirty(True)
         return self.window.project.master_fx
 
-    # ------------------------------------------------------------------
-    # scenes
     def capture_scene(self):
         name, ok = QInputDialog.getText(self.window, "Capture scene", "Scene name")
         if not ok:
@@ -630,13 +898,18 @@ class PremiumWorkflowController(QObject):
         if not scenes:
             raise ValueError("capture a scene first")
         labels = [scene["name"] for scene in scenes]
-        name, ok = QInputDialog.getItem(self.window, "Launch scene", "Scene", labels, 0, False)
+        name, ok = QInputDialog.getItem(
+            self.window,
+            "Launch scene",
+            "Scene",
+            labels,
+            0,
+            False,
+        )
         if not ok:
             return None
         return launch_scene(self.window, scenes[labels.index(name)]["id"])
 
-    # ------------------------------------------------------------------
-    # command palette, keymaps and macros
     def show_command_palette(self):
         dialog = QDialog(self.window)
         dialog.setWindowTitle("Command palette")
@@ -649,11 +922,11 @@ class PremiumWorkflowController(QObject):
 
         def refresh(text=""):
             results.clear()
-            for spec in self.registry.search(text, 80):
-                shortcut = self.registry.bindings.get(spec.id, "")
-                label = f"{spec.title}    {shortcut}" if shortcut else spec.title
+            for command in self.registry.search(text, 80):
+                shortcut = self.registry.bindings.get(command.id, "")
+                label = f"{command.title}    {shortcut}" if shortcut else command.title
                 item = QListWidgetItem(label)
-                item.setData(Qt.UserRole, ("command", spec.id))
+                item.setData(Qt.UserRole, ("command", command.id))
                 results.addItem(item)
             query = text.casefold().strip()
             for name in sorted(self.registry.macros):
@@ -688,7 +961,7 @@ class PremiumWorkflowController(QObject):
         dialog.setWindowTitle("Keyboard shortcuts")
         layout = QVBoxLayout(dialog)
         preset = QComboBox()
-        preset.addItems(PRESET_BINDINGS)
+        preset.addItems([*PRESET_BINDINGS, "Custom"])
         preset.setCurrentText(self.registry.preset)
         commands = QListWidget()
         editor = QKeySequenceEdit()
@@ -709,10 +982,11 @@ class PremiumWorkflowController(QObject):
 
         def refill():
             commands.clear()
-            for spec in self.registry.commands:
-                shortcut = self.registry.bindings.get(spec.id, "")
-                item = QListWidgetItem(f"{spec.category}  •  {spec.title}    {shortcut}")
-                item.setData(Qt.UserRole, spec.id)
+            for command in self.registry.commands:
+                shortcut = self.registry.bindings.get(command.id, "")
+                text = f"{command.category}  •  {command.title}    {shortcut}"
+                item = QListWidgetItem(text)
+                item.setData(Qt.UserRole, command.id)
                 commands.addItem(item)
             if commands.count():
                 commands.setCurrentRow(0)
@@ -720,18 +994,26 @@ class PremiumWorkflowController(QObject):
         def selected_changed():
             item = commands.currentItem()
             if item:
-                editor.setKeySequence(QKeySequence(self.registry.bindings.get(item.data(Qt.UserRole), "")))
+                command_id = item.data(Qt.UserRole)
+                editor.setKeySequence(QKeySequence(self.registry.bindings.get(command_id, "")))
 
         def do_assign(clear_value=False):
             item = commands.currentItem()
             if not item:
                 return
-            sequence = "" if clear_value else editor.keySequence().toString(QKeySequence.PortableText)
+            sequence = ""
+            if not clear_value:
+                sequence = editor.keySequence().toString(QKeySequence.PortableText)
             self.registry.bind(item.data(Qt.UserRole), sequence)
+            preset.blockSignals(True)
+            preset.setCurrentText("Custom")
+            preset.blockSignals(False)
             self._reindex_bindings()
             refill()
 
         def apply_preset(name):
+            if name == "Custom":
+                return
             self.registry.apply_preset(name)
             self._reindex_bindings()
             refill()
@@ -766,5 +1048,12 @@ class PremiumWorkflowController(QObject):
         if not self.registry.macros:
             raise ValueError("create a macro first")
         names = sorted(self.registry.macros)
-        name, ok = QInputDialog.getItem(self.window, "Run macro", "Macro", names, 0, False)
+        name, ok = QInputDialog.getItem(
+            self.window,
+            "Run macro",
+            "Macro",
+            names,
+            0,
+            False,
+        )
         return self.registry.run_macro(name) if ok else None
