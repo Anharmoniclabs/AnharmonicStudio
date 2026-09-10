@@ -48,7 +48,10 @@ def _stereo_output(rendered, frames: int) -> np.ndarray:
 def plugin_chain_worker(connection, specifications, sample_rate):
     """Load and process one serial effect chain in a disposable child."""
     try:
-        if not isinstance(specifications, list) or not 1 <= len(specifications) <= MAX_CHAIN_PLUGINS:
+        if (
+            not isinstance(specifications, list)
+            or not 1 <= len(specifications) <= MAX_CHAIN_PLUGINS
+        ):
             raise PluginError(f"Plugin chain must contain 1–{MAX_CHAIN_PLUGINS} effects")
         if any(not isinstance(item, dict) for item in specifications):
             raise PluginError("Plugin chain entries must be objects")
