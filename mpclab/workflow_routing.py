@@ -226,9 +226,7 @@ def route_track(
 ) -> None:
     """Route one post-insert track to its output plus arbitrary sends."""
     output_edge = (
-        plan.track_output_edges[track_index]
-        if track_index < len(plan.track_output_edges)
-        else ""
+        plan.track_output_edges[track_index] if track_index < len(plan.track_output_edges) else ""
     )
     _accumulate(
         plan.track_outputs[track_index],
