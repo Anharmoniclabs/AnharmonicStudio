@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 
 from . import engine_mixing
+from .workflow_plugin_pdc import install_device_pdc_hooks
 from .workflow_routing import install_engine_routing_extensions
 from .workflow_state import ensure_workflow
 
@@ -66,5 +67,6 @@ def install_advanced_track_controls() -> None:
     if _INSTALLED:
         return
     install_engine_routing_extensions()
+    install_device_pdc_hooks()
     engine_mixing.track_controls = advanced_track_controls
     _INSTALLED = True
