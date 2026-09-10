@@ -72,7 +72,14 @@ def check(executable, directory, report):
     )
     # GUI bootloaders have no stdout on Windows. Require an explicit report
     # from the actual installed GUI executable as well as a successful exit.
-    if not report.is_file() or not json.loads(report.read_text())["subprocess_export"]:
+    if not report.is_file():
+        raise RuntimeError(f"Self-check did not produce its report: {result.stdout}")
+    checks = json.loads(report.read_text())
+    if (
+        not checks.get("subprocess_export")
+        or not checks.get("native_output_callback")
+        or checks.get("native_core_abi") != 1
+    ):
         raise RuntimeError(f"Self-check did not report a successful export: {result.stdout}")
 
 
@@ -102,7 +109,7 @@ def notices(bundle):
 def make_spec(stage, native, ffmpeg, ffprobe):
     windows, mac = sys.platform == "win32", sys.platform == "darwin"
     binaries = [(str(native), ".native"), (str(ffmpeg), "tools"), (str(ffprobe), "tools")]
-    datas = [(str(ROOT / "assets"), "assets"), (str(ROOT / "mpclab/native/dsp.c"), "mpclab/native")]
+    datas = [(str(ROOT / "assets"), "assets"), (str(ROOT / "mpclab/native"), "mpclab/native")]
     excluded = [
         "torch",
         "torchaudio",

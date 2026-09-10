@@ -62,11 +62,14 @@ def advanced_track_controls(engine, index: int, beats):
     return left, right
 
 
-def install_advanced_track_controls() -> None:
+def install_advanced_track_controls(*, device_controllers: bool = True) -> None:
     global _INSTALLED
+    # Offline workers share the DSP hooks without importing desktop controllers.
+    # Keep UI setup independent so a later desktop caller can still install it.
+    if device_controllers:
+        install_device_pdc_hooks()
     if _INSTALLED:
         return
     install_engine_routing_extensions()
-    install_device_pdc_hooks()
     engine_mixing.track_controls = advanced_track_controls
     _INSTALLED = True

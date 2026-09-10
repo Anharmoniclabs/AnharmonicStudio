@@ -9,7 +9,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from mpclab.native_dsp import FLAGS, SOURCE, NativeDSP, binary_path
+from mpclab.native_dsp import FLAGS, SOURCE, SOURCES, NativeDSP, binary_path
 
 
 def build():
@@ -17,9 +17,9 @@ def build():
     if destination.exists():
         NativeDSP(destination)
         return destination
-    compiler = shutil.which("clang" if sys.platform == "win32" else "cc")
+    compiler = shutil.which("clang++" if sys.platform == "win32" else "c++")
     if compiler is None:
-        raise RuntimeError("A C compiler is required for native audio DSP (install base-devel)")
+        raise RuntimeError("A C++17 compiler is required for the portable audio engine")
     destination.parent.mkdir(exist_ok=True)
     fd, temporary = tempfile.mkstemp(
         prefix="dsp-", suffix=destination.suffix, dir=destination.parent
@@ -30,7 +30,7 @@ def build():
             [
                 compiler,
                 *FLAGS,
-                str(SOURCE),
+                *(str(source) for source in SOURCES),
                 *([] if sys.platform == "win32" else ["-lm"]),
                 "-o",
                 temporary,

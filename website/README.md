@@ -44,11 +44,15 @@ master effects must be recreated there. Never treat a browser bundle as a native
 project JSON or silently replace an unrecognized project with an empty song.
 
 This is not the PySide6 app or bit-identical native DSP. Active native automation,
-plugins, custom bus routing, sidechains, clip processors and sample-layer synth
+plugins, mixer group gain/mute, custom bus routing, sidechains, clip processors and sample-layer synth
 patches cannot be silently omitted from playback/export. Use the native app to
 render those parts to audio. Pitch correction and stem separation are not browser
 features. The Capabilities dialog describes these limits rather than presenting
 placeholder controls as functional tools.
+
+Mixer groups that mute or change the gain of an existing track block browser
+transport and WAV export; their saved settings remain intact. Empty, unassigned
+and neutral groups (gain 1, unmuted) do not change the mix and remain usable.
 
 Automated browser validation uses isolated Chromium, not a desktop/chat window or
 real microphone. Other browser engines and physical recording devices are not

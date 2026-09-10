@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import threading
-import time
-from dataclasses import replace
 
 import numpy as np
-from .window_client import WindowClient, emit_if_alive
+from .window_client import WindowClient
 
-from PySide6.QtCore import QTimer, Signal, Qt
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -18,33 +16,21 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QLabel,
     QPushButton,
-    QComboBox,
     QDoubleSpinBox,
-    QSpinBox,
-    QCheckBox,
-    QProgressBar,
     QGroupBox,
-    QLineEdit,
     QScrollArea,
-    QMessageBox,
-    QInputDialog,
-    QSizePolicy,
+    QMessageBox as QMessageBox,
+    QInputDialog as QInputDialog,
 )
 
 from ..model import Clip, VocalComp, VocalCompRegion
 from ..vocal import (
-    NOTE_NAMES,
-    SCALES,
-    ProcessingCancelled,
     VocalRecorder,
     analyze_pitch,
-    detect_key,
-    input_device_inventory,
-    note_name,
-    render_autotune,
 )
 from .theme import label_font
-from .vocal_pitch import TuningDial, VocalPitchView
+
+from . import vocal_layout, vocal_recording, vocal_takes, vocal_comp_actions, vocal_processing
 
 
 def _small(text: str) -> QLabel:
@@ -142,511 +128,42 @@ class VocalPanel(WindowClient, QWidget):
         outer.addWidget(scroller)
 
     def _record_group(self) -> QGroupBox:
-        box = QGroupBox("1 · RECORD VOCALS")
-        grid = QGridLayout(box)
-        grid.setHorizontalSpacing(9)
-        grid.setVerticalSpacing(8)
-
-        grid.addWidget(_small("INPUT"), 0, 0)
-        self.input_box = QComboBox()
-        self.input_box.addItem("System default input", "")
-        self.input_box.setMinimumWidth(260)
-        self.input_box.currentIndexChanged.connect(self._record_settings_changed)
-        grid.addWidget(self.input_box, 0, 1, 1, 3)
-        scan = QPushButton("RESCAN")
-        scan.setObjectName("mini")
-        scan.clicked.connect(self.scan_inputs)
-        grid.addWidget(scan, 0, 4)
-
-        grid.addWidget(_small("TAKE NAME"), 1, 0)
-        self.take_name = QLineEdit("Lead Vocal")
-        grid.addWidget(self.take_name, 1, 1, 1, 2)
-        grid.addWidget(_small("INPUT GAIN"), 1, 3)
-        self.input_gain = QDoubleSpinBox()
-        self.input_gain.setRange(-24.0, 24.0)
-        self.input_gain.setDecimals(1)
-        self.input_gain.setSuffix(" dB")
-        self.input_gain.valueChanged.connect(self._record_settings_changed)
-        grid.addWidget(self.input_gain, 1, 4)
-
-        grid.addWidget(_small("COUNT-IN"), 2, 0)
-        self.count_in = QComboBox()
-        for bars in range(5):
-            self.count_in.addItem(
-                "off" if bars == 0 else f"{bars} bar" + ("s" if bars > 1 else ""), bars
-            )
-        self.count_in.currentIndexChanged.connect(self._record_settings_changed)
-        grid.addWidget(self.count_in, 2, 1)
-        self.monitor = QCheckBox("DRY MONITOR")
-        self.monitor.setToolTip(
-            "Low-latency software monitoring. Use headphones to prevent feedback."
-        )
-        self.monitor.toggled.connect(self._record_settings_changed)
-        grid.addWidget(self.monitor, 2, 2)
-        self.monitor_gain = QDoubleSpinBox()
-        self.monitor_gain.setRange(0, 150)
-        self.monitor_gain.setSuffix("% cue")
-        self.monitor_gain.valueChanged.connect(self._record_settings_changed)
-        grid.addWidget(self.monitor_gain, 2, 3)
-        self.auto_place = QCheckBox("PLACE ON PLAYLIST")
-        self.auto_place.toggled.connect(self._record_settings_changed)
-        grid.addWidget(self.auto_place, 2, 4)
-
-        grid.addWidget(_small("PLAYLIST LANE"), 3, 0)
-        self.row_box = QSpinBox()
-        self.row_box.setRange(1, 128)
-        self.row_box.valueChanged.connect(self._record_settings_changed)
-        grid.addWidget(self.row_box, 3, 1)
-        grid.addWidget(_small("MIXER TRACK"), 3, 2)
-        self.track_box = QComboBox()
-        for index in range(len(self.app.project.tracks)):
-            self.track_box.addItem(f"{index + 1} · {self.app.project.tracks[index].name}", index)
-        self.track_box.currentIndexChanged.connect(self._record_settings_changed)
-        grid.addWidget(self.track_box, 3, 3, 1, 2)
-
-        grid.addWidget(_small("INPUT LATENCY"), 4, 0)
-        self.input_latency = QDoubleSpinBox()
-        self.input_latency.setRange(0.0, 500.0)
-        self.input_latency.setDecimals(1)
-        self.input_latency.setSuffix(" ms")
-        self.input_latency.setToolTip(
-            "Measured input delay removed when the recorded take is placed."
-        )
-        self.input_latency.valueChanged.connect(self._record_settings_changed)
-        grid.addWidget(self.input_latency, 4, 1)
-        grid.addWidget(
-            _small("Set this to the measured loopback/input delay; the dry audio stays unchanged."),
-            4,
-            2,
-            1,
-            3,
-        )
-
-        self.record_button = QPushButton("●  START VOCAL TAKE")
-        self.record_button.setObjectName("rec")
-        self.record_button.clicked.connect(self.toggle_recording)
-        grid.addWidget(self.record_button, 5, 0, 1, 2)
-        self.pause_button = QPushButton("PAUSE")
-        self.pause_button.setObjectName("mini")
-        self.pause_button.setCheckable(True)
-        self.pause_button.setEnabled(False)
-        self.pause_button.toggled.connect(self._pause_changed)
-        grid.addWidget(self.pause_button, 5, 2)
-        self.discard_button = QPushButton("DISCARD")
-        self.discard_button.setObjectName("mini")
-        self.discard_button.setEnabled(False)
-        self.discard_button.clicked.connect(self.discard_recording)
-        grid.addWidget(self.discard_button, 5, 3)
-        self.record_time = QLabel("00:00.0")
-        self.record_time.setObjectName("counter")
-        grid.addWidget(self.record_time, 5, 4)
-
-        self.input_meter = QProgressBar()
-        self.input_meter.setRange(0, 1000)
-        self.input_meter.setTextVisible(True)
-        self.input_meter.setFormat("INPUT  −∞ dBFS")
-        self.input_meter.setToolTip("Aim for peaks around −12 to −6 dBFS; avoid 0 dBFS.")
-        grid.addWidget(self.input_meter, 6, 0, 1, 5)
-        self.record_status = _small(
-            "Choose RESCAN to list microphones, or record from the system default."
-        )
-        grid.addWidget(self.record_status, 7, 0, 1, 5)
-        return box
+        return vocal_layout._record_group(self)
 
     def _tune_group(self) -> QWidget:
-        box = QWidget()
-        layout = QVBoxLayout(box)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
-        source_row = QHBoxLayout()
-        source_row.addWidget(_small("RECORDED TAKE"))
-        self.take_box = QComboBox()
-        self.take_box.setMinimumWidth(130)
-        self.take_box.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.take_box.setMinimumContentsLength(16)
-        self.take_box.currentIndexChanged.connect(self._take_selection_changed)
-        source_row.addWidget(self.take_box, 1)
-        self.use_song_button = QPushButton("Selected Song clip")
-        self.use_song_button.clicked.connect(self.use_song_selection)
-        source_row.addWidget(self.use_song_button)
-        use_selected = QPushButton("From Browser")
-        use_selected.clicked.connect(self.use_browser_selection)
-        source_row.addWidget(use_selected)
-        layout.addLayout(source_row)
-
-        self.pitch_view = VocalPitchView()
-        self.pitch_view.selectionChanged.connect(self._listening_selection_changed)
-        layout.addWidget(self.pitch_view, 1)
-        view_row = QHBoxLayout()
-        self.selection_label = _small("Drag on the waveform to select a listening range.")
-        self.selection_label.setWordWrap(True)
-        view_row.addWidget(self.selection_label, 1)
-        view_row.addWidget(_small("PITCH"))
-        for label, factor in (("−", 0.8), ("+", 1.25)):
-            zoom = QPushButton(label)
-            zoom.setFixedWidth(28)
-            zoom.setAccessibleName("Zoom pitch out" if factor < 1 else "Zoom pitch in")
-            zoom.setToolTip(zoom.accessibleName())
-            zoom.clicked.connect(
-                lambda checked=False, scale=factor: self.pitch_view.zoom_pitch(scale)
-            )
-            view_row.addWidget(zoom)
-        fit_pitch = QPushButton("Fit pitch")
-        fit_pitch.clicked.connect(self.pitch_view.fit_pitch)
-        view_row.addWidget(fit_pitch)
-        fit = QPushButton("Fit take")
-        fit.clicked.connect(self.pitch_view.fit)
-        view_row.addWidget(fit)
-        clear = QPushButton("Whole take")
-        clear.clicked.connect(self.pitch_view.clear_selection)
-        view_row.addWidget(clear)
-        layout.addLayout(view_row)
-
-        controls = QGridLayout()
-        self.preset = QComboBox()
-        self.preset.addItems(["Custom", "Natural vocal", "Modern vocal", "Hard tune", "Rap lead"])
-        self.preset.currentTextChanged.connect(self._apply_preset)
-        self.key_box = QComboBox()
-        self.key_box.addItems(NOTE_NAMES)
-        self.key_box.currentTextChanged.connect(self._tune_settings_changed)
-        self.scale_box = QComboBox()
-        self.scale_box.addItems(list(SCALES))
-        self.scale_box.currentTextChanged.connect(self._tune_settings_changed)
-        self.range_box = QComboBox()
-        for name, notes in (
-            ("Bass · C2–C4", (36, 60)),
-            ("Tenor · C3–C5", (48, 72)),
-            ("Alto · F3–F5", (53, 77)),
-            ("Soprano · C4–C6", (60, 84)),
-            ("Wide · C2–C6", (36, 84)),
-        ):
-            self.range_box.addItem(name, notes)
-        self.range_box.currentIndexChanged.connect(self._tune_settings_changed)
-        for col, (text, widget) in enumerate(
-            (
-                ("CHARACTER", self.preset),
-                ("KEY", self.key_box),
-                ("SCALE", self.scale_box),
-                ("VOCAL RANGE", self.range_box),
-            )
-        ):
-            controls.addWidget(_small(text), 0, col)
-            controls.addWidget(widget, 1, col)
-            controls.setColumnStretch(col, 1)
-        layout.addLayout(controls)
-        key_row = QHBoxLayout()
-        self.root_keys = {}
-        for note in NOTE_NAMES:
-            button = QPushButton(note)
-            button.setCheckable(True)
-            # Windows' native style gives ordinary buttons a wide minimum.
-            # These twelve piano keys share the available width instead.
-            button.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-            button.setMinimumWidth(36)
-            button.setToolTip(f"Set the song key to {note}")
-            button.clicked.connect(
-                lambda checked=False, root=note: self.key_box.setCurrentText(root)
-            )
-            key_row.addWidget(button)
-            self.root_keys[note] = button
-        layout.addLayout(key_row)
-
-        dials = QHBoxLayout()
-        self.strength = self._dial(
-            dials, "CORRECTION", 0, 100, "%", "How strongly notes move toward the scale."
-        )
-        self.retune = self._dial(
-            dials, "RETUNE SPEED", 0, 250, " ms", "Low: tight and fast. High: a gentler transition."
-        )
-        self.humanize = self._dial(
-            dials, "HUMANIZE", 0, 100, "%", "Keep more of the original movement in held notes."
-        )
-        self.mix = self._dial(
-            dials, "TUNED / ORIGINAL", 0, 100, "%", "Blend the tuned vocal with the dry take."
-        )
-        layout.addLayout(dials)
-        options = QHBoxLayout()
-        self.autotune_enabled = QCheckBox("Pitch correction on")
-        self.autotune_enabled.toggled.connect(self._tune_settings_changed)
-        options.addWidget(self.autotune_enabled)
-        self.detect_key_button = QPushButton("DETECT KEY")
-        self.detect_key_button.clicked.connect(self.detect_source_key)
-        options.addWidget(self.detect_key_button)
-        options.addStretch()
-        self.tone_toggle = QPushButton("Tone & cleanup")
-        self.tone_toggle.setCheckable(True)
-        options.addWidget(self.tone_toggle)
-        layout.addLayout(options)
-        self.tone_group = QGroupBox("Tone & cleanup")
-        grid = QGridLayout(self.tone_group)
-        self.formant = self._parameter(grid, 3, "FORMANT BODY", 0, 100, "%")
-        self.transpose = self._parameter(grid, 4, "TRANSPOSE", -12, 12, " st")
-        self.gate = self._parameter(grid, 5, "NOISE GATE", -80, -20, " dB")
-        self.highpass = self._parameter(grid, 6, "HIGH-PASS", 20, 300, " Hz")
-        self.deesser = self._parameter(grid, 7, "DE-ESSER", 0, 100, "%")
-        self.compression = self._parameter(grid, 8, "COMPRESSION", 0, 100, "%")
-        self.presence = self._parameter(grid, 9, "PRESENCE", -6, 9, " dB")
-        self.output = self._parameter(grid, 10, "OUTPUT", -18, 12, " dB")
-        self.tone_group.hide()
-        self.tone_toggle.toggled.connect(self.tone_group.setVisible)
-        layout.addWidget(self.tone_group)
-
-        actions = QHBoxLayout()
-        self.preview_original = QPushButton("▶ Hear original")
-        self.preview_original.clicked.connect(self.audition_source)
-        actions.addWidget(self.preview_original)
-        self.render_button = QPushButton("Render tuned take")
-        self.render_button.setObjectName("go")
-        self.render_button.clicked.connect(self.render_take)
-        actions.addWidget(self.render_button, 1)
-        self.place_button = QPushButton("Use take in Song")
-        self.place_button.clicked.connect(self.apply_to_song)
-        actions.addWidget(self.place_button)
-        self.stop_preview = QPushButton("■ Stop preview")
-        self.stop_preview.clicked.connect(self.app.engine.stop_audition)
-        actions.addWidget(self.stop_preview)
-        layout.addLayout(actions)
-        management = QHBoxLayout()
-        for attr, text, callback in (
-            ("rename_take_button", "Rename", self.rename_selected_take),
-            ("duplicate_take_button", "Duplicate", self.duplicate_selected_take),
-            ("delete_take_button", "Delete…", self.delete_selected_take),
-            ("compare_dry_button", "A · Original", self.audition_related_dry),
-            ("compare_tuned_button", "B · Tuned", self.audition_related_tuned),
-        ):
-            button = QPushButton(text)
-            button.clicked.connect(callback)
-            setattr(self, attr, button)
-            management.addWidget(button)
-        layout.addLayout(management)
-        self.key_progress = QProgressBar()
-        self.key_progress.setRange(0, 100)
-        self.key_progress.setValue(0)
-        self.key_progress.setFormat("KEY DETECTION READY")
-        self.key_progress.hide()
-        layout.addWidget(self.key_progress)
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.progress.setValue(0)
-        self.progress.setFormat("READY")
-        self.progress.hide()
-        layout.addWidget(self.progress)
-        self.analysis_label = _small(
-            "Render creates a separate take. Your original recording stays available for A/B listening."
-        )
-        self.analysis_label.setWordWrap(True)
-        layout.addWidget(self.analysis_label)
-        return box
+        return vocal_layout._tune_group(self)
 
     def _dial(self, row, name, low, high, suffix, tip):
-        card = QWidget()
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(8, 4, 8, 4)
-        title = _small(name)
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-        dial = TuningDial()
-        dial.setRange(low, high)
-        dial.setNotchesVisible(True)
-        dial.setFixedSize(70, 70)
-        dial.setAccessibleName(name)
-        dial.setToolTip(tip)
-        layout.addWidget(dial, 0, Qt.AlignHCenter)
-        value = QDoubleSpinBox()
-        value.setRange(low, high)
-        value.setDecimals(1)
-        value.setSuffix(suffix)
-        value.setKeyboardTracking(False)
-        value.setToolTip(tip)
-        value.setAccessibleName(name)
-
-        def update_dial(number):
-            dial.blockSignals(True)
-            dial.setValue(round(number))
-            dial.blockSignals(False)
-
-        value.valueChanged.connect(update_dial)
-        value.valueChanged.connect(self._tune_settings_changed)
-        dial.valueChanged.connect(value.setValue)
-        dial.sliderPressed.connect(self._begin_dial_edit)
-        dial.sliderReleased.connect(self._end_dial_edit)
-        layout.addWidget(value)
-        row.addWidget(card, 1)
-        return value
+        return vocal_layout._dial(self, row, name, low, high, suffix, tip)
 
     def _begin_dial_edit(self):
-        if not self._syncing:
-            self.app.snapshot()
-            self._batch_tune_edit = True
+        return vocal_layout._begin_dial_edit(self)
 
     def _end_dial_edit(self):
-        self._batch_tune_edit = False
+        return vocal_layout._end_dial_edit(self)
 
     def _listening_selection_changed(self, start, end):
-        if hasattr(self, "selection_label"):
-            self.selection_label.setText(
-                f"Listening range: {start:.2f}–{end:.2f}s · tuning renders the whole take."
-                if end > start
-                else "Drag on the waveform to select a listening range."
-            )
+        return vocal_layout._listening_selection_changed(self, start, end)
 
     def open_source(self, clip_id):
-        clip = self.app.library.clips.get(clip_id)
-        if clip is None:
-            return
-        if self.take_box.findData(clip_id) < 0:
-            self.take_box.addItem(f"SOURCE · {clip.name} · {clip.duration:.1f}s", clip_id)
-        self.take_box.setCurrentIndex(self.take_box.findData(clip_id))
-        self._take_selection_changed()
-        self.edit_tabs.setCurrentIndex(0)
+        return vocal_layout.open_source(self, clip_id)
 
     def use_song_selection(self):
-        clip = getattr(self.app.playlist, "selected_clip", None)
-        if clip is None or clip.kind != "audio":
-            self.analysis_label.setText(
-                "Select a recorded audio clip in Song, then open it in Autotune."
-            )
-            return
-        self.open_arranged_take(clip)
+        return vocal_layout.use_song_selection(self)
 
     def open_arranged_take(self, clip):
-        self._song_clip_id, self._song_source_id = clip.id, clip.ref
-        self.open_source(clip.ref)
+        return vocal_layout.open_arranged_take(self, clip)
 
     def apply_to_song(self):
-        selected = self.take_box.currentData()
-        source = self.app.library.clips.get(selected)
-        if source is None:
-            return
-        if self._song_clip_id is None:
-            self.place_selected_take()
-            self.app.show_tab(2)
-            return
-        clip = next(
-            (c for row in self.app.project.rows for c in row.clips if c.id == self._song_clip_id),
-            None,
-        )
-        if clip is None or clip.ref != self._song_source_id:
-            self.analysis_label.setText(
-                "The Song clip changed. Select it again before applying a take."
-            )
-            return
-        dry, _ = self._related_take_ids(selected)
-        previous = self.app.library.clips.get(self._song_source_id)
-        expected_dry = (
-            previous.parent if previous and previous.kind == "vocal-tuned" else self._song_source_id
-        )
-        if dry != expected_dry and selected != self._song_source_id:
-            self.analysis_label.setText(
-                "This take belongs to another recording. Select its Song clip first."
-            )
-            return
-        if clip.ref != selected:
-            self.app.snapshot()
-            clip.ref = selected
-            self._song_source_id = selected
-            self.app.playlist.refresh()
-        self.app.show_tab(2)
-        self.app.status.showMessage(
-            "Updated the Song clip · original take preserved · Undo restores it", 5000
-        )
+        return vocal_layout.apply_to_song(self)
 
     def _parameter(
         self, grid: QGridLayout, row: int, name: str, minimum: float, maximum: float, suffix: str
     ) -> QDoubleSpinBox:
-        column = 0 if row % 2 else 2
-        actual_row = 3 + (row - 3) // 2
-        grid.addWidget(_small(name), actual_row, column)
-        box = QDoubleSpinBox()
-        box.setRange(minimum, maximum)
-        box.setDecimals(1)
-        box.setSuffix(suffix)
-        box.setKeyboardTracking(False)
-        box.valueChanged.connect(self._tune_settings_changed)
-        grid.addWidget(box, actual_row, column + 1)
-        return box
+        return vocal_layout._parameter(self, grid, row, name, minimum, maximum, suffix)
 
     def _comp_group(self) -> QGroupBox:
-        box = QGroupBox("Build a comp from recorded takes")
-        grid = QGridLayout(box)
-        grid.setHorizontalSpacing(9)
-        grid.setVerticalSpacing(8)
-
-        grid.addWidget(_small("COMP"), 0, 0)
-        self.comp_box = QComboBox()
-        self.comp_box.currentIndexChanged.connect(self._comp_selection_changed)
-        grid.addWidget(self.comp_box, 0, 1, 1, 2)
-        self.comp_name = QLineEdit("Vocal Comp")
-        self.comp_name.setPlaceholderText("New comp name")
-        grid.addWidget(self.comp_name, 0, 3)
-        self.new_comp_button = QPushButton("NEW COMP")
-        self.new_comp_button.setObjectName("mini")
-        self.new_comp_button.clicked.connect(self.create_comp)
-        grid.addWidget(self.new_comp_button, 0, 4)
-
-        grid.addWidget(_small("SOURCE RANGE"), 1, 0)
-        self.comp_source_start = QDoubleSpinBox()
-        self.comp_source_start.setRange(0.0, 36_000.0)
-        self.comp_source_start.setDecimals(3)
-        self.comp_source_start.setSuffix(" s start")
-        grid.addWidget(self.comp_source_start, 1, 1)
-        self.comp_source_end = QDoubleSpinBox()
-        self.comp_source_end.setRange(0.0, 36_000.0)
-        self.comp_source_end.setDecimals(3)
-        self.comp_source_end.setSuffix(" s end")
-        grid.addWidget(self.comp_source_end, 1, 2)
-        self.comp_timeline_start = QDoubleSpinBox()
-        self.comp_timeline_start.setRange(0.0, 36_000.0)
-        self.comp_timeline_start.setDecimals(3)
-        self.comp_timeline_start.setSuffix(" s on comp")
-        grid.addWidget(self.comp_timeline_start, 1, 3)
-        self.add_region_button = QPushButton("ADD SELECTED TAKE")
-        self.add_region_button.setObjectName("go")
-        self.add_region_button.setToolTip(
-            "Add this range from the dry/tuned SOURCE TAKE selected above."
-        )
-        self.add_region_button.clicked.connect(self.add_comp_region)
-        grid.addWidget(self.add_region_button, 1, 4)
-
-        grid.addWidget(_small("REGIONS"), 2, 0)
-        self.comp_region_box = QComboBox()
-        self.comp_region_box.currentIndexChanged.connect(self._comp_region_selection_changed)
-        grid.addWidget(self.comp_region_box, 2, 1, 1, 2)
-        self.apply_region_button = QPushButton("APPLY TRIM / POSITION")
-        self.apply_region_button.setObjectName("mini")
-        self.apply_region_button.clicked.connect(self.update_comp_region)
-        grid.addWidget(self.apply_region_button, 2, 3)
-        self.remove_region_button = QPushButton("REMOVE")
-        self.remove_region_button.setObjectName("mini")
-        self.remove_region_button.clicked.connect(self.remove_comp_region)
-        grid.addWidget(self.remove_region_button, 2, 4)
-
-        self.move_region_up_button = QPushButton("MOVE UP")
-        self.move_region_up_button.setObjectName("mini")
-        self.move_region_up_button.clicked.connect(lambda: self.move_comp_region(-1))
-        grid.addWidget(self.move_region_up_button, 3, 1)
-        self.move_region_down_button = QPushButton("MOVE DOWN")
-        self.move_region_down_button.setObjectName("mini")
-        self.move_region_down_button.clicked.connect(lambda: self.move_comp_region(1))
-        grid.addWidget(self.move_region_down_button, 3, 2)
-        self.audition_comp_button = QPushButton("▶ AUDITION COMP")
-        self.audition_comp_button.setObjectName("mini")
-        self.audition_comp_button.clicked.connect(self.audition_comp)
-        grid.addWidget(self.audition_comp_button, 3, 3)
-        self.render_comp_button = QPushButton("RENDER → NEW CLIP")
-        self.render_comp_button.setObjectName("go")
-        self.render_comp_button.clicked.connect(self.render_comp)
-        grid.addWidget(self.render_comp_button, 3, 4)
-
-        self.comp_status = _small(
-            "Select a dry or tuned take above, set a source range and place it on the comp."
-        )
-        grid.addWidget(self.comp_status, 4, 0, 1, 4)
-        self.place_comp_button = QPushButton("PLACE COMP")
-        self.place_comp_button.setObjectName("mini")
-        self.place_comp_button.clicked.connect(self.place_comp)
-        grid.addWidget(self.place_comp_button, 4, 4)
-        return box
+        return vocal_layout._comp_group(self)
 
     # ── state synchronization ─────────────────────────────
     def sync(self):
@@ -692,638 +209,115 @@ class VocalPanel(WindowClient, QWidget):
         self.refresh_comps()
 
     def _record_settings_changed(self, *_):
-        if self._syncing:
-            return
-        self.app.snapshot()
-        rec = self.app.project.vocal_record
-        rec.input_device = str(self.input_box.currentData() or "")
-        rec.input_gain_db = self.input_gain.value()
-        rec.input_latency_ms = self.input_latency.value()
-        rec.monitor = self.monitor.isChecked()
-        rec.monitor_gain = self.monitor_gain.value() / 100.0
-        rec.count_in_bars = int(self.count_in.currentData() or 0)
-        rec.auto_place = self.auto_place.isChecked()
-        rec.playlist_row = self.row_box.value() - 1
-        rec.mixer_track = int(self.track_box.currentData() or 0)
-        self.app._set_dirty(True)
+        return vocal_recording._record_settings_changed(self, *_)
 
     def _tune_settings_changed(self, *_):
-        if self._syncing:
-            return
-        if not self._batch_tune_edit:
-            self.app.snapshot()
-        tune = self.app.project.vocal
-        tune.enabled = self.autotune_enabled.isChecked()
-        tune.key = self.key_box.currentText()
-        tune.scale = self.scale_box.currentText()
-        tune.low_note, tune.high_note = self.range_box.currentData() or (36, 84)
-        tune.strength = self.strength.value() / 100.0
-        tune.retune_ms = self.retune.value()
-        tune.humanize = self.humanize.value() / 100.0
-        tune.mix = self.mix.value() / 100.0
-        tune.formant = self.formant.value() / 100.0
-        tune.transpose = int(self.transpose.value())
-        tune.gate_db = self.gate.value()
-        tune.highpass_hz = self.highpass.value()
-        tune.deesser = self.deesser.value() / 100.0
-        tune.compression = self.compression.value() / 100.0
-        tune.presence_db = self.presence.value()
-        tune.output_db = self.output.value()
-        self.pitch_view.set_settings(tune)
-        self._sync_root_keys()
-        self.app._set_dirty(True)
+        return vocal_recording._tune_settings_changed(self, *_)
 
     def _sync_root_keys(self):
-        for root, button in self.root_keys.items():
-            button.setChecked(root == self.key_box.currentText())
+        return vocal_recording._sync_root_keys(self)
 
     def _apply_preset(self, name: str):
-        presets = {
-            "Natural vocal": (75, 80, 45, 100, 90, 25, 30, 1.5),
-            "Modern vocal": (95, 22, 15, 100, 70, 38, 55, 2.5),
-            "Hard tune": (100, 0, 0, 100, 35, 45, 70, 3.5),
-            "Rap lead": (92, 12, 8, 100, 55, 55, 65, 3.0),
-        }
-        values = presets.get(name)
-        if values is None:
-            return
-        if not self._syncing:
-            self.app.snapshot()
-        self._batch_tune_edit = True
-        try:
-            for widget, value in zip(
-                (
-                    self.strength,
-                    self.retune,
-                    self.humanize,
-                    self.mix,
-                    self.formant,
-                    self.deesser,
-                    self.compression,
-                    self.presence,
-                ),
-                values,
-                strict=True,
-            ):
-                widget.setValue(value)
-            self._tune_settings_changed()
-        finally:
-            self._batch_tune_edit = False
+        return vocal_recording._apply_preset(self, name)
 
     # ── recording ─────────────────────────────────────────
     def scan_inputs(self):
-        try:
-            inputs, default = input_device_inventory()
-        except Exception as exc:
-            self.record_status.setText(f"input scan failed · {exc}")
-            return
-        wanted = self.app.project.vocal_record.input_device
-        self._inputs = inputs
-        self.input_box.blockSignals(True)
-        self.input_box.clear()
-        default_name = next(
-            (item["name"] for item in inputs if item["index"] == default), "system default"
-        )
-        self.input_box.addItem(f"System default · {default_name}", "")
-        for item in inputs:
-            self.input_box.addItem(item["label"], item["key"])
-        index = self.input_box.findData(wanted)
-        self.input_box.setCurrentIndex(max(0, index))
-        self.input_box.blockSignals(False)
-        self.record_status.setText(f"{len(inputs)} microphone input(s) available")
+        return vocal_recording.scan_inputs(self)
 
     def toggle_recording(self):
-        capture = getattr(self.app, "track_capture", None)
-        if capture is not None and capture.busy:
-            self.record_status.setText("Stop and save the Song track take first")
-            return
-        if self.recorder.recording or self.recorder.temporary_path is not None:
-            self.stop_recording()
-            return
-        if self._counting:
-            self._countdown_token += 1
-            self._counting = False
-            self._restore_count_in_transport()
-            self.record_button.setText("●  START VOCAL TAKE")
-            self.record_status.setText("count-in cancelled")
-            return
-        self._countdown_token += 1
-        bars = int(self.count_in.currentData() or 0)
-        if bars:
-            token = self._countdown_token
-            seconds = bars * 4.0 * 60.0 / self.app.project.bpm
-            self._count_in_transport = (
-                bool(self.app.engine.playing),
-                bool(self.app.engine.metronome),
-            )
-            self.app.engine.metronome = True
-            self.app.btn_metro.setChecked(True)
-            if not self.app.engine.playing:
-                self.app.engine.play()
-            self._counting = True
-            self.record_button.setText(
-                f"CANCEL · COUNTING {bars} BAR" + ("S" if bars > 1 else "") + "…"
-            )
-            self.record_status.setText("count-in running · recording starts after the downbeat")
-            QTimer.singleShot(int(seconds * 1000), self, lambda: self._start_after_count(token))
-        else:
-            self._start_capture()
+        return vocal_recording.toggle_recording(self)
 
     def _restore_count_in_transport(self):
-        """Undo only transport changes made for an interrupted count-in."""
-        previous, self._count_in_transport = self._count_in_transport, None
-        if previous is None:
-            return
-        was_playing, had_metronome = previous
-        self.app.engine.metronome = had_metronome
-        self.app.btn_metro.setChecked(had_metronome)
-        if not was_playing:
-            # Stop even when the engine has not consumed the queued play yet;
-            # command ordering guarantees the count-in play cannot leak later.
-            self.app.engine.stop_transport(False)
-        elif not self.app.engine.playing:
-            self.app.engine.play()
+        return vocal_recording._restore_count_in_transport(self)
 
     def _start_after_count(self, token: int):
-        if token != self._countdown_token:
-            return
-        self._counting = False
-        self._start_capture()
+        return vocal_recording._start_after_count(self, token)
 
     def _start_capture(self):
-        rec = self.app.project.vocal_record
-        selected = next((item for item in self._inputs if item["key"] == rec.input_device), None)
-        device = selected["index"] if selected is not None else None
-        monitor_callback = (
-            (lambda block: self.app.engine.queue_monitor(block, rec.monitor_gain))
-            if rec.monitor
-            else None
-        )
-        try:
-            self.recorder.start(device, rec.input_gain_db, monitor_callback)
-        except Exception as exc:
-            self._restore_count_in_transport()
-            self.record_button.setEnabled(True)
-            self.record_button.setText("●  START VOCAL TAKE")
-            self.record_status.setText(f"recording failed · {exc}")
-            QMessageBox.warning(self, "Vocal input failed", str(exc))
-            return
-        # Successful capture owns the transport state from here onward.
-        self._count_in_transport = None
-        self._record_start_beat = float(self.app.engine.beat)
-        self.record_button.setText("■  STOP + SAVE TAKE")
-        self.pause_button.setEnabled(True)
-        self.discard_button.setEnabled(True)
-        self.record_status.setText("recording 24-bit library take · original stays dry")
+        return vocal_recording._start_capture(self)
 
     def _pause_changed(self, paused: bool):
-        self.recorder.paused = bool(paused)
-        self.pause_button.setText("RESUME" if paused else "PAUSE")
+        return vocal_recording._pause_changed(self, paused)
 
     def stop_recording(self):
-        try:
-            audio = self.recorder.stop()
-        except Exception as exc:
-            self._finish_record_controls()
-            self.record_status.setText(f"capture failed · {exc}")
-            QMessageBox.warning(self, "Save take failed", str(exc))
-            return
-        self._finish_record_controls()
-        if len(audio) < int(self.app.engine.sr * 0.08):
-            self.recorder.discard()
-            self._finish_record_controls()
-            self.record_status.setText("take was too short and was not saved")
-            return
-        stamp = time.strftime("%Y-%m-%d %H%M%S")
-        name = self.take_name.text().strip() or f"Vocal {stamp}"
-        previous_redo = list(getattr(self.app, "_redo", []))
-        was_dirty = getattr(self.app, "_dirty", False)
-        self.app.snapshot()
-        try:
-            clip = self.app.library.add_audio(audio, name, kind="vocal")
-        except Exception as exc:
-            if hasattr(self.app, "discard_snapshot"):
-                self.app.discard_snapshot()
-                self.app._redo[:] = previous_redo
-                self.app._set_dirty(was_dirty)
-                self.app._try_save_history()
-            self.record_status.setText(f"Take retained · retry save · {exc}")
-            QMessageBox.warning(self, "Save take failed", str(exc))
-            return
-        self.recorder.commit()
-        self._finish_record_controls()
-        self._latest_clip = clip.id
-        self.refresh_takes(select=clip.id)
-        if self.auto_place.isChecked():
-            self._place_clip(clip.id, self._record_start_beat, compensate_latency=True)
-        self.app._library_changed()
-        self.record_status.setText(
-            f"saved {clip.name} · {clip.duration:.1f}s"
-            + (f" · {self.recorder.overruns} input overflow(s)" if self.recorder.overruns else "")
-        )
+        return vocal_recording.stop_recording(self)
 
     def discard_recording(self):
-        self._countdown_token += 1
-        self._restore_count_in_transport()
-        try:
-            self.recorder.discard()
-        except Exception as exc:
-            self.record_status.setText(f"discard cleanup failed · {exc}")
-        self._finish_record_controls()
-        if "failed" not in self.record_status.text():
-            self.record_status.setText("take discarded · nothing was written")
+        return vocal_recording.discard_recording(self)
 
     def _finish_record_controls(self):
-        self._counting = False
-        self.record_button.setEnabled(True)
-        self.record_button.setText("●  START VOCAL TAKE")
-        self.pause_button.blockSignals(True)
-        self.pause_button.setChecked(False)
-        self.pause_button.blockSignals(False)
-        self.pause_button.setText("PAUSE")
-        self.pause_button.setEnabled(False)
-        pending = self.recorder.temporary_path is not None
-        self.discard_button.setEnabled(pending)
-        if pending:
-            self.record_button.setText("RETRY SAVE TAKE")
+        return vocal_recording._finish_record_controls(self)
 
     # ── takes and processing ──────────────────────────────
     def refresh_takes(self, select: str | None = None):
-        wanted = select or self.take_box.currentData() or self._latest_clip
-        self.take_box.blockSignals(True)
-        self.take_box.clear()
-        for clip in self.app.library.ordered():
-            if clip.kind in ("vocal", "vocal-tuned", "recording") or clip.id == wanted:
-                badge = "TUNED" if clip.kind == "vocal-tuned" else "DRY"
-                self.take_box.addItem(f"{badge} · {clip.name} · {clip.duration:.1f}s", clip.id)
-        index = self.take_box.findData(wanted)
-        if index >= 0:
-            self.take_box.setCurrentIndex(index)
-        self.take_box.blockSignals(False)
-        self._take_selection_changed()
+        return vocal_takes.refresh_takes(self, select)
 
     def _related_take_ids(self, clip_id: str | None = None) -> tuple[str | None, str | None]:
-        clip_id = clip_id or self.take_box.currentData()
-        selected = self.app.library.clips.get(clip_id)
-        if selected is None:
-            return None, None
-        if selected.kind == "vocal-tuned":
-            dry = selected.parent if selected.parent in self.app.library.clips else None
-            return dry, selected.id
-        if selected.kind not in ("vocal", "recording"):
-            return selected.id, None
-        tuned = sorted(
-            (
-                clip
-                for clip in self.app.library.clips.values()
-                if clip.kind == "vocal-tuned" and clip.parent == selected.id
-            ),
-            key=lambda clip: clip.created,
-            reverse=True,
-        )
-        return selected.id, tuned[0].id if tuned else None
+        return vocal_takes._related_take_ids(self, clip_id)
 
     def _take_selection_changed(self, *_args):
-        clip_id = self.take_box.currentData()
-        clip = self.app.library.clips.get(clip_id)
-        manageable = bool(clip and clip.kind in ("vocal", "vocal-tuned", "recording"))
-        dry, tuned = self._related_take_ids(clip_id)
-        for button in (
-            self.rename_take_button,
-            self.duplicate_take_button,
-            self.delete_take_button,
-        ):
-            button.setEnabled(manageable)
-        self.compare_dry_button.setEnabled(dry is not None)
-        self.compare_tuned_button.setEnabled(tuned is not None)
-        self.pitch_view.set_source(
-            clip_id, self.app.library.audio(clip_id) if clip else None, self.app.engine.sr
-        )
-        for button in (self.preview_original, self.place_button):
-            button.setEnabled(clip is not None)
-        if self._tune_cancel is None:
-            self.render_button.setEnabled(clip is not None)
-        if hasattr(self, "comp_source_end") and clip is not None:
-            if self.comp_region_box.currentIndex() < 0:
-                self.comp_source_start.setValue(0.0)
-                self.comp_source_end.setValue(float(clip.duration))
+        return vocal_takes._take_selection_changed(self, *_args)
 
     def rename_selected_take(self):
-        clip_id = self.take_box.currentData()
-        clip = self.app.library.clips.get(clip_id)
-        if clip is None or clip.kind not in ("vocal", "vocal-tuned", "recording"):
-            return
-        name, accepted = QInputDialog.getText(
-            self, "Rename vocal take", "Take name", text=clip.name
-        )
-        if not accepted or not name.strip():
-            return
-        self.app.snapshot()
-        try:
-            self.app.library.rename(clip.id, name.strip())
-        except Exception as exc:
-            if hasattr(self.app, "discard_snapshot"):
-                self.app.discard_snapshot()
-            QMessageBox.warning(self, "Rename take failed", str(exc))
-            return
-        self.refresh_takes(select=clip.id)
-        self.app._library_changed()
-        self.app.status.showMessage(f"renamed take → {clip.name}", 3000)
+        return vocal_takes.rename_selected_take(self)
 
     def duplicate_selected_take(self):
-        clip_id = self.take_box.currentData()
-        clip = self.app.library.clips.get(clip_id)
-        audio = self.app.library.audio(clip_id) if clip is not None else None
-        if clip is None or audio is None or clip.kind not in ("vocal", "vocal-tuned", "recording"):
-            return
-        self.app.snapshot()
-        try:
-            duplicate = self.app.library.add_audio(
-                audio.copy(), f"{clip.name} copy", kind=clip.kind, parent=clip.parent
-            )
-        except Exception as exc:
-            if hasattr(self.app, "discard_snapshot"):
-                self.app.discard_snapshot()
-            QMessageBox.warning(self, "Duplicate take failed", str(exc))
-            return
-        self._latest_clip = duplicate.id
-        self.refresh_takes(select=duplicate.id)
-        self.app._library_changed()
-        self.app.status.showMessage(f"duplicated take → {duplicate.name}", 3000)
+        return vocal_takes.duplicate_selected_take(self)
 
     def delete_selected_take(self):
-        clip_id = self.take_box.currentData()
-        clip = self.app.library.clips.get(clip_id)
-        if clip is None or clip.kind not in ("vocal", "vocal-tuned", "recording"):
-            return
-        references = sum(
-            block.kind == "audio" and block.ref == clip_id
-            for row in self.app.project.rows
-            for block in row.clips
-        )
-        comp_references = sum(
-            region.source_id == clip_id
-            for comp in self.app.project.vocal_comps
-            for region in comp.regions
-        )
-        children = sum(item.parent == clip_id for item in self.app.library.clips.values())
-        if references or children or comp_references:
-            detail = []
-            if references:
-                detail.append(f"{references} Playlist placement(s)")
-            if children:
-                detail.append(f"{children} tuned take(s)")
-            if comp_references:
-                detail.append(f"{comp_references} vocal comp region(s)")
-            QMessageBox.warning(
-                self,
-                "Take is still in use",
-                f"Remove {', '.join(detail)} before deleting “{clip.name}”.",
-            )
-            return
-        if (
-            QMessageBox.question(
-                self, "Delete vocal take", f"Move “{clip.name}” to recoverable library trash?"
-            )
-            != QMessageBox.Yes
-        ):
-            return
-        self.app.snapshot()
-        try:
-            moved_to = self.app.library.delete(clip_id)
-        except Exception as exc:
-            if hasattr(self.app, "discard_snapshot"):
-                self.app.discard_snapshot()
-            QMessageBox.warning(self, "Delete take failed", str(exc))
-            return
-        self._latest_clip = None
-        self.refresh_takes()
-        self.app._library_changed()
-        self.app.status.showMessage(f"take moved to trash → {moved_to}", 5000)
+        return vocal_takes.delete_selected_take(self)
 
     def audition_related_dry(self):
-        dry, _tuned = self._related_take_ids()
-        if dry:
-            self.app.engine.audition(dry, *self.pitch_view.selection)
+        return vocal_takes.audition_related_dry(self)
 
     def audition_related_tuned(self):
-        _dry, tuned = self._related_take_ids()
-        if tuned:
-            self.app.engine.audition(tuned, *self.pitch_view.selection)
+        return vocal_takes.audition_related_tuned(self)
 
     # ── non-destructive comping ──────────────────────────
     def _current_comp(self) -> VocalComp | None:
-        comp_id = self.comp_box.currentData() if hasattr(self, "comp_box") else None
-        return next((comp for comp in self.app.project.vocal_comps if comp.id == comp_id), None)
+        return vocal_comp_actions._current_comp(self)
 
     def refresh_comps(self, select: str | None = None):
-        wanted = select or self.app.project.current_vocal_comp or self.comp_box.currentData()
-        self.comp_box.blockSignals(True)
-        self.comp_box.clear()
-        for comp in self.app.project.vocal_comps:
-            self.comp_box.addItem(f"{comp.name} · {len(comp.regions)} region(s)", comp.id)
-        index = self.comp_box.findData(wanted)
-        if index < 0 and self.comp_box.count():
-            index = 0
-        self.comp_box.setCurrentIndex(index)
-        self.comp_box.blockSignals(False)
-        comp = self._current_comp()
-        self.app.project.current_vocal_comp = comp.id if comp is not None else ""
-        self._refresh_comp_regions()
+        return vocal_comp_actions.refresh_comps(self, select)
 
     def create_comp(self):
-        name = (
-            self.comp_name.text().strip() or f"Vocal Comp {len(self.app.project.vocal_comps) + 1}"
-        )
-        self.app.snapshot()
-        comp = VocalComp(name=name)
-        self.app.project.vocal_comps.append(comp)
-        self.app.project.current_vocal_comp = comp.id
-        self.refresh_comps(select=comp.id)
-        self.comp_status.setText(f"created {comp.name} · add regions from the selected take")
+        return vocal_comp_actions.create_comp(self)
 
     def _comp_selection_changed(self, *_args):
-        comp = self._current_comp()
-        selected = comp.id if comp is not None else ""
-        if selected != self.app.project.current_vocal_comp and not self._syncing:
-            self.app._set_dirty(True)
-        self.app.project.current_vocal_comp = selected
-        self._refresh_comp_regions()
+        return vocal_comp_actions._comp_selection_changed(self, *_args)
 
     def _refresh_comp_regions(self, select: str | None = None):
-        comp = self._current_comp()
-        wanted = select or self.comp_region_box.currentData()
-        self.comp_region_box.blockSignals(True)
-        self.comp_region_box.clear()
-        if comp is not None:
-            for number, region in enumerate(comp.regions, 1):
-                source = self.app.library.clips.get(region.source_id)
-                source_name = source.name if source is not None else "MISSING SOURCE"
-                self.comp_region_box.addItem(
-                    f"{number} · {source_name} · {region.source_start:.3f}–"
-                    f"{region.source_end:.3f}s @ {region.timeline_start:.3f}s",
-                    region.id,
-                )
-        index = self.comp_region_box.findData(wanted)
-        if index < 0 and self.comp_region_box.count():
-            index = 0
-        self.comp_region_box.setCurrentIndex(index)
-        self.comp_region_box.blockSignals(False)
-        self._comp_region_selection_changed()
-        available = comp is not None and bool(comp.regions)
-        for button in (
-            self.apply_region_button,
-            self.remove_region_button,
-            self.move_region_up_button,
-            self.move_region_down_button,
-            self.audition_comp_button,
-            self.render_comp_button,
-            self.place_comp_button,
-        ):
-            button.setEnabled(available)
+        return vocal_comp_actions._refresh_comp_regions(self, select)
 
     def _selected_comp_region(self) -> VocalCompRegion | None:
-        comp = self._current_comp()
-        region_id = self.comp_region_box.currentData()
-        if comp is None:
-            return None
-        return next((region for region in comp.regions if region.id == region_id), None)
+        return vocal_comp_actions._selected_comp_region(self)
 
     def _comp_region_selection_changed(self, *_args):
-        region = self._selected_comp_region()
-        if region is None:
-            return
-        self.comp_source_start.setValue(region.source_start)
-        self.comp_source_end.setValue(region.source_end)
-        self.comp_timeline_start.setValue(region.timeline_start)
-        take_index = self.take_box.findData(region.source_id)
-        if take_index >= 0:
-            self.take_box.setCurrentIndex(take_index)
+        return vocal_comp_actions._comp_region_selection_changed(self, *_args)
 
     def add_comp_region(self):
-        comp = self._current_comp()
-        source_id = self.take_box.currentData()
-        source = self.app.library.clips.get(source_id)
-        if comp is None:
-            self.comp_status.setText("Create or select a comp first.")
-            return
-        if source is None or source.kind not in ("vocal", "vocal-tuned"):
-            self.comp_status.setText("Select a dry or tuned vocal take first.")
-            return
-        region = VocalCompRegion(
-            source_id=source.id,
-            source_start=self.comp_source_start.value(),
-            source_end=self.comp_source_end.value(),
-            timeline_start=self.comp_timeline_start.value(),
-        )
-        try:
-            region.validate()
-            if region.source_end > float(source.duration) + 0.0001:
-                raise ValueError("source range extends past the end of the take")
-        except ValueError as exc:
-            self.comp_status.setText(f"region not added · {exc}")
-            return
-        self.app.snapshot()
-        comp.regions.append(region)
-        comp.rendered_clip_id = ""
-        self.refresh_comps(select=comp.id)
-        self._refresh_comp_regions(select=region.id)
-        self.comp_timeline_start.setValue(region.timeline_start + region.duration)
-        self.comp_status.setText(f"added {source.name} without changing the source take")
+        return vocal_comp_actions.add_comp_region(self)
 
     def update_comp_region(self):
-        comp = self._current_comp()
-        region = self._selected_comp_region()
-        source = self.app.library.clips.get(region.source_id) if region is not None else None
-        if comp is None or region is None or source is None:
-            return
-        edited = VocalCompRegion(
-            id=region.id,
-            source_id=region.source_id,
-            source_start=self.comp_source_start.value(),
-            source_end=self.comp_source_end.value(),
-            timeline_start=self.comp_timeline_start.value(),
-        )
-        try:
-            edited.validate()
-            if edited.source_end > float(source.duration) + 0.0001:
-                raise ValueError("source range extends past the end of the take")
-        except ValueError as exc:
-            self.comp_status.setText(f"region not changed · {exc}")
-            return
-        self.app.snapshot()
-        region.source_start = edited.source_start
-        region.source_end = edited.source_end
-        region.timeline_start = edited.timeline_start
-        comp.rendered_clip_id = ""
-        self.refresh_comps(select=comp.id)
-        self._refresh_comp_regions(select=region.id)
-        self.comp_status.setText("region trim and timeline position updated")
+        return vocal_comp_actions.update_comp_region(self)
 
     def move_comp_region(self, direction: int):
-        comp = self._current_comp()
-        region = self._selected_comp_region()
-        if comp is None or region is None:
-            return
-        old = comp.regions.index(region)
-        new = max(0, min(len(comp.regions) - 1, old + int(direction)))
-        if new == old:
-            return
-        self.app.snapshot()
-        comp.regions.insert(new, comp.regions.pop(old))
-        comp.rendered_clip_id = ""
-        self.refresh_comps(select=comp.id)
-        self._refresh_comp_regions(select=region.id)
+        return vocal_comp_actions.move_comp_region(self, direction)
 
     def remove_comp_region(self):
-        comp = self._current_comp()
-        region = self._selected_comp_region()
-        if comp is None or region is None:
-            return
-        self.app.snapshot()
-        comp.regions.remove(region)
-        comp.rendered_clip_id = ""
-        self.refresh_comps(select=comp.id)
-        self.comp_status.setText("region removed · source take preserved")
+        return vocal_comp_actions.remove_comp_region(self)
 
     def _render_current_comp(self):
-        comp = self._current_comp()
-        if comp is None or not comp.regions:
-            self.comp_status.setText("Add at least one region before rendering.")
-            return None
-        try:
-            clip = self.app.library.render_vocal_comp(comp, f"{comp.name} render")
-        except Exception as exc:
-            self.comp_status.setText(f"comp render failed · {exc}")
-            return None
-        self.app.snapshot()
-        comp.rendered_clip_id = clip.id
-        self._latest_clip = clip.id
-        self.app._library_changed()
-        self.refresh_comps(select=comp.id)
-        self.comp_status.setText(
-            f"rendered {clip.name} · {clip.duration:.1f}s · source takes preserved"
-        )
-        return clip
+        return vocal_comp_actions._render_current_comp(self)
 
     def render_comp(self):
-        self._render_current_comp()
+        return vocal_comp_actions.render_comp(self)
 
     def audition_comp(self):
-        comp = self._current_comp()
-        clip = self.app.library.clips.get(comp.rendered_clip_id) if comp is not None else None
-        if clip is None or clip.comp_id != comp.id:
-            clip = self._render_current_comp()
-        if clip is not None:
-            self.app.engine.audition(clip.id, 0.0, 0.0)
+        return vocal_comp_actions.audition_comp(self)
 
     def place_comp(self):
-        comp = self._current_comp()
-        clip = self.app.library.clips.get(comp.rendered_clip_id) if comp is not None else None
-        if clip is None or clip.comp_id != comp.id:
-            clip = self._render_current_comp()
-        if clip is not None:
-            self._place_clip(clip.id, float(self.app.engine.beat))
+        return vocal_comp_actions.place_comp(self)
 
     def use_browser_selection(self):
         self._song_clip_id = self._song_source_id = None
@@ -1342,219 +336,31 @@ class VocalPanel(WindowClient, QWidget):
             self.app.engine.audition(clip_id, *self.pitch_view.selection)
 
     def detect_source_key(self):
-        if self._key_cancel is not None:
-            self._key_cancel.set()
-            self.detect_key_button.setEnabled(False)
-            self.key_progress.setFormat("CANCELLING KEY DETECTION…")
-            return
-        clip_id = self.take_box.currentData()
-        audio = self.app.library.audio(clip_id) if clip_id else None
-        if audio is None:
-            self.analysis_label.setText("Choose a source take first.")
-            return
-        settings = replace(self.app.project.vocal)
-        self._key_source_id = clip_id
-        self._key_project = self.app.project
-        self._key_job_id += 1
-        job_id = self._key_job_id
-        cancel = threading.Event()
-        self._key_cancel = cancel
-        self.detect_key_button.setText("CANCEL KEY DETECTION")
-        self.detect_key_button.setEnabled(True)
-        self.key_progress.show()
-        self.key_progress.setValue(0)
-        self.key_progress.setFormat("ANALYSING KEY… %p%")
-        self.analysis_label.setText("analysing vocal notes…")
-
-        sample_rate = self.app.engine.sr
-
-        def worker():
-            try:
-                analysis = analyze_pitch(
-                    audio,
-                    settings,
-                    sample_rate,
-                    progress=lambda value: emit_if_alive(
-                        self, "keyProgress", job_id, int(value * 100)
-                    ),
-                    cancelled=cancel.is_set,
-                )
-                if cancel.is_set():
-                    raise ProcessingCancelled("key detection cancelled")
-                key, scale, confidence = detect_key(analysis)
-                emit_if_alive(self, "keyFinished", job_id, analysis, key, scale, confidence)
-            except Exception as exc:
-                emit_if_alive(self, "keyFailed", job_id, str(exc))
-
-        threading.Thread(target=worker, daemon=True).start()
+        return vocal_processing.detect_source_key(self, analyze=analyze_pitch)
 
     def render_take(self):
-        if self._tune_cancel is not None:
-            self._tune_cancel.set()
-            self.render_button.setEnabled(False)
-            self.progress.setFormat("CANCELLING TUNE…")
-            return
-        clip_id = self.take_box.currentData()
-        audio = self.app.library.audio(clip_id) if clip_id else None
-        if audio is None:
-            self.analysis_label.setText("Choose a source take first.")
-            return
-        source_name = self.app.library.clips[clip_id].name
-        settings = replace(self.app.project.vocal)
-        self._render_project = self.app.project
-        self._tune_job_id += 1
-        job_id = self._tune_job_id
-        cancel = threading.Event()
-        self._tune_cancel = cancel
-        self._render_source_id = clip_id
-        self.render_button.setText("CANCEL TUNE")
-        self.render_button.setEnabled(True)
-        self.progress.show()
-        self.progress.setValue(1)
-        self.progress.setFormat("ANALYSING + TUNING… %p%")
-
-        sample_rate = self.app.engine.sr
-
-        def worker():
-            try:
-                rendered, analysis = render_autotune(
-                    audio,
-                    settings,
-                    sample_rate,
-                    lambda value: emit_if_alive(self, "tuneProgress", job_id, int(value * 100)),
-                    cancel.is_set,
-                )
-                emit_if_alive(
-                    self,
-                    "tuneFinished",
-                    job_id,
-                    rendered,
-                    analysis,
-                    f"{source_name} · {settings.key} {settings.scale} tuned",
-                )
-            except Exception as exc:
-                emit_if_alive(self, "tuneFailed", job_id, str(exc))
-
-        threading.Thread(target=worker, daemon=True).start()
+        return vocal_processing.render_take(self)
 
     def _key_progress(self, job_id: int, value: int):
-        if job_id == self._key_job_id and self._key_cancel is not None:
-            self.key_progress.setValue(value)
+        return vocal_processing._key_progress(self, job_id, value)
 
     def _key_finished(self, job_id: int, analysis, key: str, scale: str, confidence: float):
-        if job_id != self._key_job_id or self._key_cancel is None:
-            return
-        if self._key_cancel.is_set():
-            self._key_failed(job_id, "key detection cancelled")
-            return
-        if self._key_project is not None and (
-            self._key_project is not self.app.project
-            or self._key_source_id != self.take_box.currentData()
-        ):
-            self._key_failed(job_id, "Source changed; run key detection on the selected take.")
-            return
-        self._key_cancel = None
-        self.detect_key_button.setText("DETECT KEY")
-        self.detect_key_button.setEnabled(True)
-        self.key_box.setCurrentText(key)
-        self.scale_box.setCurrentText(scale)
-        self.key_progress.setValue(100)
-        self.key_progress.setFormat("KEY DETECTION COMPLETE")
-        self.analysis_label.setText(
-            f"suggested {key} {scale} · {float(confidence):.0%} scale fit · "
-            f"{analysis.voiced_fraction:.0%} voiced frames"
-        )
+        return vocal_processing._key_finished(self, job_id, analysis, key, scale, confidence)
 
     def _key_failed(self, job_id: int, message: str):
-        if job_id != self._key_job_id or self._key_cancel is None:
-            return
-        cancelled = self._key_cancel.is_set() or "cancel" in message.lower()
-        self._key_cancel = None
-        self.detect_key_button.setText("DETECT KEY")
-        self.detect_key_button.setEnabled(True)
-        self.key_progress.setValue(0)
-        self.key_progress.setFormat(
-            "KEY DETECTION CANCELLED" if cancelled else "KEY DETECTION FAILED"
-        )
-        self.analysis_label.setText(
-            "key detection cancelled" if cancelled else f"key detection failed · {message}"
-        )
+        return vocal_processing._key_failed(self, job_id, message)
 
     def _tune_progress(self, job_id: int, value: int):
-        if job_id == self._tune_job_id and self._tune_cancel is not None:
-            self.progress.setValue(value)
+        return vocal_processing._tune_progress(self, job_id, value)
 
     def _tune_finished(self, job_id: int, audio, analysis, name: str):
-        if job_id != self._tune_job_id or self._tune_cancel is None:
-            return
-        if self._tune_cancel.is_set():
-            self._tune_failed(job_id, "vocal tuning cancelled")
-            return
-        if self._render_project is not None and self._render_project is not self.app.project:
-            self._tune_failed(job_id, "Project changed; render the take again in this project.")
-            return
-        if self._render_source_id not in self.app.library.clips:
-            self._tune_failed(job_id, "The source take is no longer available.")
-            return
-        self._tune_cancel = None
-        self.render_button.setText("Render tuned take")
-        self.render_button.setEnabled(True)
-        self.app.snapshot()
-        try:
-            source_id = self._render_source_id
-            source = self.app.library.clips.get(source_id)
-            parent = source.parent if source and source.kind == "vocal-tuned" else source_id
-            clip = self.app.library.add_audio(audio, name, kind="vocal-tuned", parent=parent)
-        except Exception as exc:
-            if hasattr(self.app, "discard_snapshot"):
-                self.app.discard_snapshot()
-            self._tune_failed_after_save(str(exc))
-            return
-        wanted = (
-            clip.id
-            if self.take_box.currentData() == self._render_source_id
-            else self.take_box.currentData()
-        )
-        self._latest_clip = clip.id
-        self._render_source_id = None
-        self._render_project = None
-        self.refresh_takes(select=wanted)
-        self.app._library_changed()
-        voiced = analysis.confidence > 0.35
-        median = (
-            note_name(float(np.nanmedian(analysis.detected_midi[voiced])))
-            if np.any(voiced)
-            else "—"
-        )
-        self.progress.setValue(100)
-        self.progress.setFormat("TUNED TAKE READY")
-        self.analysis_label.setText(
-            f"created {clip.name} · original preserved · "
-            f"{analysis.voiced_fraction:.0%} voiced · median note {median}"
-        )
+        return vocal_processing._tune_finished(self, job_id, audio, analysis, name)
 
     def _tune_failed_after_save(self, message: str):
-        self._render_source_id = None
-        self._render_project = None
-        self.render_button.setEnabled(True)
-        self.progress.setValue(0)
-        self.progress.setFormat("FAILED")
-        self.analysis_label.setText(f"vocal processing failed · {message}")
+        return vocal_processing._tune_failed_after_save(self, message)
 
     def _tune_failed(self, job_id: int, message: str):
-        if job_id != self._tune_job_id or self._tune_cancel is None:
-            return
-        cancelled = self._tune_cancel.is_set() or "cancel" in message.lower()
-        self._tune_cancel = None
-        self._render_source_id = None
-        self._render_project = None
-        self.render_button.setText("Render tuned take")
-        self.render_button.setEnabled(True)
-        self.progress.setValue(0)
-        self.progress.setFormat("TUNE CANCELLED" if cancelled else "FAILED")
-        self.analysis_label.setText(
-            "vocal tuning cancelled" if cancelled else f"vocal processing failed · {message}"
-        )
+        return vocal_processing._tune_failed(self, job_id, message)
 
     def place_selected_take(self):
         clip_id = self.take_box.currentData()

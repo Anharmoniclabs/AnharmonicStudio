@@ -74,7 +74,7 @@ def main():
             "--add-data",
             f"{root / 'assets'}:assets",
             "--add-data",
-            f"{root / 'mpclab/native/dsp.c'}:mpclab/native",
+            f"{root / 'mpclab/native'}:mpclab/native",
             "--add-binary",
             f"{native}:.native",
             "--collect-all",

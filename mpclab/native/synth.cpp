@@ -4,9 +4,9 @@
 #include <math.h>
 
 #ifdef _WIN32
-#define MPC_EXPORT __declspec(dllexport)
+#define MPC_EXPORT extern "C" __declspec(dllexport)
 #else
-#define MPC_EXPORT
+#define MPC_EXPORT extern "C"
 #endif
 
 /* Recurrence replaces FFT convolution in compressor/reverb smoothing. */
@@ -26,6 +26,15 @@ MPC_EXPORT void mpc_onepole(float *block, size_t frames, size_t channels,
 MPC_EXPORT int mpc_dsp_abi(void) { return 1; }
 
 #define PI 3.14159265358979323846264338327950288
+
+static double wrap_phase(double phase) {
+    // For the usual nonnegative oscillator/LFO phases, removing an integral
+    // number of unit cycles is exact. Avoid a general libm remainder in every
+    // sample; retain its semantics for negative, huge, or nonfinite values.
+    if (phase >= 0.0 && phase < 2147483648.0)
+        return phase - (double)(int32_t)phase;
+    return fmod(phase, 1.0);
+}
 
 static double blep(double phase, double step) {
     double out = 0.0;
@@ -68,7 +77,7 @@ MPC_EXPORT void mpc_synth(float *out, size_t n, const double *noise, const doubl
         double left = 0.0, right = 0.0, envelopes[2], first_lfo = 0.0;
         for (size_t j = 0; j < take; ++j) {
             size_t i = start + j;
-            double lfo_phase = fmod(s[3] + (double)i * p[3] / sr, 1.0);
+            double lfo_phase = wrap_phase(s[3] + (double)i * p[3] / sr);
             double lfo = sin(2.0 * PI * lfo_phase);
             if (j == 0) first_lfo = lfo;
             double pitch = exp2(lfo * p[15] / 1200.0);
@@ -77,7 +86,7 @@ MPC_EXPORT void mpc_synth(float *out, size_t n, const double *noise, const doubl
                                fmin(0.45, p[1] * 0.5 * pitch / sr)};
             double phases[3];
             for (int c = 0; c < 3; ++c) {
-                phases[c] = fmod(s[c] + sums[c], 1.0);
+                phases[c] = wrap_phase(s[c] + sums[c]);
                 sums[c] += steps[c];
             }
             double osc1 = oscillator((int)p[8], phases[0], steps[0], p[12]);
@@ -128,8 +137,8 @@ MPC_EXPORT void mpc_synth(float *out, size_t n, const double *noise, const doubl
             out[(start + j) * 2 + 1] += (float)(filtered_r * envelopes[j] * p[21]);
         }
     }
-    for (int c = 0; c < 3; ++c) s[c] = fmod(s[c] + sums[c], 1.0);
-    s[3] = fmod(s[3] + (double)n * p[3] / sr, 1.0);
+    for (int c = 0; c < 3; ++c) s[c] = wrap_phase(s[c] + sums[c]);
+    s[3] = wrap_phase(s[3] + (double)n * p[3] / sr);
     s[4] = env; s[5] = stage; s[6] = release; s[7] = dead;
 }
 

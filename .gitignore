@@ -69,6 +69,7 @@ htmlcov/
 *.pfx
 credentials.json
 secrets.json
+workflow-bindings.json
 .DS_Store
 Thumbs.db
 .idea/
