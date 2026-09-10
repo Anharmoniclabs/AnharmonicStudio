@@ -99,16 +99,23 @@ def _range(group: dict, start: float, end: float) -> tuple[float, float]:
     return left, right
 
 
-def _source_clip(row: Row, start: float, end: float) -> Clip:
-    candidates = [
-        clip
-        for clip in row.clips
-        if clip.start_beat <= start + _EPSILON
-        and clip.start_beat + clip.length_beats >= end - _EPSILON
-    ]
+def _source_selection(row: Row, start: float, end: float) -> tuple[Clip, float, float]:
+    candidates = []
+    for clip in row.clips:
+        clip_start = float(clip.start_beat)
+        clip_end = clip_start + float(clip.length_beats)
+        left = max(start, clip_start)
+        right = min(end, clip_end)
+        overlap = right - left
+        if overlap > _EPSILON:
+            candidates.append((overlap, clip, left, right))
     if not candidates:
-        raise ValueError("selected take lane does not cover that comp range")
-    return min(candidates, key=lambda clip: clip.length_beats)
+        raise ValueError("selected take lane has no material in that comp range")
+    _overlap, clip, left, right = max(
+        candidates,
+        key=lambda item: (item[0], -float(item[1].length_beats)),
+    )
+    return clip, left, right
 
 
 def _audio_segment(clip: Clip, start: float, end: float, bpm: float) -> Clip:
@@ -286,18 +293,18 @@ def swipe_comp_range(project, group_id: str, lane_id: str, start: float, end: fl
     lane = row_by_id(project, lane_id)
     if lane is None:
         raise ValueError("selected take lane no longer exists")
-    source = _source_clip(lane, start, end)
+    source, source_start, source_end = _source_selection(lane, start, end)
     row = ensure_comp_row(project, group)
     _activate_comp_playback(project, group, row)
     replacement = _segment(
         project,
         source,
-        start,
-        end,
+        source_start,
+        source_end,
         project.bpm,
-        f"COMP · {lane.name} · {start:g}-{end:g}",
+        f"COMP · {lane.name} · {source_start:g}-{source_end:g}",
     )
-    _replace_range(project, row, start, end, replacement, project.bpm)
+    _replace_range(project, row, source_start, source_end, replacement, project.bpm)
     group["active_lane"] = lane_id
     _validate_project_workflow(project)
     return row
