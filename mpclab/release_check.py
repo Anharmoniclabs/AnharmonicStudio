@@ -30,7 +30,7 @@ def plugin_runtime_probe(connection, specification, sample_rate):
 
 def _require_callable_command(registry, command_id):
     command = registry.get(command_id)
-    if command is None or not callable(command.callback):
+    if command is None or not callable(getattr(command, "callback", None)):
         raise RuntimeError(f"Production command is not attached: {command_id}")
 
 
