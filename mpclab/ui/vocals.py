@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
-from ..model import Clip, NTRACKS, VocalComp, VocalCompRegion
+from ..model import Clip, VocalComp, VocalCompRegion
 from ..vocal import (
     NOTE_NAMES,
     SCALES,
@@ -199,7 +199,7 @@ class VocalPanel(WindowClient, QWidget):
         grid.addWidget(self.row_box, 3, 1)
         grid.addWidget(_small("MIXER TRACK"), 3, 2)
         self.track_box = QComboBox()
-        for index in range(NTRACKS):
+        for index in range(len(self.app.project.tracks)):
             self.track_box.addItem(f"{index + 1} · {self.app.project.tracks[index].name}", index)
         self.track_box.currentIndexChanged.connect(self._record_settings_changed)
         grid.addWidget(self.track_box, 3, 3, 1, 2)
@@ -660,6 +660,9 @@ class VocalPanel(WindowClient, QWidget):
         self.count_in.setCurrentIndex(max(0, self.count_in.findData(rec.count_in_bars)))
         self.auto_place.setChecked(rec.auto_place)
         self.row_box.setValue(rec.playlist_row + 1)
+        self.track_box.clear()
+        for index, track in enumerate(self.app.project.tracks):
+            self.track_box.addItem(f"{index + 1} · {track.name}", index)
         self.track_box.setCurrentIndex(max(0, self.track_box.findData(rec.mixer_track)))
         self.key_box.setCurrentText(tune.key)
         self.scale_box.setCurrentText(tune.scale)

@@ -96,6 +96,7 @@ jobs:
           MPC_NATIVE_DSP=0 uv run --no-sync python scripts/run_tests.py -- -q
           -o faulthandler_timeout=30 tests/test_sample_instruments.py tests/test_synth.py
           tests/test_engine_synth.py tests/test_engine_fx.py tests/test_convolution_scratch.py
+          tests/test_scalable_tracks.py
       - name: Callback benchmarks
         run: |
           uv run --no-sync python scripts/bench_callback.py --seconds 0.5 --blocks 512 256

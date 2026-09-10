@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .engine_constants import AUDITION, METRONOME, SEND_TAIL, TRACK_DSP_TAIL
-from .model import NPADS, NTRACKS
+from .model import NPADS
 from .music import automation_values
 from .sample_voice import _balance_gains
 from .workflow_routing import clear_bus_buffers, finish_buses, route_track
@@ -41,9 +41,12 @@ def track_controls(engine: Engine, index, beats):
 
 def render_block(engine: Engine, outdata, frames, monitor=None):
     proj = engine.project
+    track_count = len(proj.tracks)
+    if track_count != engine._tbuf.shape[0] or track_count != len(engine.rack.tracks):
+        raise RuntimeError("mixer layout changed: stop audio and call prepare_fx before playback")
     start_beat = engine.beat
     if frames > engine._tbuf.shape[1]:  # PortAudio asked for a bigger block
-        engine._tbuf = np.zeros((NTRACKS, frames, 2), dtype=np.float32)
+        engine._tbuf = np.zeros((track_count, frames, 2), dtype=np.float32)
         engine._master = np.zeros((frames, 2), dtype=np.float32)
         engine._preview = np.zeros((frames, 2), dtype=np.float32)
         engine._send_scratch = np.zeros((frames, 2), dtype=np.float32)
@@ -140,7 +143,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         if engine.synth_voices[index].dead:
             del engine.synth_voices[index]
 
-    synth_track = max(0, min(NTRACKS - 1, proj.synth.track))
+    synth_track = proj.validate_track_index(proj.synth.track, "synth output")
     external_bus = getattr(engine, "_external_instrument", None)
     if external_bus is None:
         engine.external.render_instrument(tbuf[synth_track], frames, engine.sr)
@@ -195,7 +198,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
     if routed:
         clear_bus_buffers(routing_plan, routing_buses, frames)
 
-    for i in range(NTRACKS):
+    for i in range(track_count):
         t = proj.tracks[i]
         left, right = engine._track_controls(i, automation_beats)
         # Faders are post-insert. A zero fader must not reset filter or

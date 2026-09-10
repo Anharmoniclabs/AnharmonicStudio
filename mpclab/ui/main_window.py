@@ -61,7 +61,6 @@ from ..model import (
     PADS_PER_BANK,
     BANKS,
     NPADS,
-    NTRACKS,
     uid,
     map_sample_range,
     safe_filename,
@@ -1998,7 +1997,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         cl.addWidget(self.clip_gain)
         cl.addWidget(small("MIXER"))
         self.clip_track = QComboBox()
-        for i in range(NTRACKS):
+        for i in range(len(self.project.tracks)):
             self.clip_track.addItem(str(i + 1), i)
         self.clip_track.currentIndexChanged.connect(self._selected_clip_track)
         cl.addWidget(self.clip_track)
@@ -3788,6 +3787,9 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.btn_clip_reverse.blockSignals(True)
         self.clip_gain.blockSignals(True)
         self.clip_track.blockSignals(True)
+        self.clip_track.clear()
+        for index, track in enumerate(self.project.tracks):
+            self.clip_track.addItem(f"{index + 1} · {track.name}", index)
         self.clip_crossfade.blockSignals(True)
         self.btn_clip_loop.setChecked(bool(audio and clip.loop))
         self.btn_clip_reverse.setChecked(bool(audio and clip.reverse))
@@ -4004,6 +4006,41 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self._set_dirty(True)
 
     def _apply_project(self, project: Project):
+        if len(project.tracks) == len(self.engine._tbuf):
+            return self._apply_project_state(project)
+        from .track_management import require_idle_capture
+
+        require_idle_capture(self)
+        previous = self.project
+        undo, redo, dirty = list(self._undo), list(self._redo), self._dirty
+        was_running = self.engine.stream is not None
+        self.engine.stop_transport(rewind=False)
+        # This owns only this DAW's output stream. Track/DSP allocations must
+        # finish before its callback can see a different mixer layout.
+        self.engine.stop()
+        prepared = False
+        try:
+            self._apply_project_state(project)
+            prepared = True
+        except Exception:
+            self._apply_project_state(previous)
+            self._undo, self._redo = undo, redo
+            self._set_dirty(dirty)
+            prepared = True
+            raise
+        finally:
+            if was_running and prepared:
+                try:
+                    self.engine.start()
+                except Exception as exc:
+                    self.status.showMessage(
+                        f"Project retained; audio output could not restart: {exc}", 10000
+                    )
+
+    def _apply_project_state(self, project: Project):
+        automation = getattr(self, "automation_mode_controller", None)
+        if automation is not None:
+            automation.reset_for_project()
         self._cancel_record_count()
         self.playlist.select_clip(None)
         self.playlist.place_template = None
@@ -4050,6 +4087,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         # Playlist media and reverse buffers, so the callback never reads disk
         # or copies a whole song on the first hit.
         self.engine.preload_project_audio(project)
+        self._playlist_selection_changed(self.playlist.selected_clip)
 
     def new_project(self):
         """Start an untitled session while retaining the shared sample library."""
@@ -4091,6 +4129,11 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.engine.stop_transport(rewind=True)
         self.engine.panic()
         self.btn_rec.setChecked(False)
+        try:
+            self._apply_project(project)
+        except Exception as exc:
+            QMessageBox.warning(self, "New project failed", str(exc))
+            return False
         self._undo.clear()
         self._redo.clear()
         self.project_path = None
@@ -4101,7 +4144,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.clip_label.setText("no sample loaded")
         self.browser.list.clearSelection()
         self.browser.list.setCurrentItem(None)
-        self._apply_project(project)
         self._rebuild_chips()
         self.proj_name.setToolTip("Project name · save to choose this project's file")
         self._set_dirty(False)
@@ -4206,10 +4248,14 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             QMessageBox.warning(self, "Load failed", str(exc))
             return False
         self.engine.stop_transport(rewind=True)
+        try:
+            self._apply_project(project)
+        except Exception as exc:
+            QMessageBox.warning(self, "Load failed", str(exc))
+            return False
         self.project_path = Path(path)
         self.history_path = self._project_history_path(Path(path))
         self._load_history(self.history_path)
-        self._apply_project(project)
         if clear_session:
             self.session_path.unlink(missing_ok=True)
             self.session_history_path.unlink(missing_ok=True)

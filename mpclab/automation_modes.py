@@ -86,9 +86,7 @@ class AutomationModeController(QObject):
 
     def attach_controls(self) -> None:
         self._install_mixer_display_hook()
-        for index, strip in enumerate(self.app.mixer.strips):
-            self._connect_slider(strip.fader, f"track:{index}:gain", 100.0)
-            self._connect_slider(strip.pan, f"track:{index}:pan", 100.0)
+        self.attach_mixer_controls()
         self._connect_slider(self.app.mixer.master_strip.fader, "master", 100.0)
         master = getattr(self.app, "master_slider", None)
         if master is not None:
@@ -96,6 +94,21 @@ class AutomationModeController(QObject):
         self._inject_panel_controls()
         self.sync_panel()
         self._sync_master_slider()
+
+    def attach_mixer_controls(self) -> None:
+        """Wire newly created strips without duplicating existing connections."""
+        for index, strip in enumerate(self.app.mixer.strips):
+            self._connect_slider(strip.fader, f"track:{index}:gain", 100.0)
+            self._connect_slider(strip.pan, f"track:{index}:pan", 100.0)
+
+    def reset_for_project(self) -> None:
+        """A replaced project must not inherit a gesture for a removed channel."""
+        self._gesture.clear()
+        self._latched.clear()
+        self._passes.clear()
+        self._manual.clear()
+        self._was_playing = False
+        self._last_touched = "master"
 
     def _connect_slider(self, slider, target: str, scale: float) -> None:
         if getattr(slider, "_automation_modes_connected", False):
@@ -412,7 +425,9 @@ class AutomationModeController(QObject):
             # A gesture can begin and end between Play and the first timer tick.
             # Stop already clears previous passes; retain this transport's latch.
             write_targets = [
-                target for target in automation_targets() if self.mode(target) == "write"
+                target
+                for target in automation_targets(len(self.app.project.tracks))
+                if self.mode(target) == "write"
             ]
             if write_targets:
                 self.app.snapshot()

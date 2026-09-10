@@ -153,6 +153,7 @@
   }
 
   function makeGraph(context, project) {
+    if (!Array.isArray(project.tracks) || !project.tracks.length || project.tracks.length > 128) throw new Error('Browser projects require 1 to 128 mixer tracks');
     const nodes = []; const create = kind => { const node = context[kind](); nodes.push(node); return node; };
     const filter = (type, frequency) => { const node = create('createBiquadFilter'); node.type = type; node.frequency.value = Math.min(frequency, context.sampleRate * .49); return node; };
     const compressorStage = input => {
@@ -187,7 +188,7 @@
       }
       reverb.buffer = impulse; impulseSignature = signature;
     };
-    const trackBuses = Array.from({ length: 8 }, () => {
+    const trackBuses = Array.from({ length: project.tracks.length }, () => {
       const channelInput = create('createGain'); const gain = create('createGain'); const pan = create('createStereoPanner'); const low = filter('lowshelf', 120); const middle = filter('peaking', 900); const upper = filter('highshelf', 6000); const cutoff = filter('allpass', 20000); const saturation = create('createWaveShaper');
       const filterWet = create('createGain'); const filterDry = create('createGain');
       channelInput.connect(low).connect(middle).connect(upper);
@@ -272,6 +273,7 @@
 
     sync() {
       const project = this.getProject();
+      if (this.graph && this.graph.trackBuses.length !== project.tracks.length) this.stop();
       if (this.playing && this.project !== project) {
         try { requireSupportedProject(project); } catch (error) { this.lastError = error; this.stop(); this.onError(error); return; }
       }
@@ -293,7 +295,11 @@
     beatAt(time) { return this.anchorBeat + (time - this.anchorTime) * this.tempo / 60; }
     timeAt(beat) { return this.anchorTime + (beat - this.anchorBeat) * 60 / this.tempo; }
     setMetronome(enabled) { this.metronome = Boolean(enabled); }
-    output(track, graph = this.graph) { return graph.trackBuses[Math.round(clamp(track, 0, 7))].input; }
+    output(track, graph = this.graph) {
+      const index = track ?? 0;
+      if (!Number.isInteger(index) || index < 0 || index >= graph.trackBuses.length) throw new Error('Audio route refers to a missing mixer track');
+      return graph.trackBuses[index].input;
+    }
 
     sample(id) {
       const buffer = this.getBuffer(id);
@@ -666,7 +672,7 @@
         if (!Context) throw new Error('This browser does not support offline audio export.');
         const sampleRate = Math.round(clamp(opts.sampleRate, 22050, LIMITS.sampleRate, 44100));
         const events = collectEvents(project, mode, 0, beats);
-        let estimatedNodes = 200;
+        let estimatedNodes = 100 + project.tracks.length * 32;
         for (const event of events) {
           estimatedNodes += event.kind === 'note' && event.pad === null ? 24 : 3;
           if (estimatedNodes > LIMITS.renderNodes) throw new Error('This export exceeds the browser audio resource budget. Export fewer clips or render the song in the desktop app.');

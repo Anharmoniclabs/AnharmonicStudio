@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QWidget, QMenu
 
 from ..library import AUDIO_EXT
 from ..model import Clip, uid
+from ..timeline_markers import marker_items
 from .theme import q, TRACK_COLORS, is_light
 from .waveform import draw_peaks
 from .sample_drag import RANGE_MIME, sample_range
@@ -114,8 +115,32 @@ class PlaylistView(WindowClient, QWidget):
     def rows(self):
         return self.app.project.rows
 
+    def timeline_markers(self):
+        # Marker edits replace their validated sidecar atomically. Cache its
+        # immutable entries so transport repaints do not revalidate thousands
+        # of names and colors on every frame. Project replacement invalidates it.
+        project = self.app.project
+        state = getattr(project, "timeline_markers", None)
+        if (
+            getattr(self, "_marker_project", None) is not project
+            or getattr(self, "_marker_state", None) is not state
+        ):
+            self._marker_project = project
+            self._marker_state = state
+            self._marker_items = marker_items(project)
+        return self._marker_items
+
     def minimumSizeHint(self) -> QSize:
-        length = max(self.app.project.song_end() + 32, self.app.project.loop_end + 8, 64)
+        marker_end = max(
+            (marker.end_beat or marker.start_beat for marker in self.timeline_markers()),
+            default=0,
+        )
+        length = max(
+            self.app.project.song_end() + 32,
+            self.app.project.loop_end + 8,
+            marker_end + 8,
+            64,
+        )
         return QSize(
             int(HEAD_W + length * self.px_per_beat + 40),
             int(RULER_H + len(self.rows()) * ROW_H + 20),
@@ -982,7 +1007,10 @@ class PlaylistView(WindowClient, QWidget):
         p.setFont(small)
         fm = QFontMetrics(small)
 
-        last_beat = self.x_to_beat(w) + 4
+        # Only draw the exposed beat grid; distant named markers can extend the
+        # timeline by hours without allocating/painting every intervening beat.
+        first_beat = max(0, int(self.x_to_beat(ev.rect().left())) - 4)
+        last_beat = self.x_to_beat(ev.rect().right()) + 4
 
         # The arrangement loop is drawn directly on the ruler and lanes. Drag
         # across the ruler to redefine it; the toolbar switch controls playback.
@@ -998,7 +1026,7 @@ class PlaylistView(WindowClient, QWidget):
             p.drawLine(int(lx + lw), 0, int(lx + lw), h)
 
         # bar grid
-        b = 0
+        b = first_beat
         while b <= last_beat:
             x = self.beat_to_x(b)
             is_bar = b % 4 == 0
@@ -1094,6 +1122,18 @@ class PlaylistView(WindowClient, QWidget):
             p.setPen(QPen(q("accent"), 2))
             p.drawLine(int(drop_x), RULER_H, int(drop_x), h)
 
+        # Named entries continue from the dedicated two-lane marker strip into
+        # the arrangement. Region endpoints use the same stored beat positions.
+        for marker in self.timeline_markers():
+            for beat in (marker.start_beat, marker.end_beat):
+                if beat is None or not first_beat - 4 <= beat <= last_beat:
+                    continue
+                color = QColor(marker.color)
+                color.setAlpha(120)
+                p.setPen(QPen(color, 1, Qt.DashLine))
+                x = int(self.beat_to_x(beat))
+                p.drawLine(x, RULER_H, x, h)
+
         # header column separator
         p.setPen(QPen(q("line")))
         p.drawLine(HEAD_W, 0, HEAD_W, h)
@@ -1113,7 +1153,7 @@ class PlaylistView(WindowClient, QWidget):
                 QPolygonF([QPointF(lx + lw, 2), QPointF(lx + lw - 7, 2), QPointF(lx + lw, 10)])
             )
         p.setPen(q("dim2"))
-        b = 0
+        b = first_beat - first_beat % 4
         while b <= last_beat:
             if b % 4 == 0:
                 x = self.beat_to_x(b)

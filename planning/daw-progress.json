@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "612d6c412738e3ff9d0da022b5801831802967b7",
+  "branch": "feature/daw-capability-foundations",
+  "default_work_status": "not_started",
+  "policy": {
+    "distribution": "unsigned",
+    "cloudflare_promotion": "held_until_verified_release_acceptance",
+    "completion_rule": "Acceptance criteria, production wiring, regression tests and any required real-device evidence must be met; code existence alone is not completion.",
+    "source_rule": "The imported static audit is historical. Keep its supplied claims intact and record new code evidence separately."
+  },
+  "items": {
+    "01-01": {
+      "status": "in_progress",
+      "scope": "128 independent mixer tracks implemented across model, native runtime/export, routing, editor controls, browser preservation/playback and regression coverage.",
+      "remaining": "Independent multi-instrument instances (01-02) are not implemented. Cross-platform and physical 128-track performance acceptance remains pending; do not interpret track count as a low-latency qualification.",
+      "evidence": ["mpclab/model.py", "mpclab/ui/track_management.py", "tests/test_scalable_tracks.py", "tests/test_scalable_track_ui.py", "website/app/project-model.js", "tests/web/project-model.test.cjs", "tests/web/audio-engine.browser.py", "scripts/audit_web_studio.py"]
+    },
+    "03-04": {
+      "status": "implemented",
+      "scope": "Native persistent named/color timeline markers, cues and regions, navigation, snapped editing, undo/redo, save/reopen, JSON/CSV metadata export and production commands/UI.",
+      "remaining": "Implemented and software-tested on Linux/offscreen, not yet included in a qualified four-platform release. Browser preserves metadata but has no marker editor. Exports are beat-based metadata, not CD cue sheets or audio renders.",
+      "evidence": ["mpclab/timeline_markers.py", "mpclab/ui/timeline_markers.py", "tests/test_timeline_markers.py", "tests/test_timeline_marker_ui.py"]
+    },
+    "12-03": {
+      "status": "in_progress",
+      "scope": "Streaming offline stereo correlation, mid/side energy and channel statistics with a cancelable analysis UI.",
+      "remaining": "Live spectrum and stereo-field scopes, calibrated display averaging and live analysis remain outstanding.",
+      "evidence": ["mpclab/audio_analysis.py", "mpclab/ui/audio_analysis.py", "tests/test_audio_analysis.py", "tests/test_audio_analysis_ui.py"]
+    },
+    "12-09": {
+      "status": "in_progress",
+      "scope": "Streaming file-quality report, source-safe atomic JSON/text export, usable background analysis UI and production self-check integration.",
+      "remaining": "Loudness/LUFS/LRA and reconstructed true-peak measurements are not implemented; report and UI disclose this. No delivery-standard conformance claim.",
+      "evidence": ["mpclab/audio_analysis.py", "mpclab/ui/audio_analysis.py", "tests/test_audio_analysis.py", "tests/test_audio_analysis_ui.py", "mpclab/release_check.py"]
+    },
+    "19-01": {
+      "status": "policy_override",
+      "owner_instruction": "No paid package signing; distribute unsigned packages and advise users how to install.",
+      "replacement_acceptance": "Build and validate all four native targets from one audited commit, disclose unsigned status, bundle platform installation instructions and checksums, and complete real installation/device acceptance before promotion.",
+      "remaining": "Unsigned policy is implemented, but this does not waive platform, device, performance or source qualification.",
+      "evidence": ["packaging/INSTALLATION.txt", "packaging/ACCEPTANCE.md", "delivery/prepare_catalog.py", "tests/test_unsigned_installation.py", "tests/test_delivery_catalog.py"]
+    },
+    "19-04": {"status": "acceptance_pending", "scope": "Existing full source and browser suites pass on the repair baseline; each new capability needs updated reference and cross-platform acceptance.", "evidence": ["RELEASE_AUDIT.md", "tests/web/fixtures/core-project.json", "tests/test_web_project_interchange.py"]},
+    "19-06": {"status": "in_progress", "scope": "Repair baseline supplies a standalone browser feature set with documented native-only limitations. Dynamic tracks now pass 73 browser UI checks and 30 actual-audio tests, including track 128 output and project reload.", "remaining": "Browser/native DSP and full feature parity are not complete; unsupported active native processing remains explicitly rejected rather than silently approximated.", "evidence": ["website/README.md", "scripts/audit_web_studio.py", "tests/web/audio-engine.browser.py"]}
+  }
+}

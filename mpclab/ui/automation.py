@@ -166,7 +166,7 @@ class AutomationPanel(WindowClient, QWidget):
         layout.addWidget(hint)
         top = QHBoxLayout()
         self.target = QComboBox()
-        for target in automation_targets():
+        for target in automation_targets(len(self.app.project.tracks)):
             label = (
                 "Master • level"
                 if target == "master"
@@ -238,6 +238,20 @@ class AutomationPanel(WindowClient, QWidget):
         return lane
 
     def sync(self):
+        targets = automation_targets(len(self.app.project.tracks))
+        if self.target.count() != len(targets):
+            current = self.target.currentData()
+            self.target.blockSignals(True)
+            self.target.clear()
+            for target in targets:
+                label = (
+                    "Master • level"
+                    if target == "master"
+                    else f"Track {int(target.split(':')[1]) + 1} • {target.split(':')[2]}"
+                )
+                self.target.addItem(label, target)
+            self.target.setCurrentIndex(max(0, self.target.findData(current)))
+            self.target.blockSignals(False)
         lane = self.lane()
         self.canvas.drag_beat = None
         self.enabled.blockSignals(True)

@@ -21,6 +21,7 @@ SOURCE_DIRS = {
     "docs",
     ".github",
     "packaging",
+    "planning",
     "website",
     "delivery",
 }

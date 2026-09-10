@@ -12,10 +12,11 @@ import base64
 import math
 from pathlib import Path
 
-from .model import Project
+from .model import MAX_TRACKS, Project
+from .workflow_routing import MAX_ROUTING_BUSES
 
 MAX_CHAIN_PLUGINS = 8
-MAX_PLUGIN_CHAINS = 25  # 8 tracks + 16 routing buses + master
+MAX_PLUGIN_CHAINS = MAX_TRACKS + MAX_ROUTING_BUSES + 1
 MAX_CHAIN_PLUGIN_STATE = 2 * 1024 * 1024
 MAX_TOTAL_CHAIN_PLUGINS = 128
 _INSTALLED = False

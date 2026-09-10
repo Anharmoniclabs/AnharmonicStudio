@@ -14,7 +14,7 @@ from .audio_kernel import MasteringKernel
 from .engine_constants import FADE
 from .external_dsp import OfflinePlugins
 from .fx import MixRack
-from .model import NPADS, NTRACKS
+from .model import NPADS
 from .music import automation_values
 from .plugin_chain_runtime import OfflinePluginChains, RoutingDelayBank, compile_chain_latency_plan
 from .plugin_latency import PluginDelayCompensator, plugin_path_latency_samples
@@ -44,6 +44,9 @@ def render_offline_reference(
     # Offline rendering is allowed to load assets; the live callback is not.
     engine.preload_project_audio()
     proj = engine.project
+    proj._validate_track_ids()
+    proj._validate_track_references()
+    track_count = len(proj.tracks)
     spb = 60.0 / proj.bpm
     if mode == "song":
         length_beats = proj.song_end()
@@ -54,7 +57,7 @@ def render_offline_reference(
 
     total = int((length_beats * spb + tail) * engine.sr)
     out = np.zeros((total, 2), dtype=np.float32)
-    tbuf = np.zeros((NTRACKS, total, 2), dtype=np.float32)
+    tbuf = np.zeros((track_count, total, 2), dtype=np.float32)
 
     saved_mode, engine.mode = engine.mode, mode
     chains = None
@@ -89,7 +92,7 @@ def render_offline_reference(
                         attack=max(1, int(0.003 * engine.sr)),
                         release=max(1, int(0.008 * engine.sr)),
                         length=voice_length,
-                        track=max(0, min(NTRACKS - 1, clip.track)),
+                        track=proj.validate_track_index(clip.track, "clip output"),
                         choke=0,
                         pad_index=-1,
                         loop=bool(clip.loop),
@@ -129,13 +132,13 @@ def render_offline_reference(
 
         any_solo = proj.any_solo()
         gains = []
-        for i in range(NTRACKS):
+        for i in range(track_count):
             track = proj.tracks[i]
             gain = 0.0 if (track.mute or (any_solo and not track.solo)) else track.gain
             left, right = _balance_gains(track.pan)
             gains.append((gain * left, gain * right, gain > 0.0))
 
-        rack = MixRack(NTRACKS)
+        rack = MixRack(track_count)
         rack.prepare(engine.blocksize)
         kernel = MasteringKernel(engine.sr, blocksize=engine.blocksize)
         run_sends = any(track.fx.sends_active for track in proj.tracks) and (
@@ -156,7 +159,7 @@ def render_offline_reference(
             delay_send = reverb_send = None
             if run_sends:
                 delay_send, reverb_send = rack.send_buffers(frames)
-            for i in range(NTRACKS):
+            for i in range(track_count):
                 left, right, live = gains[i]
                 if not live:
                     continue
@@ -247,10 +250,13 @@ def iter_offline_blocks(
     The caller must consume or copy each block before requesting the next.
     Each yielded value is already an independent array, so file writers can
     pass it straight to ``SoundFile.write``. Memory is bounded by events,
-    active voices and ``NTRACKS * blocksize`` rather than song duration.
+    active voices and ``len(project.tracks) * blocksize`` rather than song duration.
     """
     engine.preload_project_audio()
     proj = engine.project
+    proj._validate_track_ids()
+    proj._validate_track_references()
+    track_count = len(proj.tracks)
     spb = 60.0 / proj.bpm
     length_beats = (
         proj.song_end() if mode == "song" else proj.pattern().length_beats * max(1, repeats)
@@ -306,7 +312,7 @@ def iter_offline_blocks(
                         attack=max(1, int(0.003 * engine.sr)),
                         release=max(1, int(0.008 * engine.sr)),
                         length=voice_length,
-                        track=max(0, min(NTRACKS - 1, clip.track)),
+                        track=proj.validate_track_index(clip.track, "clip output"),
                         choke=0,
                         pad_index=-1,
                         loop=bool(clip.loop),
@@ -330,14 +336,14 @@ def iter_offline_blocks(
                     previous.release = fade
 
         blocksize = engine.blocksize
-        tbuf = np.zeros((NTRACKS, blocksize, 2), dtype=np.float32)
+        tbuf = np.zeros((track_count, blocksize, 2), dtype=np.float32)
         output = np.zeros((blocksize, 2), dtype=np.float32)
         panned = np.zeros((blocksize, 2), dtype=np.float32)
         routing_scratch = np.zeros((blocksize, 2), dtype=np.float32)
         routing_buses = np.zeros((MAX_ROUTING_BUSES, blocksize, 2), dtype=np.float32)
         external = np.zeros((blocksize, 2), dtype=np.float32)
         routing_plan = compile_routing(proj)
-        plugin_pdc = PluginDelayCompensator(NTRACKS, blocksize)
+        plugin_pdc = PluginDelayCompensator(track_count, blocksize)
         if plugins is not None and plugins.instrument is not None:
             plugin_pdc.configure(
                 plugin_path_latency_samples(plugins.instrument, include_live_bridge=False)
@@ -350,7 +356,7 @@ def iter_offline_blocks(
         next_voice = 0
 
         any_solo = proj.any_solo()
-        rack = MixRack(NTRACKS)
+        rack = MixRack(track_count)
         rack.prepare(blocksize)
         kernel = MasteringKernel(engine.sr, blocksize=blocksize)
         run_sends = any(track.fx.sends_active for track in proj.tracks) and (
@@ -399,14 +405,14 @@ def iter_offline_blocks(
                 plugins.render_instrument(external_block, start, frames)
                 if plugin_pdc.delay_samples > 0:
                     plugin_pdc.process(tracks, frames)
-                synth_track = max(0, min(NTRACKS - 1, proj.synth.track))
+                synth_track = proj.validate_track_index(proj.synth.track, "synth output")
                 np.add(tracks[synth_track], external_block, out=tracks[synth_track])
 
             automation_beats = engine._automation_beats(mode, start / (spb * engine.sr), frames)
             delay_send = reverb_send = None
             if run_sends:
                 delay_send, reverb_send = rack.send_buffers(frames)
-            for i in range(NTRACKS):
+            for i in range(track_count):
                 track = proj.tracks[i]
                 left, right = engine._track_controls(i, automation_beats)
                 if track.mute or (any_solo and not track.solo):
