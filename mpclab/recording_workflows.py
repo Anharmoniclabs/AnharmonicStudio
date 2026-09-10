@@ -121,6 +121,9 @@ def _new_lane(source: Row, number: int) -> Row:
 def _append_take_group(app, source: Row, lanes: list[Row], start: float, end: float) -> dict:
     recording = ensure_workflow(app.project).setdefault("recording", dict(_DEFAULTS))
     groups = recording.setdefault("take_groups", [])
+    active_lane = lanes[-1].id if lanes else ""
+    for lane in lanes:
+        lane.mute = lane.id != active_lane
     group = {
         "id": f"takes:{uid()}",
         "name": f"{source.name} Takes {len(groups) + 1}",
@@ -128,7 +131,7 @@ def _append_take_group(app, source: Row, lanes: list[Row], start: float, end: fl
         "lanes": [lane.id for lane in lanes],
         "start": float(start),
         "end": float(end),
-        "active_lane": lanes[-1].id if lanes else "",
+        "active_lane": active_lane,
     }
     groups.append(group)
     # Validate after construction so an accidental unbounded edit never gets
