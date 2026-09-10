@@ -378,16 +378,16 @@ class TakeCompController:
             if "duplicate command id" not in str(exc):
                 raise
         command_controller._reindex_bindings()
-        menu = next(
-            (
-                action.menu()
-                for action in window.menuBar().actions()
-                if action.text() == "Recording" and action.menu() is not None
-            ),
-            None,
-        )
+        menu = None
+        for menu_action in window.menuBar().actions():
+            if menu_action.text() == "Recording":
+                menu = menu_action.menu()
+                if menu is not None:
+                    break
         if menu is None:
             menu = window.menuBar().addMenu("Recording")
+        self.menu = menu
+        self.menu_action = menu.menuAction()
         action = menu.addAction(self.registry.get("recording.take_comp").title)
         action.triggered.connect(
             lambda _checked=False: self.command_controller._execute("recording.take_comp")
