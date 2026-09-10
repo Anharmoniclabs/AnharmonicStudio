@@ -27,7 +27,14 @@ def test_nested_bus_latency_is_aligned_at_each_summing_junction():
         "routing": {
             "buses": [
                 {"id": "a", "name": "A", "gain": 1.0, "pan": 0.0, "mute": False, "output": "b"},
-                {"id": "b", "name": "B", "gain": 1.0, "pan": 0.0, "mute": False, "output": "master"},
+                {
+                    "id": "b",
+                    "name": "B",
+                    "gain": 1.0,
+                    "pan": 0.0,
+                    "mute": False,
+                    "output": "master",
+                },
             ],
             "track_outputs": {t0.id: "a", t1.id: "b"},
         }
