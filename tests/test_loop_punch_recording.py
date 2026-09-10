@@ -106,6 +106,7 @@ def test_two_audio_loop_passes_create_two_non_destructive_take_lanes(window, mon
     row_index = window.project.rows.index(row)
     lanes = window.project.rows[row_index + 1 : row_index + 3]
     assert [lane.name for lane in lanes] == [f"{row.name} · Take 1", f"{row.name} · Take 2"]
+    assert [lane.mute for lane in lanes] == [True, False]
     clips = [lane.clips[0] for lane in lanes]
     assert clips[0].ref == clips[1].ref
     assert clips[0].offset == pytest.approx(0.0)
@@ -179,6 +180,7 @@ def test_loop_note_passes_split_into_patterns_with_local_timing(window):
     row_index = window.project.rows.index(row)
     lanes = window.project.rows[row_index + 1 : row_index + 3]
     assert len(lanes) == 2
+    assert [lane.mute for lane in lanes] == [True, False]
     patterns = [
         next(pattern for pattern in window.project.patterns if pattern.id == lane.clips[0].ref)
         for lane in lanes
