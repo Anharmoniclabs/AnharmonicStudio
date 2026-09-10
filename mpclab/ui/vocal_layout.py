@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QSizePolicy,
 )
-from ..model import NTRACKS
 from ..vocal import (
     NOTE_NAMES,
     SCALES,
@@ -86,7 +85,7 @@ def _record_group(owner) -> QGroupBox:
     grid.addWidget(owner.row_box, 3, 1)
     grid.addWidget(_small("MIXER TRACK"), 3, 2)
     owner.track_box = QComboBox()
-    for index in range(NTRACKS):
+    for index in range(len(owner.app.project.tracks)):
         owner.track_box.addItem(f"{index + 1} · {owner.app.project.tracks[index].name}", index)
     owner.track_box.currentIndexChanged.connect(owner._record_settings_changed)
     grid.addWidget(owner.track_box, 3, 3, 1, 2)
