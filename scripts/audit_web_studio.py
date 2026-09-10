@@ -89,6 +89,10 @@ def main():
                     AnharmonicProject.ProjectStore.prototype.notify = function(...args) {
                         window.auditDocument = this.toJSON(); return original.apply(this,args);
                     };
+                    const resume = AnharmonicAudio.AudioEngine.prototype.resume;
+                    AnharmonicAudio.AudioEngine.prototype.resume = function(...args) {
+                        window.auditEngine = this; return resume.apply(this,args);
+                    };
                     const trigger = AnharmonicAudio.AudioEngine.prototype.triggerPad;
                     AnharmonicAudio.AudioEngine.prototype.triggerPad = function(index,...args) {
                         window.auditPads.push(index); return trigger.call(this,index,...args);
@@ -291,11 +295,15 @@ def main():
                 page.evaluate(
                     """data => {
                     const blob = new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], {type:'audio/wav'});
-                    window.auditStoppedTracks = 0;
-                    navigator.mediaDevices.getUserMedia = async () => ({getTracks: () => [{stop: () => auditStoppedTracks++}]});
+                    window.auditStoppedTracks = 0; window.auditRecorderStarts = 0; window.auditMicrophoneRequests = 0;
+                    navigator.mediaDevices.getUserMedia = async () => {
+                        window.auditMicrophoneRequests++;
+                        await new Promise(resolve => setTimeout(resolve, window.auditPermissionDelay || 0));
+                        return {getTracks: () => [{stop: () => auditStoppedTracks++}]};
+                    };
                     window.MediaRecorder = class extends EventTarget {
                         constructor(){ super(); this.state = 'inactive'; this.mimeType = 'audio/wav'; }
-                        start(){ this.state = 'recording'; }
+                        start(){ this.state = 'recording'; window.auditRecorderStarts++; window.auditCaptureBeat = auditEngine.beatAt(auditEngine.context.currentTime); }
                         stop(){ this.state = 'inactive'; this.dispatchEvent(new MessageEvent('dataavailable',{data:blob})); this.dispatchEvent(new Event('stop')); }
                     };
                 }""",
@@ -319,7 +327,16 @@ def main():
 
                 workspace("song")
                 page.locator('.row-record[data-row-index="1"]').click()
+                page.locator("#playback-mode").select_option("song")
+                page.locator("#play").click()
+                page.wait_for_function(
+                    "window.auditEngine.playing && window.auditEngine.beatAt(window.auditEngine.context.currentTime) >= 0"
+                )
+                page.evaluate(
+                    "window.auditPermissionDelay = 800; window.auditRequestedBeat = auditEngine.beatAt(auditEngine.context.currentTime)"
+                )
                 page.locator("#record").click()
+                page.locator('.row-record[data-row-index="2"]').click()
                 page.wait_for_function(
                     "document.querySelector('#record').classList.contains('recording')"
                 )
@@ -336,6 +353,19 @@ def main():
                     abs(model()["rows"][1]["clips"][-1]["source_length"] - 0.5) < 0.01,
                 )
                 check("recording_releases_each_stream", page.evaluate("auditStoppedTracks") == 2)
+                recorded_clip = model()["rows"][1]["clips"][-1]
+                captured_beat = page.evaluate("window.auditCaptureBeat")
+                check(
+                    "recording_permission_delay_advances_transport",
+                    captured_beat - page.evaluate("window.auditRequestedBeat") > 0.5,
+                )
+                check(
+                    "recording_anchors_at_actual_capture_start",
+                    abs(recorded_clip["start_beat"] - captured_beat) < 0.05,
+                )
+                check("permission_delay_keeps_original_armed_row", not model()["rows"][2]["clips"])
+                page.locator("#stop").click()
+                page.evaluate("window.auditPermissionDelay = 0")
 
                 page.evaluate(
                     "() => {window.auditDecode = AudioContext.prototype.decodeAudioData; AudioContext.prototype.decodeAudioData = async () => {throw new Error('Audit decode failure');};}"
@@ -352,13 +382,42 @@ def main():
                     "failed_recording_offers_original_take",
                     page.locator("#recover-recording").is_visible(),
                 )
+                requests_before_retry = page.evaluate("window.auditMicrophoneRequests")
+                captures_before_retry = page.evaluate("window.auditRecorderStarts")
+                page.locator("#record").click()
+                page.wait_for_function(
+                    "document.querySelector('#status').textContent.includes('before starting another recording')"
+                )
+                check(
+                    "pending_recovery_prevents_another_failed_capture",
+                    page.evaluate("window.auditMicrophoneRequests") == requests_before_retry
+                    and page.evaluate("window.auditRecorderStarts") == captures_before_retry,
+                )
                 with page.expect_download() as recovered:
                     page.locator("#recover-recording").click()
+                    page.get_by_role(
+                        "menuitem", name="Download original recording", exact=True
+                    ).click()
                 recovery_audio = args.output / "microphone-recovery.wav"
                 recovered.value.save_as(recovery_audio)
                 check(
                     "recording_recovery_preserves_original_bytes",
                     recovery_audio.read_bytes() == test_audio,
+                )
+                page.locator("#record").click()
+                page.wait_for_function(
+                    "document.querySelector('#status').textContent.includes('before starting another recording')"
+                )
+                check(
+                    "recovery_download_does_not_discard_original",
+                    page.locator("#recover-recording").is_visible()
+                    and page.evaluate("window.auditMicrophoneRequests") == requests_before_retry,
+                )
+                page.locator("#recover-recording").click()
+                page.get_by_role("menuitem", name="Clear recovered take", exact=True).click()
+                check(
+                    "recovery_clear_requires_explicit_action",
+                    not page.locator("#recover-recording").is_visible(),
                 )
                 page.evaluate(
                     "() => {AudioContext.prototype.decodeAudioData = window.auditDecode;}"

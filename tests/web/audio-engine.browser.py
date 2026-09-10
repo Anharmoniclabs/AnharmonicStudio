@@ -218,6 +218,50 @@ def main():
                 let message = ''; try { await engine.render('pattern', { tail: 0 }); } catch (error) { message = error.message; } finally { OfflineAudioContext.prototype.createBuffer = original; }
                 assert(message.includes('resource budget'), 'dense synth allocation was not bounded'); assert(allocated === 0, 'buffers were allocated before resource preflight');
               });
+              await test('offline alternating loop trims allocate each unique PCM variant only once', async () => {
+                const { project, engine } = factory(); project.patterns[0].bars = 2; project.patterns[0].steps = {};
+                for (let pad = 0; pad < 3; pad += 1) { project.pads[pad] = { ...project.pads[0], mode: 'loop', end: .2 + pad * .1, loop_crossfade: .005 }; project.patterns[0].steps[pad] = {}; }
+                for (let step = 0; step < 30; step += 1) project.patterns[0].steps[step % 3][step] = 1;
+                const original = OfflineAudioContext.prototype.createBuffer; let allocations = 0;
+                OfflineAudioContext.prototype.createBuffer = function (...args) { allocations += 1; return original.apply(this, args); };
+                let output; try { output = await pcm(await engine.render('pattern', { tail: 0 })); } finally { OfflineAudioContext.prototype.createBuffer = original; }
+                assert(allocations === 3, `${allocations} buffers allocated for three repeated trims`); assert(output.peak(.1, 3.5) > .1, 'cached loop trims rendered silence');
+              });
+              await test('many unique loop variants fail PCM preflight before heavy allocation', async () => {
+                const { project, engine, buffers } = factory(); project.patterns[0].bars = 4; project.patterns[0].steps = {};
+                buffers.set('large-loop', { numberOfChannels: 2, sampleRate: 48000, length: 480000, duration: 10, getChannelData() { throw new Error('Unexpected sample access before preflight'); } });
+                for (let pad = 0; pad < 40; pad += 1) { project.pads[pad] = { ...project.pads[0], sample_id: 'large-loop', start: pad * .001, end: 10, mode: 'loop', loop_crossfade: .005 }; project.patterns[0].steps[pad] = { [pad]: 1 }; }
+                const original = OfflineAudioContext.prototype.createBuffer; let allocations = 0;
+                OfflineAudioContext.prototype.createBuffer = function () { allocations += 1; throw new Error('Unexpected heavy allocation'); };
+                let message = ''; try { await engine.render('pattern', { tail: 0 }); } catch (error) { message = error.message; } finally { OfflineAudioContext.prototype.createBuffer = original; }
+                assert(message.includes('prepared-audio budget'), message || 'unique loop PCM was not bounded'); assert(allocations === 0, 'PCM preflight ran after buffer allocation');
+              });
+              await test('reverse clones are included in prepared PCM export budget', async () => {
+                const { project, engine, buffers } = factory(); project.patterns[0].steps = {};
+                for (let pad = 0; pad < 3; pad += 1) {
+                  const id = 'large-reverse-' + pad; buffers.set(id, { numberOfChannels: 2, sampleRate: 48000, length: 8388608, duration: 8388608 / 48000, getChannelData() { throw new Error('Unexpected source read'); } });
+                  project.pads[pad] = { ...project.pads[0], sample_id: id, start: 0, end: .1, reverse: true }; project.patterns[0].steps[pad] = { 0: 1 };
+                }
+                const original = OfflineAudioContext.prototype.createBuffer; let allocations = 0;
+                OfflineAudioContext.prototype.createBuffer = function () { allocations += 1; throw new Error('Unexpected heavy allocation'); };
+                let message = ''; try { await engine.render('pattern', { tail: 0 }); } catch (error) { message = error.message; } finally { OfflineAudioContext.prototype.createBuffer = original; }
+                assert(message.includes('prepared-audio budget'), message || 'reverse PCM was not bounded'); assert(allocations === 0, 'reverse clones allocated before preflight');
+              });
+              await test('muting or deleting an active audio clip silences only clip-owned audio', async () => {
+                for (const edit of ['mute', 'delete']) {
+                  const { project, engine, context, buffers } = factory(); const row = project.rows[0];
+                  const clip = { id: 'active-audio', kind: 'audio', ref: 'tone', start_beat: 0, length_beats: 2, gain: 1, track: 0, loop: false }; row.clips = [clip];
+                  // Separate stereo channels expose accidental cancellation of
+                  // a live pad preview that is unrelated to the arrangement.
+                  const graph = { trackBuses: [{ input: context.destination }], sync() {} }; const pool = engine.voices;
+                  const clipVoice = engine.bufferVoice(buffers.get('tone'), { start: 0, end: 1, gain: 1, pan: -1, attack: 0, release: 0, track: 0 }, { when: 0, project, row: row.id, clipId: clip.id }, context, graph, pool, true);
+                  const preview = engine.bufferVoice(buffers.get('tone'), { start: 0, end: 1, gain: 1, pan: 1, attack: 0, release: 0, track: 0 }, { when: 0, project, pad: 0 }, context, graph, pool, true);
+                  engine.context = { currentTime: .2 }; engine.graph = graph; engine.playing = true; engine.tempo = project.bpm; engine.project = { ...project }; engine.anchorTime = 0;
+                  if (edit === 'mute') clip.mute = true; else row.clips = [];
+                  engine.sync(); assert(clipVoice.end <= .209, `${edit} left the clip active`); assert(preview.end === 1, `${edit} canceled unrelated preview`);
+                  const output = await pcm(AnharmonicAudio.encodeWav(await context.startRendering())); equal(output.peak(.22, .4, 0), 0); assert(output.peak(.22, .4, 1) > .3, 'unrelated preview was silenced');
+                }
+              });
               return results;
             }""")
         finally:

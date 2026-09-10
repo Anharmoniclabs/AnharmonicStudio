@@ -76,6 +76,9 @@ never be presented as security certification. Linux needs compatible system
 glibc and graphics/audio drivers; the Ubuntu CI build is the portable baseline,
 not a build made on a newer local distribution.
 
+Use [ACCEPTANCE.md](ACCEPTANCE.md) to record platform-specific installation,
+physical-device, project, browser, and private-download evidence before promotion.
+
 Release source ZIPs use committed Git blobs and executable modes, with stored ZIP
 entries. This avoids checkout line-ending, permission, and compression-library
 differences across native runners; all four candidates must have the same source

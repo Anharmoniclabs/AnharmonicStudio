@@ -146,17 +146,27 @@ promotion remains on hold pending final acceptance.
   integration tree. Do not absorb its unfinished work or claim its platform
   validation applies to the repaired engine on main.
 
-The continued desktop validation passed **1270 tests, 5 skipped** in 525.52
+The continued local desktop validation passed **1270 tests, 5 skipped** in 525.52
 seconds at 633.2 MiB peak RSS. Python DSP fallback passed **67 tests**, and the
 production startup/export self-check again passed with zero audio devices opened.
 New focused installation, catalog, profiler and project-interchange safeguards
 were tested separately after the full suite collected its tests.
 
-The shared browser audio graph passed **24 actual Chromium audio regressions**,
+Source run `34509244978` subsequently passed the complete updated suite at
+`3456289`: **1282 passed, 5 skipped**, zero errors/failures, 504.59 seconds and
+643472 KiB peak RSS. Browser audio/UI checks and Linux packaging also passed on
+that run. Extended validation `34509287931` passed the stricter ten-minute Linux
+paced session. Its separate Intel report is diagnostic, not release acceptance:
+512-frame unpaced p99 wall/CPU were 9.85/6.54 ms, with 9/937 late callbacks.
+The engine and paced workload are unchanged from the failed Intel candidate;
+this improved short measurement does not establish an engine fix or erase the
+earlier failure. A fresh four-platform candidate must use the final repaired SHA.
+
+The shared browser audio graph passed **28 actual Chromium audio regressions**,
 including sample PCM trim/reverse/pitch/pan/gain, routing/mute/solo, native swing
 timing, gate/choke/loop crossfades, tempo changes, effect export, and missing-media
 and unsupported-processing rejection. These do not certify bit-identical native
-DSP or physical-device performance. **60 headless UI checks passed with zero
+DSP or physical-device performance. **66 headless UI checks passed with zero
 browser exceptions**, covering file import, editing,
 portable export/reopen in a fresh browser context, generated microphone fixtures,
 and audible song export, plus recording recovery and mobile controls. Two native
@@ -164,3 +174,13 @@ and two JavaScript interchange tests verify the same shared fixture; a generated
 browser export also preserved 1,400 shared scalar fields through the native
 project loader. Browser-only media storage and master effects are not native
 project processing and remain explicitly documented.
+
+Final review added regression coverage for actual recording-start placement after
+microphone permission delays, retained recovery takes until explicit clearance,
+live clip mute/delete ownership, and a preflighted 128 MiB offline prepared-PCM
+budget. Repeated loop variants now reuse one prepared buffer per unique trim in
+each export; reverse clones count toward the same budget. These browser changes
+were retested locally and must be included in the next immutable source bundle.
+The repair is tracked in draft pull request #21; no Cloudflare catalog or bucket
+has been promoted by this audit. Remaining manual acceptance is recorded in
+`packaging/ACCEPTANCE.md`, not pre-filled with passing results.

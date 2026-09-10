@@ -3,7 +3,7 @@
 
   // The browser owns its audio clock. The UI only paints positions delivered by
   // this engine; both transport and WAV export use the same events and graph.
-  const LIMITS = Object.freeze({ voices: 128, events: 50000, renderNodes: 50000, renderSeconds: 300, sampleRate: 48000 });
+  const LIMITS = Object.freeze({ voices: 128, events: 50000, renderNodes: 50000, renderPCMBytes: 128 * 1024 * 1024, renderSeconds: 300, sampleRate: 48000 });
   const EPSILON = 1e-8;
   const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
   const clamp = (value, low, high, fallback = 0) => Math.min(high, Math.max(low, finite(value, fallback)));
@@ -47,13 +47,13 @@
             const step = Number(stepText); const velocity = clamp(value, 0, 1);
             if (!Number.isInteger(step) || step < 0 || step >= totalSteps || !velocity) continue;
             const beat = base + step / division + swingOffset(project, pattern, step);
-            if (beat + EPSILON >= from && beat < Math.min(to, end) - EPSILON) append({ kind: 'pad', pad: Number(pad), beat, velocity, gain, row, sequence, durationBeats: Math.min(1 / division, end - beat) });
+            if (beat + EPSILON >= from && beat < Math.min(to, end) - EPSILON) append({ kind: 'pad', pad: Number(pad), beat, velocity, gain, row, sequence, clipId: row ? sequence : null, durationBeats: Math.min(1 / division, end - beat) });
           }
         }
         for (const note of pattern.notes || []) {
           const start = finite(note.start); const beat = base + start;
           if (start < 0 || start >= length || finite(note.duration, .25) <= 0 || finite(note.velocity, .8) <= 0 || beat + EPSILON < from || beat >= Math.min(to, end) - EPSILON) continue;
-          append({ kind: 'note', pitch: clamp(note.pitch, 0, 127, 60), pad: note.pad ?? null, beat, velocity: clamp(note.velocity, 0, 1, .8), durationBeats: Math.min(finite(note.duration, .25), length - start, end - beat), gain, row, sequence });
+          append({ kind: 'note', pitch: clamp(note.pitch, 0, 127, 60), pad: note.pad ?? null, beat, velocity: clamp(note.velocity, 0, 1, .8), durationBeats: Math.min(finite(note.duration, .25), length - start, end - beat), gain, row, sequence, clipId: row ? sequence : null });
         }
       }
     };
@@ -116,6 +116,40 @@
     const curve = new Float32Array(2048); const drive = 1 + amount * 12;
     for (let i = 0; i < curve.length; i += 1) curve[i] = Math.tanh((2 * i / (curve.length - 1) - 1) * drive) / Math.tanh(drive);
     return curve;
+  }
+
+  function loopSpec(buffer, offset, duration, crossfade) {
+    const start = Math.round(offset * buffer.sampleRate); const length = Math.min(buffer.length - start, Math.round(duration * buffer.sampleRate));
+    const fade = Math.min(Math.floor(length / 2) - 1, Math.round(crossfade * buffer.sampleRate));
+    return { start, length, fade, key: `${start}:${length}:${fade}`, bytes: buffer.numberOfChannels * length * 4 };
+  }
+
+  function preparedPCMBytes(events, project, getBuffer) {
+    let bytes = 0; const reversed = new Set(); const loops = new Map();
+    const reserve = count => {
+      bytes += count;
+      if (bytes > LIMITS.renderPCMBytes) throw new Error('This export exceeds the 128 MiB prepared-audio budget. Use shorter source ranges, fewer unique loop trims, or the desktop app.');
+    };
+    for (const event of events) {
+      if (event.kind === 'note' && event.pad === null) continue;
+      const clip = event.kind === 'audio' ? event.clip : null; const pad = clip ? null : project.pads[event.pad];
+      const settings = clip || pad;
+      if (!settings || !audible(project.tracks, project.tracks[settings.track || 0]) || finite(settings.gain, 1) <= 0 || finite(event.gain, 1) <= 0 || finite(event.velocity, 1) <= 0) continue;
+      const id = clip ? clip.ref : pad.sample_id; if (!id) continue;
+      const buffer = getBuffer(id); if (!buffer) throw new Error(`Missing audio: ${id}. Import or relink it before export.`);
+      const rawStart = finite(clip ? clip.offset : pad.start); const start = clamp(rawStart, 0, buffer.duration);
+      const rawEnd = clip ? (clip.source_length > 0 ? rawStart + clip.source_length : buffer.duration) : pad.end;
+      const end = rawEnd > 0 ? clamp(rawEnd, 0, buffer.duration) : buffer.duration;
+      if (!(end > start)) throw new Error('Sample trim must end after its start.');
+      if (settings.reverse && !reversed.has(buffer)) { reserve(buffer.numberOfChannels * buffer.length * 4); reversed.add(buffer); }
+      if (!(clip ? clip.loop : pad.mode === 'loop')) continue;
+      const spec = loopSpec(buffer, settings.reverse ? buffer.duration - end : start, end - start, clamp(settings.loop_crossfade, 0, 1, .005));
+      if (spec.fade <= 0) continue;
+      let keys = loops.get(buffer); if (!keys) { keys = new Set(); loops.set(buffer, keys); }
+      const key = `${Boolean(settings.reverse)}:${spec.key}`;
+      if (!keys.has(key)) { reserve(spec.bytes); keys.add(key); }
+    }
+    return bytes;
   }
 
   function makeGraph(context, project) {
@@ -220,6 +254,7 @@
       this.getProject = getProject; this.getBuffer = getBuffer; this.onPosition = onPosition; this.onError = onError;
       this.context = null; this.graph = null; this.playing = false; this.mode = 'pattern'; this.timer = null;
       this.voices = new Set(); this.retiringVoices = new Set(); this.reverseBuffers = new WeakMap(); this.loopBuffers = new WeakMap(); this.noiseBuffers = new WeakMap(); this.metronome = false; this.rendering = false;
+      this.preparedBudget = null;
       this.anchorTime = 0; this.anchorBeat = 0; this.cursor = 0; this.tempo = 110; this.project = null; this.lastPosition = -1;
     }
 
@@ -244,9 +279,10 @@
       if (this.playing && (this.project !== project || this.tempo !== project.bpm)) {
         const time = this.context.currentTime + .008; const beat = this.beatAt(time);
         const changedTempo = this.tempo !== project.bpm;
-        for (const voice of [...this.voices]) {
+        for (const voice of [...this.voices, ...this.retiringVoices]) {
           const row = voice.row ? project.rows.find(item => item.id === voice.row) : null;
-          if (voice.when >= time || (voice.row && (!row || !audible(project.rows, row)))) voice.stop(time, true);
+          const clip = voice.clipId ? row?.clips.find(item => item.id === voice.clipId) : null;
+          if (voice.when >= time || (voice.row && (!row || !audible(project.rows, row))) || (voice.clipId && (!clip || clip.mute || finite(clip.gain, 1) <= 0))) voice.stop(time, true);
         }
         this.anchorTime = time; this.anchorBeat = beat; this.cursor = beat; this.tempo = project.bpm;
         if (changedTempo) for (const voice of this.voices) if (voice.when < time && voice.endBeat > beat) voice.retime?.(this.timeAt(voice.endBeat));
@@ -268,6 +304,7 @@
     reversed(buffer, context) {
       let result = this.reverseBuffers.get(buffer);
       if (!result) {
+        this.reservePreparedPCM(buffer.numberOfChannels * buffer.length * 4);
         result = context.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
         for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) { const from = buffer.getChannelData(channel); const to = result.getChannelData(channel); for (let i = 0; i < from.length; i += 1) to[i] = from[from.length - i - 1]; }
         this.reverseBuffers.set(buffer, result);
@@ -276,11 +313,11 @@
     }
 
     crossfadedLoop(buffer, offset, duration, crossfade, context) {
-      const start = Math.round(offset * buffer.sampleRate); const length = Math.min(buffer.length - start, Math.round(duration * buffer.sampleRate));
-      const fade = Math.min(Math.floor(length / 2) - 1, Math.round(crossfade * buffer.sampleRate));
+      const { start, length, fade, key, bytes } = loopSpec(buffer, offset, duration, crossfade);
       if (fade <= 0) return null;
       let variants = this.loopBuffers.get(buffer); if (!variants) { variants = new Map(); this.loopBuffers.set(buffer, variants); }
-      const key = `${start}:${length}:${fade}`; if (variants.has(key)) return variants.get(key);
+      if (variants.has(key)) return variants.get(key);
+      this.reservePreparedPCM(bytes);
       const prepared = context.createBuffer(buffer.numberOfChannels, length, buffer.sampleRate);
       for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
         const input = buffer.getChannelData(channel); const output = prepared.getChannelData(channel);
@@ -290,8 +327,16 @@
       // Match the desktop loop: preserve the first head, blend the tail, then
       // skip the head consumed by the crossfade on subsequent cycles.
       const result = { buffer: prepared, loopStart: fade / buffer.sampleRate, loopEnd: length / buffer.sampleRate };
-      if (variants.size >= 2) variants.delete(variants.keys().next().value);
+      // Offline sources retain their buffers until rendering completes. Keep
+      // every budgeted unique variant to avoid reallocating evicted PCM per hit.
+      if (!this.preparedBudget && variants.size >= 2) variants.delete(variants.keys().next().value);
       variants.set(key, result); return result;
+    }
+
+    reservePreparedPCM(bytes) {
+      if (!this.preparedBudget) return;
+      if (this.preparedBudget.bytes + bytes > LIMITS.renderPCMBytes) throw new Error('This export exceeds the 128 MiB prepared-audio budget. Render it in the desktop app.');
+      this.preparedBudget.bytes += bytes;
     }
 
     noiseBuffer(context) {
@@ -323,6 +368,8 @@
     }
 
     bufferVoice(buffer, settings, opts, context, graph, pool, offline) {
+      const level = clamp(settings.gain, 0, 4, 1) * clamp(opts.velocity, 0, 1, 1) * clamp(opts.gain, 0, 4, 1);
+      if (!level) return null;
       const when = Math.max(0, finite(opts.when, context.currentTime));
       const start = clamp(opts.start ?? settings.start, 0, buffer.duration);
       const selectedEnd = opts.end ?? settings.end;
@@ -355,11 +402,10 @@
       }
       source.buffer = sourceBuffer;
       const gain = context.createGain(); const pan = context.createStereoPanner(); pan.pan.value = clamp(settings.pan, -1, 1);
-      const level = clamp(settings.gain, 0, 4, 1) * clamp(opts.velocity, 0, 1, 1) * clamp(opts.gain, 0, 4, 1);
       gain.gain.setValueAtTime(attack > 0 ? 0 : level, when); if (attack > 0) gain.gain.linearRampToValueAtTime(level, when + attack);
       gain.gain.setValueAtTime(level, when + duration - release); gain.gain.linearRampToValueAtTime(0, when + duration);
       source.connect(gain).connect(pan).connect(this.output(settings.track, graph));
-      const voice = { when, end: when + duration, pad: opts.pad, pitch: opts.pitch, row: opts.row, sequence: opts.sequence || 'live', sourceId: settings.sample_id, choke: settings.choke, gate, source,
+      const voice = { when, end: when + duration, pad: opts.pad, pitch: opts.pitch, row: opts.row, clipId: opts.clipId, sequence: opts.sequence || 'live', sourceId: settings.sample_id, choke: settings.choke, gate, source,
         retime: time => {
           if (!gate && !opts.forceDuration) return;
           const at = context.currentTime; const nextEnd = Math.min(time, looping ? Infinity : when + availableDuration);
@@ -375,8 +421,6 @@
         }
       };
       source.onended = () => { pool.delete(voice); this.retiringVoices.delete(voice); source.disconnect(); gain.disconnect(); pan.disconnect(); };
-      // A zero-level source must still stop correctly, but creates no voice.
-      if (!level) { source.disconnect(); gain.disconnect(); pan.disconnect(); return null; }
       this.registerVoice(voice, pool, offline);
       source.start(when, playbackOffset); source.stop(when + duration);
       return voice;
@@ -446,7 +490,7 @@
       gain.gain.setValueAtTime(0, when); gain.gain.linearRampToValueAtTime(level, when + attack);
       const decayEnd = Math.min(duration, attack + decay); const sustainLevel = level * (1 - (1 - sustain) * Math.min(1, Math.max(0, duration - attack) / decay));
       gain.gain.linearRampToValueAtTime(sustainLevel, when + decayEnd); gain.gain.setValueAtTime(sustainLevel, when + duration); gain.gain.linearRampToValueAtTime(0, when + duration + release);
-      const voice = { when, end: when + duration + release, pitch, pad: null, row: opts.row, gate: true,
+      const voice = { when, end: when + duration + release, pitch, pad: null, row: opts.row, clipId: opts.clipId, gate: true,
         retime: time => {
           const at = context.currentTime; if (time <= at) { voice.stop(at); return; }
           gain.gain.cancelAndHoldAtTime(at); gain.gain.setValueAtTime(sustainLevel, time); gain.gain.linearRampToValueAtTime(0, time + release);
@@ -476,13 +520,13 @@
 
     schedule(event, when, project, context, graph, pool, offline = false) {
       const spb = secondsPerBeat(project);
-      const opts = { when, project, velocity: event.velocity, gain: event.gain, duration: event.durationBeats * spb, row: event.row, sequence: event.sequence };
+      const opts = { when, project, velocity: event.velocity, gain: event.gain, duration: event.durationBeats * spb, row: event.row, sequence: event.sequence, clipId: event.clipId };
       if (event.kind === 'pad') return this.padVoice(event.pad, opts, context, graph, pool, offline);
       if (event.kind === 'note') return event.pad === null ? this.synthVoice(event.pitch, opts, context, graph, pool, offline) : this.padVoice(event.pad, { ...opts, pitch: event.pitch }, context, graph, pool, offline);
       const clip = event.clip;
       if (!audible(project.tracks, project.tracks[clip.track || 0])) return null;
       const buffer = this.sample(clip.ref); const start = finite(clip.offset); const end = clip.source_length > 0 ? start + clip.source_length : buffer.duration;
-      return this.bufferVoice(buffer, { start, end, gain: finite(clip.gain, 1), track: clip.track, reverse: clip.reverse, mode: clip.loop ? 'loop' : 'one-shot', loop_crossfade: clip.loop_crossfade, attack: .002, release: .005 }, { when, project, duration: (event.durationBeats ?? clip.length_beats) * spb, forceDuration: true, phaseSeconds: event.phaseSeconds, row: event.row }, context, graph, pool, offline);
+      return this.bufferVoice(buffer, { start, end, gain: finite(clip.gain, 1), track: clip.track, reverse: clip.reverse, mode: clip.loop ? 'loop' : 'one-shot', loop_crossfade: clip.loop_crossfade, attack: .002, release: .005 }, { when, project, duration: (event.durationBeats ?? clip.length_beats) * spb, forceDuration: true, phaseSeconds: event.phaseSeconds, row: event.row, clipId: clip.id }, context, graph, pool, offline);
     }
 
     async start(mode = 'pattern') {
@@ -613,7 +657,7 @@
         for (const pad of project.pads) if (pad.sample_id) buffers.set(pad.sample_id, this.getBuffer(pad.sample_id));
         for (const row of project.rows || []) for (const clip of row.clips || []) if (clip.kind === 'audio') buffers.set(clip.ref, this.getBuffer(clip.ref));
         const renderer = new AudioEngine({ getProject: () => project, getBuffer: id => buffers.get(id) });
-        renderer.reverseBuffers = this.reverseBuffers; renderer.loopBuffers = this.loopBuffers;
+        renderer.preparedBudget = { bytes: 0 };
         if (!beats) throw new Error('The song is empty. Add arrangement clips before exporting.');
         const musicalDuration = beats * secondsPerBeat(project);
         const tail = clamp(opts.tail, 0, 10, 3); const duration = musicalDuration + tail;
@@ -627,6 +671,7 @@
           estimatedNodes += event.kind === 'note' && event.pad === null ? 24 : 3;
           if (estimatedNodes > LIMITS.renderNodes) throw new Error('This export exceeds the browser audio resource budget. Export fewer clips or render the song in the desktop app.');
         }
+        preparedPCMBytes(events, project, id => buffers.get(id));
         const context = new Context(2, Math.ceil(duration * sampleRate), sampleRate); graph = makeGraph(context, project);
         for (let index = 0; index < events.length; index += 1) {
           renderer.schedule(events[index], events[index].beat * secondsPerBeat(project), project, context, graph, pool, true);
@@ -637,5 +682,5 @@
     }
   }
 
-  window.AnharmonicAudio = Object.freeze({ AudioEngine, collectEvents, lengthBeats, swingOffset, encodeWav, requireSupportedProject, LIMITS });
+  window.AnharmonicAudio = Object.freeze({ AudioEngine, collectEvents, lengthBeats, swingOffset, encodeWav, requireSupportedProject, preparedPCMBytes, LIMITS });
 })();

@@ -805,9 +805,11 @@
   async function toggleRecording() {
     if (state.recording) { if (state.recording.recorder.state !== 'inactive') state.recording.recorder.stop(); return; }
     if (state.recordPending) return;
+    if (state.recoveryRecording) throw new Error('Use Recover take to download and clear the pending recovery before starting another recording.');
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error('Microphone recording needs a supported browser and HTTPS or localhost.');
     const pad = state.selectedPad, row = projectStore.project.rows.find(item => item.record_armed), rowId = row?.id;
-    const startBeat = state.playing ? state.beat : 0, generation = state.generation;
+    const generation = state.generation;
+    let startBeat = 0;
     state.recordPending = true; $('#record').disabled = true;
     let stream;
     try {
@@ -854,6 +856,17 @@
         } catch (error) { keepRecovery(); throw new Error(error.message + (state.recoveryRecording ? ' Use Recover take to download the original capture.' : '')); }
         finally { state.recordPending = false; $('#record').disabled = false; }
       }));
+      // Preserve the selected target across permission prompts, but anchor the
+      // take to the audio clock only when capture actually begins.
+      if (engine.playing) {
+        const project = projectStore.project, beat = Math.max(0, engine.beatAt(engine.context.currentTime));
+        if (engine.mode === 'pattern') startBeat = beat % (projectStore.pattern.bars * 4);
+        else {
+          const songEnd = window.AnharmonicAudio.lengthBeats(project, 'song');
+          const loopStart = clamp(project.loop_start, 0, songEnd), loopEnd = Math.max(loopStart + .25, Number(project.loop_end ?? songEnd));
+          startBeat = project.loop_enabled && beat >= loopEnd ? loopStart + (beat - loopEnd) % (loopEnd - loopStart) : Math.min(beat, songEnd);
+        }
+      }
       recorder.start(250);
       recordTimer = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, maximumSeconds * 1000);
       setStatus('Recording microphone into ' + (row ? row.name : 'pad ' + padNumber(pad)) + '. Press Record or Stop to finish (maximum ' + maximumSeconds + ' seconds).');
@@ -900,7 +913,21 @@
   on('#play', 'click', togglePlayback);
   on('#stop', 'click', () => { if (state.recording?.recorder.state !== 'inactive') state.recording?.recorder.stop(); state.previewSource?.stop(); stopPlayback(); setStatus('Stopped'); });
   on('#record', 'click', toggleRecording);
-  on('#recover-recording', 'click', () => { if (state.recoveryRecording) { download('microphone-recovery.' + (state.recoveryRecording.type.includes('wav') ? 'wav' : state.recoveryRecording.type.includes('mp4') ? 'm4a' : 'webm'), state.recoveryRecording); state.recoveryRecording = null; $('#recover-recording').hidden = true; } });
+  on('#recover-recording', 'click', event => {
+    if (!state.recoveryRecording) return;
+    openMenu(event.currentTarget, [
+      { label: 'Download original recording', action: () => {
+        const blob = state.recoveryRecording;
+        download('microphone-recovery.' + (blob.type.includes('wav') ? 'wav' : blob.type.includes('mp4') ? 'm4a' : 'webm'), blob);
+        setStatus('Recovery download started. The take is retained until you explicitly clear it from Recover take.');
+      } },
+      { label: 'Clear recovered take', action: () => {
+        if (!confirm('Clear this recovery take? Save its download first. Clearing the recovery cannot be undone.')) return;
+        state.recoveryRecording = null; $('#recover-recording').hidden = true;
+        setStatus('Recovery cleared. Microphone recording is available again.');
+      } }
+    ]);
+  });
   on('#playback-mode', 'change', () => { if (state.playing) stopPlayback(); setStatus('Playback and WAV export scope: ' + $('#playback-mode').selectedOptions[0].textContent); });
   on('#tempo', 'change', event => { projectStore.setTempo(Number(event.target.value)); event.target.value = projectStore.project.bpm; });
   on('#swing', 'input', event => { projectStore.transact('change swing', project => project.swing = Number(event.target.value)); $('#swing-value').textContent = event.target.value + '%'; });
