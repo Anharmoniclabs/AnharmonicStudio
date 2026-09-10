@@ -18,6 +18,7 @@ _ALLOWED = {
     "clip_edits",
     "freezes",
     "groups",
+    "recording",
     "routing",
     "sidechains",
     "scenes",
@@ -153,6 +154,88 @@ def _validate_routing(value) -> dict:
     return result
 
 
+def _bounded_int(value, low: int, high: int, label: str) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{label} must be an integer") from exc
+    if not low <= number <= high:
+        raise ValueError(f"{label} is out of range")
+    return number
+
+
+def _validate_recording(value) -> dict:
+    if value is None:
+        return {}
+    allowed = {
+        "loop_takes",
+        "auto_take_lanes",
+        "loop_passes",
+        "punch_enabled",
+        "punch_start",
+        "punch_end",
+        "pre_roll_bars",
+        "take_groups",
+    }
+    if not isinstance(value, dict) or set(value) - allowed:
+        raise ValueError("recording workflow metadata contains unsupported keys")
+    if not value:
+        return {}
+
+    loop_takes = bool(value.get("loop_takes", False))
+    punch_enabled = bool(value.get("punch_enabled", False))
+    if loop_takes and punch_enabled:
+        raise ValueError("loop-take and punch recording modes are mutually exclusive")
+    punch_start = _bounded_number(value.get("punch_start", 0.0), 0.0, 1_000_000.0, "punch start")
+    punch_end = _bounded_number(value.get("punch_end", 4.0), 0.0, 1_000_000.0, "punch end")
+    if punch_enabled and punch_end <= punch_start:
+        raise ValueError("punch end must be after punch start")
+
+    raw_groups = value.get("take_groups", [])
+    if not isinstance(raw_groups, list) or len(raw_groups) > 256:
+        raise ValueError("take groups must be a bounded array")
+    groups = []
+    group_ids = set()
+    for item in raw_groups:
+        if not isinstance(item, dict):
+            raise ValueError("take group must be an object")
+        group_id = _bounded_text(item.get("id"))
+        if not group_id or group_id in group_ids:
+            raise ValueError("take group ids must be unique and non-empty")
+        group_ids.add(group_id)
+        lanes = item.get("lanes", [])
+        if not isinstance(lanes, list) or len(lanes) > 64:
+            raise ValueError("take group lanes must be a bounded array")
+        start = _bounded_number(item.get("start", 0.0), 0.0, 1_000_000.0, "take start")
+        end = _bounded_number(item.get("end", start), 0.0, 1_000_000.0, "take end")
+        if end < start:
+            raise ValueError("take group end cannot precede its start")
+        groups.append(
+            {
+                "id": group_id,
+                "name": _bounded_text(item.get("name") or "Takes", 96),
+                "source_row": _bounded_text(item.get("source_row")),
+                "lanes": [_bounded_text(lane) for lane in lanes],
+                "start": start,
+                "end": end,
+                "active_lane": _bounded_text(item.get("active_lane")),
+            }
+        )
+
+    result = {
+        "loop_takes": loop_takes,
+        "auto_take_lanes": bool(value.get("auto_take_lanes", True)),
+        "loop_passes": _bounded_int(value.get("loop_passes", 0), 0, 64, "loop passes"),
+        "punch_enabled": punch_enabled,
+        "punch_start": punch_start,
+        "punch_end": punch_end,
+        "pre_roll_bars": _bounded_int(value.get("pre_roll_bars", 1), 0, 8, "pre-roll bars"),
+    }
+    if groups:
+        result["take_groups"] = groups
+    return result
+
+
 def validate_workflow(value) -> dict:
     if value is None:
         return {}
@@ -217,6 +300,10 @@ def validate_workflow(value) -> dict:
         )
     if checked_groups:
         result["groups"] = checked_groups
+
+    recording = _validate_recording(value.get("recording", {}))
+    if recording:
+        result["recording"] = recording
 
     routing = _validate_routing(value.get("routing", {}))
     if routing:

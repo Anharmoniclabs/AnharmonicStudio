@@ -111,13 +111,17 @@ def main() -> int:
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QFontDatabase, QIcon
     from .premium_workflows import attach_premium_workflows, install_premium_runtime
+    from .recording_workflows import (
+        attach_recording_workflows,
+        install_recording_capture_extensions,
+    )
     from .routing_ui import attach_routing_ui
     from .workflow_compat import restore_unmanaged_legacy_shortcuts
 
-    # Project persistence must know about optional workflow metadata before the
-    # MainWindow restores the autosaved session. The controller itself is
-    # attached only after the stable window has finished constructing.
+    # Project persistence and optional runtime extensions must be ready before
+    # MainWindow creates TrackCapture or restores an autosaved session.
     install_premium_runtime()
+    install_recording_capture_extensions()
     from .ui.main_window import MainWindow
 
     app = QApplication([sys.argv[0], *qt_args])
@@ -144,6 +148,7 @@ def main() -> int:
     win = MainWindow(root, restore_session=args.project is None)
     controller = attach_premium_workflows(win)
     attach_routing_ui(win, controller)
+    attach_recording_workflows(win, controller)
     restore_unmanaged_legacy_shortcuts(controller)
     if args.project is not None:
         if not win.load_project_path(args.project, clear_session=False):
