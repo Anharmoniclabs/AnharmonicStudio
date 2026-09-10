@@ -9,7 +9,7 @@ from PySide6.QtCore import QObject, QTimer
 from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QWidget
 
 from .automation_mode_state import AUTOMATION_MODES, automation_mode, set_automation_mode
-from .music import AutomationLane, automation_values, target_range
+from .music import AutomationLane, automation_targets, automation_values
 from .workflow_commands import CommandSpec
 
 MIN_WRITE_BEATS = 1.0 / 32.0
@@ -23,16 +23,6 @@ def _project_value(project, target: str) -> float:
     _track, raw_index, parameter = target.split(":", 2)
     track = project.tracks[int(raw_index)]
     return float(getattr(track, parameter))
-
-
-def _set_project_value(project, target: str, value: float) -> None:
-    lo, hi = target_range(target)
-    value = max(lo, min(hi, float(value)))
-    if target == "master":
-        project.master = value
-        return
-    _track, raw_index, parameter = target.split(":", 2)
-    setattr(project.tracks[int(raw_index)], parameter, value)
 
 
 def _lane(project, target: str, create: bool = False) -> AutomationLane | None:
@@ -66,9 +56,9 @@ class AutomationModeController(QObject):
         self._passes: dict[str, dict] = {}
         self._manual: dict[str, float] = {}
         self._was_playing = False
-        self._write_session_snapshot = False
         self._last_touched = "master"
         self._follow_last_touched = True
+        self._closed = False
         self.mode_combo = None
         self.follow_checkbox = None
         self._register_commands()
@@ -77,6 +67,7 @@ class AutomationModeController(QObject):
         self.timer.setInterval(50)
         self.timer.timeout.connect(self.tick)
         self.timer.start()
+        window.destroyed.connect(self.shutdown)
 
     def _register_commands(self) -> None:
         for mode in AUTOMATION_MODES:
@@ -104,6 +95,7 @@ class AutomationModeController(QObject):
             self._connect_slider(master, "master", 100.0)
         self._inject_panel_controls()
         self.sync_panel()
+        self._sync_master_slider()
 
     def _connect_slider(self, slider, target: str, scale: float) -> None:
         if getattr(slider, "_automation_modes_connected", False):
@@ -226,6 +218,7 @@ class AutomationModeController(QObject):
         self._manual[target] = _project_value(self.app.project, target)
         self.app._set_dirty(True)
         self.sync_panel()
+        self._sync_master_slider()
 
     def _mode_combo_changed(self, *_args) -> None:
         if self.mode_combo is None:
@@ -368,20 +361,52 @@ class AutomationModeController(QObject):
                 self._write_point(target, self.manual_value(target), force=True)
         self._passes.clear()
         self._latched.clear()
-        self._write_session_snapshot = False
+
+    def _sync_master_slider(self) -> None:
+        slider = getattr(self.app, "master_slider", None)
+        if slider is None:
+            return
+        lane = _lane(self.app.project, "master")
+        active = bool(lane and lane.enabled and lane.points and self.app.engine.mode == "song")
+        if not active:
+            slider.setEnabled(True)
+            return
+        mode = self.mode("master")
+        slider.setEnabled(mode != "read")
+        if self.manual_override("master"):
+            value = self.manual_value("master")
+        else:
+            beat = max(0.0, float(self.app.engine.beat))
+            value = float(
+                automation_values(
+                    self.app.project,
+                    "master",
+                    np.asarray([beat], dtype=float),
+                    self.app.project.master,
+                )[0]
+            )
+        wanted = round(value * 100.0)
+        if slider.value() != wanted:
+            slider.blockSignals(True)
+            slider.setValue(wanted)
+            slider.blockSignals(False)
+        slider.setToolTip(
+            "Automation read: switch Master to Write, Touch, or Latch to move it"
+            if mode == "read"
+            else f"Automation {mode.title()} · {self.mode_help(mode)}"
+        )
 
     def tick(self) -> None:
+        if self._closed:
+            return
         playing = self._transport_writing()
         if playing and not self._was_playing:
             self._latched.clear()
             write_targets = [
-                target
-                for target in ("master", *(f"track:{i}:{p}" for i in range(8) for p in ("gain", "pan")))
-                if self.mode(target) == "write"
+                target for target in automation_targets() if self.mode(target) == "write"
             ]
             if write_targets:
                 self.app.snapshot()
-                self._write_session_snapshot = True
                 for target in write_targets:
                     self._manual.setdefault(target, _project_value(self.app.project, target))
                     self._begin_pass(target, snapshot=False)
@@ -397,8 +422,18 @@ class AutomationModeController(QObject):
                 ):
                     self._write_point(target, self.manual_value(target))
         self._was_playing = playing
+        self._sync_master_slider()
 
         # The standard mixer meter timer paints the read value. This controller's
         # hook immediately keeps actively written controls on their manual value.
         if self.app.automation_panel.isVisible():
             self.app.automation_panel.canvas.update()
+
+    def shutdown(self, *_args) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self.timer.stop()
+        self._passes.clear()
+        self._gesture.clear()
+        self._latched.clear()
