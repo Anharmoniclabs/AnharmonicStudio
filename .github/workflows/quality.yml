@@ -2,19 +2,31 @@ name: Source checks
 
 on:
   push:
-    paths-ignore: ['website/**']
   pull_request:
-    paths-ignore: ['website/**']
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: source-checks-${{ github.ref }}
+  group: source-checks-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate website and browser project regressions
+        run: |
+          python3 scripts/check_website.py
+          node --test tests/web/*.test.cjs
+
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

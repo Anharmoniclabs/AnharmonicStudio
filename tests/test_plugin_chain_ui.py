@@ -6,7 +6,10 @@ import time
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
+import pytest
 from PySide6.QtCore import QCoreApplication
+
+from mpclab.engine import Engine
 
 from mpclab.plugin_chain_runtime import install_plugin_chain_runtime
 from mpclab.plugin_chain_ui import attach_plugin_chain_ui
@@ -14,6 +17,11 @@ from mpclab.premium_workflows import attach_premium_workflows, install_premium_r
 from mpclab.pro_daw_state import install_pro_daw_state
 from mpclab.routing_ui import attach_routing_ui
 from mpclab.ui.main_window import MainWindow
+
+
+@pytest.fixture(autouse=True)
+def no_physical_audio(monkeypatch):
+    monkeypatch.setattr(Engine, "start", lambda self: None)
 
 
 def until(predicate, timeout=3.0):
@@ -65,8 +73,8 @@ def test_insert_chain_commands_and_all_target_kinds_are_attached(tmp_path):
             }
         }
         ids = {target for _label, target in controller.target_choices()}
-        assert "plugins.insert_chains" in commands.registry.commands
-        assert "plugins.reload_chains" in commands.registry.commands
+        assert callable(commands.registry.get("plugins.insert_chains").callback)
+        assert callable(commands.registry.get("plugins.reload_chains").callback)
         assert "master" in ids
         assert "bus:parallel" in ids
         assert f"track:{window.project.tracks[0].id}" in ids

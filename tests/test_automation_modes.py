@@ -6,11 +6,18 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
+from mpclab.engine import Engine
+
 from mpclab.automation_mode_state import install_automation_mode_state
 from mpclab.automation_modes import TOUCH_RETURN_BEATS, attach_automation_modes
 from mpclab.music import AutomationLane, AutomationPoint
 from mpclab.premium_workflows import attach_premium_workflows, install_premium_runtime
 from mpclab.ui.main_window import MainWindow
+
+
+@pytest.fixture(autouse=True)
+def no_physical_audio(monkeypatch):
+    monkeypatch.setattr(Engine, "start", lambda self: None)
 
 
 def make_window(tmp_path):
