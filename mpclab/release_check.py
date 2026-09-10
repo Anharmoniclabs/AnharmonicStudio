@@ -75,6 +75,21 @@ def main(report=None):
 
     if NATIVE is None:
         raise RuntimeError(f"Native audio helper did not load: {STATUS}")
+    from .native_output import OutputQueue
+
+    queue = OutputQueue(NATIVE.lib, 128)
+    try:
+        incoming = np.full((128, 2), 0.25, dtype=np.float32)
+        outgoing = np.zeros_like(incoming)
+        if not queue.write(incoming):
+            raise RuntimeError("Native output queue rejected the release probe")
+        code = NATIVE.lib.anh_output_callback(
+            None, outgoing.ctypes.data, 128, None, 0, queue.handle
+        )
+        if code or not np.array_equal(incoming, outgoing):
+            raise RuntimeError("Packaged C++ output callback failed its audio probe")
+    finally:
+        queue.close()
     for asset in (
         "branding/anharmonic-studios.svg",
         "branding/owner-mark.png",
@@ -87,6 +102,8 @@ def main(report=None):
 
     app = QApplication.instance() or QApplication([])
     result = {"native_dsp": STATUS, "qt_platform": app.platformName(), "audio_devices_opened": 0}
+    result["native_output_callback"] = True
+    result["native_core_abi"] = int(NATIVE.lib.anh_core_abi())
     host = IsolatedPlugin({}, worker=plugin_runtime_probe)
     try:
         output = host.render(np.ones((128, 2), np.float32), 128)

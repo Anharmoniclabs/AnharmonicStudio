@@ -1520,6 +1520,11 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
     # ── periodic UI refresh ──────────────────────────────────
     def _tick(self):
         eng = self.engine
+        render_error = getattr(eng.stream, "render_error", "")
+        if render_error:
+            self.cpu_label.setText("audio render error")
+            self.cpu_label.setToolTip(f"{render_error}\nUse Retry audio to reconnect.")
+            return
         self.btn_play.setChecked(eng.playing)
         self.btn_play.setIcon(self._transport_icons["pause" if eng.playing else "play"])
         recording = eng.recording or self.track_capture.active

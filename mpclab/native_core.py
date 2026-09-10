@@ -31,6 +31,18 @@ def stereo(array, *, writable=False):
     return array.ctypes.data
 
 
+def state_buffer(array, dtype, size):
+    if (
+        not isinstance(array, np.ndarray)
+        or array.dtype != dtype
+        or array.shape != (size,)
+        or not array.flags.c_contiguous
+        or not array.flags.writeable
+    ):
+        raise ValueError(f"Native state requires a writable {dtype} vector of size {size}")
+    return array.ctypes.data
+
+
 class CoreBindings:
     def __init__(self, library):
         self.lib = library
@@ -105,7 +117,11 @@ class CoreBindings:
 
     def limit(self, audio, ceiling, step, state):
         self.lib.anh_limit(
-            stereo(audio, writable=True), len(audio), ceiling, step, state.ctypes.data
+            stereo(audio, writable=True),
+            len(audio),
+            ceiling,
+            step,
+            state_buffer(state, np.float64, 2),
         )
 
     def compress(self, audio, threshold, ratio, attack, release, makeup, slow, fast, reduction):
@@ -117,9 +133,9 @@ class CoreBindings:
             attack,
             release,
             makeup,
-            slow.ctypes.data,
-            fast.ctypes.data,
-            reduction.ctypes.data,
+            state_buffer(slow, np.float32, 1),
+            state_buffer(fast, np.float32, 1),
+            state_buffer(reduction, np.float64, 1),
         )
 
     def saturate(self, audio, drive):
@@ -146,7 +162,7 @@ class CoreBindings:
             lp,
             rp,
             automated,
-            meter.ctypes.data,
+            state_buffer(meter, np.float64, 2),
         )
 
 
@@ -154,12 +170,15 @@ class NativeConvolver:
     """Control-plane owner; allocation occurs only during explicit preparation."""
 
     def __init__(self, core, ir, channels, frames, previous=None):
+        if not 1 <= frames <= 16384 or channels not in (1, 2):
+            raise ValueError("Convolution requires 1–16384 frames and one or two channels")
         if ir.dtype != np.float32 or ir.ndim != 1 or not ir.flags.c_contiguous:
             raise ValueError("Convolution IR must be contiguous float32")
         self.lib = core.lib
         self.channels = channels
-        self.frames = frames
-        self.handle = self.lib.anh_convolver_create(ir.ctypes.data, len(ir), channels, frames)
+        fft_size = 1 << (len(ir) + frames - 2).bit_length()
+        self.frames = min(16384, fft_size - len(ir) + 1)
+        self.handle = self.lib.anh_convolver_create(ir.ctypes.data, len(ir), channels, self.frames)
         if not self.handle:
             raise ValueError("Unable to prepare bounded native convolution")
         if previous is not None and self.lib.anh_convolver_transfer(previous.handle, self.handle):

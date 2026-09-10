@@ -15,6 +15,7 @@ add_library(anharmonic_audio SHARED
     ${CORE_DIR}/mixer.cpp
     ${CORE_DIR}/convolution.cpp
     ${CORE_DIR}/sends.cpp
+    ${CORE_DIR}/output.cpp
 )
 target_include_directories(anharmonic_audio PUBLIC ${CORE_DIR})
 if(MSVC)
@@ -26,8 +27,9 @@ install(TARGETS anharmonic_audio LIBRARY DESTINATION lib RUNTIME DESTINATION bin
 
 include(CTest)
 if(BUILD_TESTING)
+    find_package(Threads REQUIRED)
     add_executable(native_core_test tests/core_test.cpp)
-    target_link_libraries(native_core_test PRIVATE anharmonic_audio)
+    target_link_libraries(native_core_test PRIVATE anharmonic_audio Threads::Threads)
     add_test(NAME portable_core COMMAND native_core_test)
 endif()
 

@@ -51,3 +51,15 @@ ANH_API void anh_delay_destroy(void* handle) noexcept;
 ANH_API void anh_delay_reset(void* handle) noexcept;
 ANH_API int anh_delay_process(void* handle, const float* input, float* output,
                              std::size_t frames, const double* params) noexcept;
+
+// Single producer / single consumer stream boundary. Host callbacks have the
+// PortAudio C ABI, but the core has no link-time dependency on an audio SDK.
+ANH_API void* anh_output_create(std::size_t capacity_frames) noexcept;
+ANH_API void anh_output_destroy(void* handle) noexcept;
+ANH_API int anh_output_write(void* handle, const float* audio, std::size_t frames) noexcept;
+ANH_API std::uint64_t anh_output_available(void* handle) noexcept;
+ANH_API std::uint64_t anh_output_underruns(void* handle) noexcept;
+ANH_API void anh_output_reset_stats(void* handle) noexcept;
+ANH_API int anh_output_callback(const void* input, void* output, unsigned long frames,
+                               const void* time_info, unsigned long flags,
+                               void* userdata) noexcept;

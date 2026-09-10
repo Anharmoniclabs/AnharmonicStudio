@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cmath>
 #include <vector>
 
 namespace {
@@ -39,7 +40,7 @@ public:
     bool process(const float* input, float* out, std::size_t n, const double* p) noexcept {
         if (n > capacity_) return false;
         std::fill_n(out, n * 2, 0);
-        const auto pre = static_cast<std::size_t>(std::max(1.0, p[0] * rate));
+        const auto pre = static_cast<std::size_t>(std::clamp(p[0] * rate, 1.0, rate / 4.0 - 1));
         const float feedback = static_cast<float>(0.70 + 0.28 * std::clamp(p[1], 0.0, 1.0));
         const double damping = 0.05 + 0.9 * std::clamp(p[2], 0.0, 1.0);
         for (std::size_t i = 0; i < n; ++i) for (int c = 0; c < 2; ++c) predelay_.write(i, c, input[i * 2 + c]);
@@ -139,6 +140,7 @@ ANH_API void anh_reverb_destroy(void* handle) noexcept { delete static_cast<Reve
 ANH_API void anh_reverb_reset(void* handle) noexcept { if (handle) static_cast<Reverb*>(handle)->reset(); }
 ANH_API int anh_reverb_process(void* handle, const float* input, float* output, std::size_t n, const double* p) noexcept {
     if (!handle || !input || !output || !p) return -1;
+    for (int i = 0; i < 5; ++i) if (!std::isfinite(p[i])) return -1;
     return static_cast<Reverb*>(handle)->process(input, output, n, p) ? 0 : -1;
 }
 ANH_API void* anh_delay_create(std::size_t frames) noexcept {
@@ -149,5 +151,6 @@ ANH_API void anh_delay_destroy(void* handle) noexcept { delete static_cast<Delay
 ANH_API void anh_delay_reset(void* handle) noexcept { if (handle) static_cast<Delay*>(handle)->reset(); }
 ANH_API int anh_delay_process(void* handle, const float* input, float* output, std::size_t n, const double* p) noexcept {
     if (!handle || !input || !output || !p) return -1;
+    for (int i = 0; i < 5; ++i) if (!std::isfinite(p[i])) return -1;
     return static_cast<Delay*>(handle)->process(input, output, n, p) ? 0 : -1;
 }

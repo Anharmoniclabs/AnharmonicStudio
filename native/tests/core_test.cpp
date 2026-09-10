@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <thread>
 
 int main() {
     int failures = 0;
@@ -39,5 +40,29 @@ int main() {
     for (float value : output) check(value == 0, "convolver reset");
     anh_convolver_destroy(convolver);
     anh_convolver_destroy(nullptr);
+    void* queue = anh_output_create(257);
+    check(queue != nullptr, "output queue creation");
+    constexpr int total = 17000;
+    std::thread producer([&] {
+        std::array<float, 34> block{};
+        for (int at = 0; at < total; at += 17) {
+            for (int i = 0; i < 17; ++i) block[i * 2] = block[i * 2 + 1] = static_cast<float>(at + i + 1);
+            while (anh_output_write(queue, block.data(), 17) != 0) std::this_thread::yield();
+        }
+    });
+    int received = 0;
+    std::array<float, 22> incoming{};
+    while (received < total) {
+        anh_output_callback(nullptr, incoming.data(), 11, nullptr, 0, queue);
+        for (int i = 0; i < 11; ++i) {
+            if (incoming[i * 2] == 0) continue; // specified starvation silence
+            ++received;
+            check(incoming[i * 2] == received && incoming[i * 2 + 1] == received, "concurrent FIFO order");
+        }
+        std::this_thread::yield();
+    }
+    producer.join();
+    check(anh_output_available(queue) == 0, "output queue drained");
+    anh_output_destroy(queue);
     return failures ? 1 : 0;
 }

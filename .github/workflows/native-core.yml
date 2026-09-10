@@ -65,6 +65,12 @@ jobs:
           cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release
           cmake --build native/build --config Release --parallel 2
           ctest --test-dir native/build -C Release --output-on-failure
+      - name: Address and undefined-behavior sanitizers
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S native -B /tmp/native-sanitize -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined' -DCMAKE_SHARED_LINKER_FLAGS='-fsanitize=address,undefined'
+          cmake --build /tmp/native-sanitize --parallel 2
+          ctest --test-dir /tmp/native-sanitize --output-on-failure
       - name: Compile packaged C++ library
         run: |
           uv sync --locked --group dev
@@ -72,13 +78,15 @@ jobs:
       - name: Native and reference audio regressions
         run: >-
           uv run --no-sync python -m pytest -q
-          tests/test_native_core.py tests/test_native_dsp.py
+          tests/test_native_core.py tests/test_native_dsp.py tests/test_native_output.py
           tests/test_sampler_voice.py tests/test_pad_loop_reference.py
           tests/test_convolution_scratch.py tests/test_fx.py tests/test_fx_preparation.py
           tests/test_engine_fx.py tests/test_engine_synth.py tests/test_transport_boundaries.py
           tests/test_audio_quality.py tests/test_engine_modules.py
           tests/test_project_persistence.py tests/test_product_hardening_ui.py
           tests/test_four_bar_sampling.py tests/test_window_lifecycle.py
+          tests/test_vocal_panel.py tests/test_vocal_comp.py tests/test_library_history.py
+          tests/test_premium_workflows.py tests/test_arrangement_editing.py
           tests/test_plugin_chain_runtime.py tests/test_plugin_latency.py
           --junitxml=reports/native.xml
       - name: Device-independent performance report
