@@ -10,6 +10,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .native_dsp import NATIVE
+
 
 class PadRenderWorkspace:
     """Reusable vector scratch for allocation-free pad rendering per block."""
@@ -82,6 +84,17 @@ class PadVoice:
         """Add this voice into dest[offset:], advancing its age."""
         n = len(dest) - offset
         if n <= 0 or self.dead:
+            return
+        if (
+            NATIVE is not None
+            and offset >= 0
+            and self.data.dtype == dest.dtype == np.float32
+            and self.data.flags.c_contiguous
+            and dest.flags.c_contiguous
+            and self.attack > 0
+            and self.release > 0
+        ):
+            NATIVE.core.sample(self, dest[offset:])
             return
         span = self.s1 - self.s0
         source_length = max(1, int(np.ceil(span / max(self.rate, 1e-12))))

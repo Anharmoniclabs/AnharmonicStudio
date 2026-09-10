@@ -25,6 +25,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .native_dsp import NATIVE
+from .native_core import NativeConvolver, NativeSend
 
 SR = 48_000
 TONE_TAPS = 1_536  # 32 ms of impulse response — plenty for shelves,
@@ -134,6 +135,7 @@ class BlockConvolver:
         self.set_ir(ir)
 
     def set_ir(self, ir: np.ndarray) -> None:
+        self._native_convolver = None
         self.ir = np.ascontiguousarray(ir, dtype=np.float32)
         self.m = len(self.ir)
         self._plans.clear()
@@ -142,6 +144,8 @@ class BlockConvolver:
 
     def reset(self) -> None:
         self.tail.fill(0.0)
+        if self._native_convolver is not None:
+            self._native_convolver.reset()
 
     def _spectrum(self, size: int) -> np.ndarray:
         h = self._plans.get(size)
@@ -154,6 +158,12 @@ class BlockConvolver:
         """Prepare every FFT size used by full blocks and loop-boundary slices."""
         frames = max(0, int(frames))
         if frames:
+            if NATIVE is not None and (
+                self._native_convolver is None or self._native_convolver.frames < frames
+            ):
+                self._native_convolver = NativeConvolver(
+                    NATIVE.core, self.ir, self.channels, frames, self._native_convolver
+                )
             size = _next_pow2(self.m)
             maximum = _next_pow2(frames + self.m - 1)
             while size <= maximum:
@@ -164,6 +174,14 @@ class BlockConvolver:
         n = len(block)
         if n == 0:
             return block
+        if NATIVE is not None and block.dtype == np.float32 and block.flags.c_contiguous:
+            if not prepared_only and (
+                self._native_convolver is None or self._native_convolver.frames < n
+            ):
+                self.prepare(n)
+            if self._native_convolver is not None:
+                self._native_convolver.process(block)
+                return block
         size = _next_pow2(n + self.m - 1)
         spec = self._plans.get(size) if prepared_only else self._spectrum(size)
         if spec is None:
@@ -331,6 +349,7 @@ class Compressor:
         self.fast = OnePole(1)
         self.slow = OnePole(1)
         self.gain_reduction_db = 0.0
+        self._native_reduction = np.zeros(1, dtype=np.float64)
 
     def reset(self) -> None:
         self.fast.reset()
@@ -348,6 +367,25 @@ class Compressor:
     ) -> np.ndarray:
         n = len(block)
         if n == 0:
+            return block
+        if (
+            NATIVE is not None
+            and block.dtype == np.float32
+            and block.flags.c_contiguous
+            and block.shape[1] == 2
+        ):
+            NATIVE.core.compress(
+                block,
+                threshold_db,
+                ratio,
+                OnePole.coefficient(attack),
+                OnePole.coefficient(release),
+                makeup_db,
+                self.slow.state,
+                self.fast.state,
+                self._native_reduction,
+            )
+            self.gain_reduction_db = float(self._native_reduction[0])
             return block
         rect = np.max(np.abs(block), axis=1)[:, None]
         # Decoupled: the slow branch holds the peak up so release governs how
@@ -373,6 +411,14 @@ class Compressor:
 def saturate(block: np.ndarray, drive: float) -> np.ndarray:
     """Asymmetry-free tanh drive with unity make-up, so the knob only adds grit."""
     if drive <= 1e-4:
+        return block
+    if (
+        NATIVE is not None
+        and block.dtype == np.float32
+        and block.flags.c_contiguous
+        and block.shape[1] == 2
+    ):
+        NATIVE.core.saturate(block, drive)
         return block
     pre = 1.0 + drive * 11.0
     np.tanh(block * pre, out=block)
@@ -461,12 +507,17 @@ class DelaySend:
     DIVISIONS = {"1/4": 1.0, "1/8.": 0.75, "1/8": 0.5, "1/8T": 1 / 3, "1/16": 0.25, "1/16T": 1 / 6}
 
     def __init__(self, channels: int = 2):
+        self._native_send = (
+            NativeSend(NATIVE.core, "delay") if NATIVE is not None and channels == 2 else None
+        )
         self.line = DelayLine(int(SR * 4.0), channels)
         self.damp = OnePole(channels)
 
     def reset(self) -> None:
         self.line.reset()
         self.damp.reset()
+        if self._native_send is not None:
+            self._native_send.reset()
 
     def delay_samples(self, fx, bpm: float, block: int) -> int:
         beats = self.DIVISIONS.get(fx.sync, 0.5)
@@ -477,6 +528,11 @@ class DelaySend:
 
     def process(self, send: np.ndarray, fx, bpm: float) -> np.ndarray:
         n = len(send)
+        if self._native_send is not None:
+            return self._native_send.process(
+                send,
+                (self.delay_samples(fx, bpm, n), fx.damping, fx.feedback, fx.ping_pong, fx.level),
+            )
         delayed = self.line.read(n, self.delay_samples(fx, bpm, n))
         fed = self.damp.process(delayed.copy(), 0.15 + 0.8 * fx.damping)
         fed *= np.float32(min(max(fx.feedback, 0.0), 0.95))
@@ -494,6 +550,9 @@ class ReverbSend:
     SPREAD = 25
 
     def __init__(self, channels: int = 2):
+        self._native_send = (
+            NativeSend(NATIVE.core, "reverb") if NATIVE is not None and channels == 2 else None
+        )
         self.predelay = DelayLine(int(SR * 0.25), channels)
         self.combs = [DelayLine(d + self.SPREAD + 4, channels) for d in self.COMBS]
         self.damps = [OnePole(channels) for _ in self.COMBS]
@@ -502,6 +561,8 @@ class ReverbSend:
 
     def reset(self) -> None:
         self.predelay.reset()
+        if self._native_send is not None:
+            self._native_send.reset()
         for line in self.combs:
             line.reset()
         for damp in self.damps:
@@ -516,6 +577,10 @@ class ReverbSend:
             self._acc = np.zeros((frames, 2), dtype=np.float32)
 
     def process(self, send: np.ndarray, fx) -> np.ndarray:
+        if self._native_send is not None:
+            return self._native_send.process(
+                send, (fx.predelay, fx.size, fx.damping, fx.width, fx.level)
+            )
         n = len(send)
         if len(self._acc) < n:
             self._acc = np.zeros((n, send.shape[1]), dtype=np.float32)

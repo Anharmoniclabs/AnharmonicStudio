@@ -8,10 +8,13 @@ import platform
 
 import numpy as np
 
-SOURCE = Path(__file__).with_name("native") / "dsp.c"
+from .native_core import CoreBindings
+
+SOURCE = Path(__file__).with_name("native") / "synth.cpp"
+SOURCES = tuple(sorted(SOURCE.parent.glob("*.cpp")))
 FLAGS = (
     "-O3",
-    "-std=c99",
+    "-std=c++17",
     "-dynamiclib" if platform.system() == "Darwin" else "-shared",
     *(() if platform.system() == "Windows" else ("-fPIC",)),
     "-fno-fast-math",
@@ -20,7 +23,9 @@ FLAGS = (
 
 
 def binary_path():
-    identity = SOURCE.read_bytes() + repr((FLAGS, platform.machine(), platform.system())).encode()
+    inputs = (*SOURCES, *sorted(SOURCE.parent.glob("*.hpp")))
+    identity = b"".join(p.name.encode() + p.read_bytes() for p in inputs)
+    identity += repr((FLAGS, platform.machine(), platform.system())).encode()
     digest = hashlib.sha256(identity).hexdigest()[:20]
     suffix = {"Windows": ".dll", "Darwin": ".dylib"}.get(platform.system(), ".so")
     return SOURCE.parent.parent.parent / ".native" / f"dsp-{digest}{suffix}"
@@ -70,6 +75,7 @@ class NativeDSP:
         self.lib.mpc_synth.restype = None
         self.lib.mpc_onepole.argtypes = [ptr, count, count, ptr, real]
         self.lib.mpc_onepole.restype = None
+        self.core = CoreBindings(self.lib)
 
     def onepole(self, block, state, b):
         if (
@@ -138,6 +144,6 @@ if os.environ.get("MPC_NATIVE_DSP") == "0":
 else:
     try:
         NATIVE = NativeDSP(binary_path())
-        STATUS = "Native synth + effects smoothing · GIL released"
+        STATUS = "C++ sample, synth and mixer DSP · GIL released"
     except (OSError, ValueError, AttributeError) as exc:
         STATUS += f" ({type(exc).__name__})"
