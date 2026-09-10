@@ -6,7 +6,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .plugin_chain_host import IsolatedPluginChain, live_plugin_chain
+from .plugin_chain_host import IsolatedPluginChain
+from .plugin_host import LivePlugin
 from .plugin_latency import MAX_COMPENSATION_SAMPLES, plugin_path_latency_samples
 from .pro_daw_state import plugin_chains
 from .workflow_routing import MASTER_TARGET, RoutingPlan
@@ -246,10 +247,15 @@ def install_plugin_chain_runtime() -> None:
         if plan is None:
             return None
         latency = compile_chain_latency_plan(plan, engine.plugin_chains.latencies())
-        engine.plugin_chain_delays.configure(latency, engine.blocksize)
-        arrays = engine.plugin_chain_delays.lock_arrays()
+        # Build the complete bank away from the callback, then publish it with a
+        # single attribute assignment. A callback sees either old or new state,
+        # never a half-rebuilt set of routing delay lines.
+        bank = RoutingDelayBank(engine.blocksize)
+        bank.configure(latency, engine.blocksize)
+        arrays = bank.lock_arrays()
         if arrays:
             engine.linux_audio.lock_arrays(*arrays)
+        engine.plugin_chain_delays = bank
         return latency
 
     def init(engine, *args, **kwargs):
@@ -276,4 +282,13 @@ def install_plugin_chain_runtime() -> None:
 
 
 def build_live_chain(specifications, sample_rate: int, blocksize: int):
-    return live_plugin_chain(specifications, sample_rate, blocksize)
+    """Warm a complete isolated chain before the callback can ever see it."""
+    plugin = IsolatedPluginChain(specifications, sample_rate)
+    silence = np.zeros((blocksize, 2), dtype=np.float32)
+    try:
+        for index in range(3):
+            plugin.render(silence, blocksize, reset=index == 0)
+        return LivePlugin(plugin, blocksize)
+    except Exception:
+        plugin.close()
+        raise
