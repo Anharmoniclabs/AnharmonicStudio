@@ -35,6 +35,8 @@ jobs:
           python -m playwright install chromium
       - name: Exercise browser workspaces and synth patch
         run: python scripts/audit_web_studio.py --output /tmp/anharmonic-web-checks
+      - name: Measure actual browser audio and transport behavior
+        run: python tests/web/audio-engine.browser.py --output /tmp/anharmonic-web-checks/audio-report.json
       - name: Preserve browser evidence
         if: always()
         uses: actions/upload-artifact@v4

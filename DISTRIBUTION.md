@@ -38,9 +38,16 @@ and platform packaging definitions remain available; no artificial obstacles are
 ## Release status
 
 Native 0.1.0-rc.1 candidates have passed software checks on all four targets. They remain
-unsigned candidates. Signing/notarization, physical audio-interface acceptance, and
-third-party corresponding-source review remain unfinished. Checkout identifies these
+unsigned candidates. Official builds will remain unsigned by policy; Windows
+publisher signing and Apple notarization are not planned release requirements.
+Physical audio-interface acceptance and third-party corresponding-source review
+remain unfinished. Checkout identifies these
 as release candidates; purchase does not imply those checks are complete.
+
+Every release must disclose its unsigned status and provide platform-specific
+[installation guidance](packaging/INSTALLATION.txt). Some device policies prevent
+unsigned installation; payment cannot remove those restrictions. Functional,
+installer, source-provenance, and checksum gates still apply before publication.
 
 The [candidate build guide](packaging/RELEASE.md) covers native packaging and encrypted
 CI artifacts. Application source for every delivered build, notices, and checksums must

@@ -12,6 +12,20 @@ def main(specification=None):
     from .library import Library, Clip
     from .model import Project
     from .native_dsp import NATIVE
+    from .automation_mode_state import install_automation_mode_state
+    from .plugin_chain_runtime import install_plugin_chain_runtime
+    from .pro_daw_state import install_pro_daw_state
+    from .workflow_mixing import install_advanced_track_controls
+    from .workflow_state import install_project_workflow_state
+
+    # Export starts in a fresh interpreter, before the desktop installs its
+    # persistence/render extensions. Restore them before reading the snapshot
+    # or constructing an Engine, without importing any window controllers.
+    install_project_workflow_state()
+    install_pro_daw_state()
+    install_automation_mode_state()
+    install_advanced_track_controls(device_controllers=False)
+    install_plugin_chain_runtime()
 
     # This process is owned by ExportJob; no other application's policy changes.
     # Lower its priority only when the accelerated DSP backend is available.

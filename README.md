@@ -18,8 +18,10 @@ Official released binaries are the supported distribution for musicians: downloa
 install, and open the studio. They bundle the runtime and dependencies, with no compiler
 setup or subscription requirement to keep using your installed version.
 
-The current packages are **unsigned 0.1.0-rc.1 release candidates**. Signing,
-notarization, and physical audio-interface acceptance remain unfinished.
+The current packages are **unsigned 0.1.0-rc.1 release candidates**. Official
+packages intentionally remain unsigned and not Apple-notarized; paid signing
+is not a release requirement. Physical audio-interface acceptance remains
+unfinished. Read the [unsigned installation guide](packaging/INSTALLATION.txt).
 The standard download costs $1 USD once, plus applicable tax, through Stripe checkout.
 After payment confirmation, your selected installer downloads from private Cloudflare storage.
 
@@ -63,7 +65,8 @@ on the device exposing a standard MIDI input; proprietary modes may require
 the manufacturer's driver or a MIDI/controller-mode setting.
 
 The plugin scanner checks standard installation folders and folders you add.
-Load one VST3 instrument for synth notes and one master effect. Parameters and
+Load a VST3 instrument for synth notes, and use **Plugins → Manage insert plugin
+chains** to configure serial effects on tracks, buses and the master. Parameters and
 presets save with the project and are used during WAV export. Pitch bend and
 unmapped MIDI CCs reach the external instrument during live playing. Native
 plugin windows, MIDI output/clock synchronization, and recording expression
@@ -74,10 +77,11 @@ Plugins must match your operating system and processor. VST2, CLAP, and LV2
 are listed but cannot be loaded by this host. Audio Unit support is available
 through the host on macOS; this integration has only been tested on Linux.
 Linux checks include the Nekobi instrument and MVerb effect; other plugins may
-need different bus layouts or host features. Each plugin runs in a separate
-process. A failed instrument is silenced and a failed effect is bypassed;
-failed exports report the error. Live monitoring adds two audio buffers per
-loaded plugin (about 21 ms each at 48 kHz / 512 frames).
+need different bus layouts or host features. External instruments and effect
+chains run in isolated processes. A failed instrument is silenced and a failed
+effect path is bypassed; failed exports report the error. A serial insert chain
+shares one two-buffer live bridge (about 21 ms at 48 kHz / 512 frames), in addition
+to plugin-reported latency and the native output queue.
 
 The Audio interfaces tab refreshes available outputs, including Linux PipeWire
 devices. Choose the desired routing in Audio setup; connecting hardware does
@@ -142,8 +146,10 @@ and [THIRD_PARTY.md](THIRD_PARTY.md).
 
 Native 0.1.0-rc.1 candidates passed 227 regression tests per target, frozen-app checks,
 and platform packaging checks. The [validated native build run](https://github.com/Anharmoniclabs/AnharmonicStudio/actions/runs/34325465683)
-covers Linux, Windows, Intel Mac, and Apple Silicon Mac. Signing/notarization and
-physical audio-interface acceptance remain before commercial release.
+covers Linux, Windows, Intel Mac, and Apple Silicon Mac. Physical audio-interface
+acceptance and corresponding-source review remain before production qualification.
+The release policy is unsigned distribution with clear installation guidance,
+not a future promise of signed or notarized packages.
 
 Release CI uploads encrypted candidates, never plaintext paid installers. See
 [the build guide](packaging/RELEASE.md) and [the distribution plan](DISTRIBUTION.md).

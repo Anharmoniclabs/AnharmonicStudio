@@ -84,6 +84,7 @@ jobs:
           tests/test_engine_fx.py tests/test_engine_synth.py tests/test_transport_boundaries.py
           tests/test_audio_quality.py tests/test_engine_modules.py
           tests/test_project_persistence.py tests/test_product_hardening_ui.py
+          tests/test_export_worker_state.py
           tests/test_four_bar_sampling.py tests/test_window_lifecycle.py
           tests/test_vocal_panel.py tests/test_vocal_comp.py tests/test_library_history.py
           tests/test_premium_workflows.py tests/test_arrangement_editing.py

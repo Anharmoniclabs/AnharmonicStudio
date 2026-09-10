@@ -14,7 +14,7 @@ applicable tax. Stripe confirms payment before Cloudflare grants installer acces
 - Windows x86_64: per-user setup EXE, with Start menu entry and uninstaller.
 - macOS: separate Apple Silicon and Intel DMGs containing the native .app bundle.
 
-Build each target on its own OS using Python 3.12, a C compiler (Clang on Windows),
+Build each target on its own OS using Python 3.12, a C++17 compiler (Clang on Windows),
 FFmpeg/ffprobe, and Inno Setup 6 on Windows:
 
 ```sh
@@ -23,12 +23,13 @@ uv pip install -r requirements-build.txt
 uv run --no-sync python scripts/build_release.py dist/candidate --version 0.1.0-rc.1
 ```
 
-The build includes Python, Qt, native C DSP, FFmpeg/ffprobe, artwork and dependency
+The build includes Python, Qt, the portable C++ DSP/output core, FFmpeg/ffprobe, artwork and dependency
 metadata/notices. It also creates a matching source ZIP and SHA256SUMS. Python,
 uv and a C compiler are not needed on the recipient machine. The optional neural
 stem-separation dependencies/model downloads remain a separate source installation.
-The separate experimental ALSA/LV2 C++ engine is not the app's active audio engine
-and is not represented as a Windows/macOS feature.
+The historical ALSA/LV2 prototype is opt-in and is not the app's active audio
+engine. The production C++ core is shared across all four targets; Python retains
+the project scheduler, UI and isolated plugin coordination.
 
 Qt uses its native OS platform plugin. User songs live outside the app: Linux
 XDG data home, Windows LocalAppData, and macOS Library/Application Support.
@@ -62,12 +63,27 @@ The CI limits are p99 callback work within one 512-frame buffer, at most 5% call
 over that budget, and at most 64 MiB of sampled memory growth during the session.
 The separate extended Linux validation retains stricter performance thresholds.
 
-Candidates remain unsigned (macOS receives PyInstaller's ad-hoc signature).
-Developer ID/notarization, Windows signing, third-party corresponding-source
-review and physical-device acceptance are still required before calling the
-binaries a fully qualified commercial release. Linux needs compatible system
+Official packages are intentionally unsigned under the owner's distribution
+policy (macOS receives PyInstaller's ad-hoc signature, not a verified Developer
+ID signature or notarization). Paid signing and notarization are not release
+requirements. Every candidate includes [INSTALLATION.txt](INSTALLATION.txt), and
+the storefront and checkout must disclose the unsigned status before purchase.
+Do not disable OS security or promise installation on policy-managed computers.
+
+Functional/software checks, installer and export checks, matching source and
+checksums, third-party corresponding-source review, and physical-device
+acceptance remain required for production qualification. Unsigned status must
+never be presented as security certification. Linux needs compatible system
 glibc and graphics/audio drivers; the Ubuntu CI build is the portable baseline,
 not a build made on a newer local distribution.
+
+Use [ACCEPTANCE.md](ACCEPTANCE.md) to record platform-specific installation,
+physical-device, project, browser, and private-download evidence before promotion.
+
+Release source ZIPs use committed Git blobs and executable modes, with stored ZIP
+entries. This avoids checkout line-ending, permission, and compression-library
+differences across native runners; all four candidates must have the same source
+SHA-256. Development source snapshots can still include local working changes.
 
 ## Protecting paid artifacts in a public source repository
 

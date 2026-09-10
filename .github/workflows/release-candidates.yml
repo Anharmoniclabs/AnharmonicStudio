@@ -76,9 +76,11 @@ jobs:
           uv run --no-sync python -m pytest -q tests/test_native_dsp.py tests/test_native_core.py tests/test_native_output.py
           tests/test_audio_quality.py tests/test_project_persistence.py
           tests/test_project_migrations.py tests/test_mixer_track_ids.py
+          tests/test_web_project_interchange.py
           tests/test_engine_modules.py tests/test_sampler_voice.py tests/test_pad_loop_reference.py
           tests/test_engine_fx.py tests/test_engine_synth.py tests/test_transport_boundaries.py
           tests/test_release_runtime.py tests/test_vocal_workspace.py
+          tests/test_export_worker_state.py
           tests/test_track_recording.py tests/test_audio_storage.py
           tests/test_midi_devices.py tests/test_devices_ui.py
           tests/test_external_plugins.py tests/test_plugin_host.py
