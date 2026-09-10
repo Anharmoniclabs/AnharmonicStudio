@@ -11,7 +11,11 @@ explain Windows publisher warnings, Apple's lack of notarization, possible insta
 blocks, and Linux prerequisites. They also work without JavaScript. The confirmation
 page repeats the notice and links to `#installation-guidance`, which cites official
 Apple/Microsoft instructions. These are disclosures, not a security bypass or an extra
-purchase-approval step. Keep them synchronized with the actual release's signing status.
+purchase-approval step. Official releases intentionally remain unsigned: paid
+Windows signing and Apple notarization are not release requirements. Keep
+disclosures synchronized with the actual package status. Candidate archives and
+installed packages include `packaging/INSTALLATION.txt` with matching guidance;
+never instruct customers to disable system-wide security protections.
 
 ## Preview and validate
 

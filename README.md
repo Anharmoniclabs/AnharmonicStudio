@@ -18,8 +18,10 @@ Official released binaries are the supported distribution for musicians: downloa
 install, and open the studio. They bundle the runtime and dependencies, with no compiler
 setup or subscription requirement to keep using your installed version.
 
-The current packages are **unsigned 0.1.0-rc.1 release candidates**. Signing,
-notarization, and physical audio-interface acceptance remain unfinished.
+The current packages are **unsigned 0.1.0-rc.1 release candidates**. Official
+packages intentionally remain unsigned and not Apple-notarized; paid signing
+is not a release requirement. Physical audio-interface acceptance remains
+unfinished. Read the [unsigned installation guide](packaging/INSTALLATION.txt).
 The standard download costs $1 USD once, plus applicable tax, through Stripe checkout.
 After payment confirmation, your selected installer downloads from private Cloudflare storage.
 
@@ -142,8 +144,10 @@ and [THIRD_PARTY.md](THIRD_PARTY.md).
 
 Native 0.1.0-rc.1 candidates passed 227 regression tests per target, frozen-app checks,
 and platform packaging checks. The [validated native build run](https://github.com/Anharmoniclabs/AnharmonicStudio/actions/runs/34325465683)
-covers Linux, Windows, Intel Mac, and Apple Silicon Mac. Signing/notarization and
-physical audio-interface acceptance remain before commercial release.
+covers Linux, Windows, Intel Mac, and Apple Silicon Mac. Physical audio-interface
+acceptance and corresponding-source review remain before production qualification.
+The release policy is unsigned distribution with clear installation guidance,
+not a future promise of signed or notarized packages.
 
 Release CI uploads encrypted candidates, never plaintext paid installers. See
 [the build guide](packaging/RELEASE.md) and [the distribution plan](DISTRIBUTION.md).

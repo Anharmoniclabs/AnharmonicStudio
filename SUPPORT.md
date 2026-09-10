@@ -4,7 +4,8 @@ Official released binaries are Anharmonic Studio's supported distribution for mu
 Support covers those published builds on their documented platforms. Release candidates
 remain evaluation builds until release acceptance is complete. The standard $1 download
 is open through the website, with private installer delivery after payment confirmation.
-The packages are unsigned and the Mac builds are not Apple-notarized. Physical-device
+Packages intentionally remain unsigned and the Mac builds are not Apple-notarized;
+signing is not a paid-download entitlement or a planned release requirement. Physical-device
 acceptance remains unfinished.
 
 For purchase or official-installer help, contact
@@ -30,7 +31,7 @@ file integrity; they do not certify software safety.
 
 Building from source is intended for developers. We do not provide installation,
 compiler/dependency setup, or configuration troubleshooting for self-compiled builds.
-Those builds do not include a signed official installer or managed updates. Developers
+Those builds do not include an official installer or managed updates. Developers
 are responsible for their environment and hardware validation; arbitrary machine and
 driver combinations are not guaranteed.
 

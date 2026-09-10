@@ -53,9 +53,14 @@ change historical author identities without an explicit migration decision.
 
 Real browser interactions and audio assertions; desktop full/fallback suites;
 cross-platform release regressions including the newly added features; Windows,
-Linux, Intel Mac and Apple Silicon packaging; signing/notarization and physical
-audio-interface acceptance where required for the intended release standard;
+Linux, Intel Mac and Apple Silicon packaging; unsigned-installation guidance and
+physical audio-interface acceptance for the intended release standard;
 matching public source and notices; staged private-download hash verification.
+
+Owner policy clarification: official packages will remain unsigned because of
+signing costs. Windows signing and Apple notarization are not publication gates.
+All four targets must clearly disclose this and include installation guidance;
+software, physical-device, source and checksum checks remain separate requirements.
 
 Browser-native plugin hosting and the desktop's full DSP are not implemented by
 the existing JavaScript application. This audit does not certify enterprise
@@ -110,5 +115,33 @@ audio implementation and the user's installation requirements:
   Cloudflare's static hosting/download worker does not provide the desktop
   audio engine or local sample library.
 
-This decision remains pending. Neither the browser smoke tests nor native
-packaging resolve it. Cloudflare promotion remains on hold.
+Work is proceeding on the standalone browser route, as described to the owner.
+Native-only processors must be disclosed and must not silently disappear from
+exports. This is not a claim of bit-identical browser/native DSP. Cloudflare
+promotion remains on hold pending final acceptance.
+
+## Continued release preparation
+
+- Browser project normalization now validates nested numeric/index fields and
+  stable identities, preserves unknown desktop metadata, and bounds document
+  complexity/history memory. Nine model regressions pass; all 83 saved desktop
+  project JSON files present during this check loaded read-only. User songs were
+  not edited.
+- Catalog preparation now validates all four platforms before emitting output,
+  rejects mixed source/version/checksums, binds reports to checked artifacts,
+  and separates candidate preparation from production acceptance. The explicit
+  production policy is **unsigned**, with checksum-covered installation guidance
+  and owner-reviewed software, device, and source evidence.
+- Run `34504318439`, built from the pre-history-rewrite commit `04f4b2f`, passed
+  all preflight checks and Windows, Linux and Apple Silicon native candidates.
+  Intel Mac failed the ten-minute stress gate: p99 callback wall time 17.04 ms
+  against a 10.67 ms deadline (thread CPU p99 14.14 ms). This is a blocking
+  performance result, not a reason to weaken the gate.
+- Another session rewrote local Git history during this work. The baseline main
+  commit changed from `f38f83b` to `e07bd34`, with the identical tree
+  `bfb8745949cab1683013910c40ad156140a04156`. Main now has owner attribution.
+  This audit did not perform that rewrite. Old run SHAs remain historical
+  evidence; new candidates must identify their actual new committed source.
+- A separate, actively changing native rewrite remains outside this release
+  integration tree. Do not absorb its unfinished work or claim its platform
+  validation applies to the repaired engine on main.

@@ -62,12 +62,24 @@ The CI limits are p99 callback work within one 512-frame buffer, at most 5% call
 over that budget, and at most 64 MiB of sampled memory growth during the session.
 The separate extended Linux validation retains stricter performance thresholds.
 
-Candidates remain unsigned (macOS receives PyInstaller's ad-hoc signature).
-Developer ID/notarization, Windows signing, third-party corresponding-source
-review and physical-device acceptance are still required before calling the
-binaries a fully qualified commercial release. Linux needs compatible system
+Official packages are intentionally unsigned under the owner's distribution
+policy (macOS receives PyInstaller's ad-hoc signature, not a verified Developer
+ID signature or notarization). Paid signing and notarization are not release
+requirements. Every candidate includes [INSTALLATION.txt](INSTALLATION.txt), and
+the storefront and checkout must disclose the unsigned status before purchase.
+Do not disable OS security or promise installation on policy-managed computers.
+
+Functional/software checks, installer and export checks, matching source and
+checksums, third-party corresponding-source review, and physical-device
+acceptance remain required for production qualification. Unsigned status must
+never be presented as security certification. Linux needs compatible system
 glibc and graphics/audio drivers; the Ubuntu CI build is the portable baseline,
 not a build made on a newer local distribution.
+
+Release source ZIPs use committed Git blobs and executable modes, with stored ZIP
+entries. This avoids checkout line-ending, permission, and compression-library
+differences across native runners; all four candidates must have the same source
+SHA-256. Development source snapshots can still include local working changes.
 
 ## Protecting paid artifacts in a public source repository
 
