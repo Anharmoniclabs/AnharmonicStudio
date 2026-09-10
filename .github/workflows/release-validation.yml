@@ -7,6 +7,8 @@ permissions:
   contents: read
 
 jobs:
+  intel-diagnostics:
+    uses: ./.github/workflows/audio-profile.yml
   paced-session:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

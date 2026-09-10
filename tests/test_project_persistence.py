@@ -32,6 +32,20 @@ def test_newer_project_is_rejected_instead_of_silently_losing_fields():
         Project.from_dict({"format_version": PROJECT_FORMAT_VERSION + 1})
 
 
+def test_browser_bundle_is_not_silently_opened_as_an_empty_native_project(tmp_path):
+    document = {
+        "anharmonic_bundle": 1,
+        "project": Project(name="Keep my song").to_dict(),
+        "media": [],
+    }
+    path = tmp_path / "portable.json"
+    original = json.dumps(document)
+    path.write_text(original)
+    with pytest.raises(ValueError, match="browser Project \\+ audio bundle"):
+        Project.load(path)
+    assert path.read_text() == original
+
+
 @pytest.mark.parametrize(
     ("name", "expected"),
     [

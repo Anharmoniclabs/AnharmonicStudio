@@ -42,6 +42,27 @@ def test_native_rejects_mismatched_buffers():
         NATIVE.synth(np.zeros((8, 2), dtype=np.float64), source, np.zeros(23), np.zeros(12), 0, -1)
 
 
+@pytest.mark.parametrize("rate", [44100, 96000])
+def test_native_phase_wraps_match_reference_with_fast_modulation_and_patch_changes(monkeypatch, rate):
+    results = []
+    phases = []
+    for backend in (None, NATIVE):
+        monkeypatch.setattr(synth, "NATIVE", backend)
+        voice = synth.SynthVoice(123, 0.8, rate, phase1=0.999999, phase2=0.999999,
+                                 phase_sub=0.999999, lfo_phase=0.999999)
+        patch = synth.patch_copy("Midnight Brass")
+        blocks = []
+        for size, lfo_rate in ((513, 12000), (1, 0.01), (256, 17777), (4096, 19)):
+            patch.lfo_rate = lfo_rate
+            output = np.zeros((size, 2), np.float32)
+            voice.render(output, patch)
+            blocks.append(output)
+        results.append(np.concatenate(blocks))
+        phases.append((voice.phase1, voice.phase2, voice.phase_sub, voice.lfo_phase))
+    np.testing.assert_allclose(results[0], results[1], rtol=3e-5, atol=2e-6)
+    np.testing.assert_allclose(phases[0], phases[1], rtol=0, atol=2e-10)
+
+
 def test_native_gate_and_manual_note_off_match_reference(monkeypatch):
     output = []
     for backend in (None, NATIVE):

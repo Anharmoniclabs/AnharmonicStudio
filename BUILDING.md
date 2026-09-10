@@ -98,7 +98,8 @@ Release self-checks reject packages missing the compiled core or output callback
 The default stream queue adds two configured audio blocks of buffering. It is
 reported by `Engine.latency_ms`; it must not be presented as zero added latency.
 CPU benchmarks measure render work, not physical round-trip latency. Hardware
-acceptance and signing/notarization remain separate release requirements.
+acceptance remains a separate production requirement. Official packages remain
+unsigned; commercial signing and Apple notarization are not release requirements.
 
 ### macOS — Apple Silicon or Intel
 
@@ -189,8 +190,9 @@ for development and can require more buffer headroom.
 
 Optional neural stem separation needs additional dependencies and model downloads.
 The Linux developer helper is `./install-separation.sh`. It is not bundled in these
-release candidates. To build the separate Linux C++ engine, use `bash scripts/build-native.sh`
-after installing its additional development dependencies.
+release candidates. `bash scripts/build-native.sh` builds and tests the portable
+production core. To include the historical Linux ALSA/LV2 prototype, install its
+additional development dependencies and pass `-DANHARMONIC_BUILD_LEGACY_LV2=ON`.
 
 If saving a recording fails, use **Retry save** in Song or **Retry save take** in the
 vocal editor. Recovery WAVs remain under the session's `projects/recordings/` until

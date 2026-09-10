@@ -1,0 +1,44 @@
+name: Intel audio diagnostics
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  intel-profile:
+    runs-on: macos-15-intel
+    timeout-minutes: 20
+    env:
+      QT_QPA_PLATFORM: offscreen
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MPC_NATIVE_DSP: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
+      - name: Install the native candidate runtime
+        run: |
+          brew install ffmpeg portaudio
+          uv sync --locked --group dev
+          uv run --no-sync python scripts/build_native.py
+      - name: Measure unprofiled workloads and collect separate hotspots
+        run: >-
+          uv run --no-sync python scripts/profile_production.py
+          --seconds 10 --profile-seconds 10 --output reports/audio-profile
+      - name: Preserve diagnostic reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intel-audio-profile-${{ github.sha }}-${{ github.run_attempt }}
+          path: reports/audio-profile/
+          if-no-files-found: warn
+          retention-days: 14

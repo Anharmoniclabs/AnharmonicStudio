@@ -84,6 +84,7 @@ def check(executable, directory, report):
 
 
 def notices(bundle):
+    shutil.copy2(ROOT / "packaging/INSTALLATION.txt", bundle / "INSTALLATION.txt")
     for name in ("LICENSE", "THIRD_PARTY.md"):
         shutil.copy2(ROOT / name, bundle / name)
     for name in PACKAGES:
@@ -276,7 +277,9 @@ def main():
         # macOS signatures cover bundle resources: keep release notices/source
         # adjacent to the signed .app instead of mutating it after freezing.
         notices(ready)
-        source_hash = build_bundle(ROOT, ready / f"{NAME}-{args.version}-source.zip")
+        source_hash = build_bundle(
+            ROOT, ready / f"{NAME}-{args.version}-source.zip", committed_only=True
+        )
         manifest = dict(
             version=args.version,
             source_commit=source_commit,
@@ -287,6 +290,8 @@ def main():
             packages={name: metadata.version(name) for name in PACKAGES},
             source_sha256=source_hash,
             signed_release=False,
+            distribution_policy="unsigned",
+            notarized=False,
             optional_stem_separation=False,
             physical_audio_tested=False,
             checks=[
@@ -308,17 +313,20 @@ def main():
             "Windows: use the setup EXE. macOS: copy the app from the DMG to Applications.\n"
             "Linux: extract the tar.gz; run ./AnharmonicStudio or ./AnharmonicStudio --install.\n"
             "User songs are stored outside the installed application. No automatic library migration.\n"
-            "Code signing/notarization and physical microphone/output acceptance remain pending.\n"
+            "Packages are intentionally unsigned and not Apple-notarized. Read INSTALLATION.txt.\n"
+            "Physical microphone/output acceptance remains pending for this candidate.\n"
             "Optional neural stem separation is a separate source installation.\n",
             encoding="utf-8",
         )
         if sys.platform == "win32":
+            shutil.copy2(ready / "INSTALLATION.txt", bundle / "INSTALLATION.txt")
             package_windows(bundle, stage, ready, args.version)
             manifest["checks"].extend(["installer", "installed-export", "uninstaller"])
         elif sys.platform == "darwin":
             image_root = stage / "dmg-root"
             image_root.mkdir()
             shutil.copytree(bundle, image_root / bundle.name, symlinks=True)
+            shutil.copy2(ready / "INSTALLATION.txt", image_root / "INSTALLATION.txt")
             (image_root / "Applications").symlink_to("/Applications")
             dmg = ready / f"{NAME}-{args.version}-macos-{platform.machine()}.dmg"
             run(

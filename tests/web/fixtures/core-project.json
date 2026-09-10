@@ -1,0 +1,48 @@
+{
+  "format_version": 5,
+  "name": "Browser and desktop interchange",
+  "bpm": 123,
+  "swing": 37,
+  "master": 0,
+  "self_choke": true,
+  "current_pattern": "pattern-main",
+  "selected_pattern": 1,
+  "pads": [
+    {"id": "pad-first", "sample_id": "audio-first", "name": "Trimmed loop", "start": 0.125, "end": 0.5, "gain": 0.7, "pan": -0.25, "pitch": 7, "sync_beats": 2, "attack": 0.003, "release": 0.12, "mode": "loop", "loop_crossfade": 0.015, "reverse": true, "choke": 3, "track": 3, "root_note": 62, "mono": true},
+    {"id": "pad-second", "sample_id": "audio-second", "name": "Silent sample", "start": 0, "end": 0, "gain": 0, "pan": 1, "pitch": -12, "sync_beats": 0, "attack": 0.002, "release": 0.03, "mode": "gate", "loop_crossfade": 0.005, "reverse": false, "choke": 0, "track": 7, "root_note": 0, "mono": false}
+  ],
+  "tracks": [
+    {"id": "mixer:00", "name": "Drums", "gain": 0.85, "pan": 0, "mute": false, "solo": false},
+    {"id": "mixer:01", "name": "Bass", "gain": 0.85, "pan": 0, "mute": false, "solo": false},
+    {"id": "mixer:02", "name": "Synth", "gain": 0.85, "pan": 0, "mute": false, "solo": false},
+    {"id": "mixer:03", "name": "Sample output", "gain": 0.6, "pan": -0.25, "mute": false, "solo": true, "fx": {"low": 2, "mid": -1, "mid_freq": 1200, "high": 3, "filter_type": "highpass", "cutoff": 80, "resonance": 0.2, "drive": 0.1, "comp": true, "threshold": -20, "ratio": 3, "attack": 0.02, "release": 0.15, "makeup": 1, "send_delay": 0.2, "send_reverb": 0.1}},
+    {"id": "mixer:04", "name": "Five", "gain": 0.85, "pan": 0, "mute": false, "solo": false},
+    {"id": "mixer:05", "name": "Six", "gain": 0.85, "pan": 0, "mute": false, "solo": false},
+    {"id": "mixer:06", "name": "Seven", "gain": 0.85, "pan": 0, "mute": false, "solo": false},
+    {"id": "mixer:07", "name": "Muted output", "gain": 0, "pan": 1, "mute": true, "solo": false}
+  ],
+  "patterns": [
+    {"id": "pattern-empty", "name": "Empty", "bars": 1, "div": 4, "steps": {}, "notes": []},
+    {"id": "pattern-main", "name": "Sample and synth notes", "bars": 3, "div": 8, "steps": {"0": {"0": 0.75, "35": 0.4, "95": 1}, "1": {"4": 0}}, "notes": [
+      {"id": "note-zero", "pitch": 0, "start": 0.25, "duration": 0.125, "velocity": 0.8, "pad": null},
+      {"id": "note-sample", "pitch": 62, "start": 1.25, "duration": 0.5, "velocity": 0.3, "pad": 0},
+      {"id": "note-last", "pitch": 127, "start": 11.5, "duration": 0.5, "velocity": 1, "pad": 1}
+    ]}
+  ],
+  "rows": [
+    {"id": "row-pattern", "name": "Pattern placements", "mute": false, "solo": true, "record_source": "notes", "record_track": 2, "clips": [
+      {"id": "clip-pattern", "kind": "pattern", "ref": "pattern-main", "start_beat": 4, "length_beats": 12, "offset": 0, "source_length": 0, "gain": 1, "track": 0, "loop": false, "loop_crossfade": 0.005, "reverse": false, "mute": false}
+    ]},
+    {"id": "row-audio", "name": "Audio placement", "mute": true, "solo": false, "record_source": "audio", "record_track": 3, "clips": [
+      {"id": "clip-audio", "kind": "audio", "ref": "audio-first", "start_beat": 2.5, "length_beats": 3, "offset": 0.125, "source_length": 0.25, "gain": 0, "track": 3, "loop": true, "loop_crossfade": 0.01, "reverse": true, "mute": true}
+    ]}
+  ],
+  "synth": {"name": "Copper Pluck", "osc1": "saw", "osc2": "triangle", "osc_mix": 0.42, "osc2_octave": 0, "detune": 8, "sub": 0.18, "noise": 0.015, "attack": 0.002, "decay": 0.18, "sustain": 0.08, "release": 0.22, "cutoff": 1150, "resonance": 0.34, "drive": 0.28, "spread": 0.18, "lfo_rate": 0.32, "lfo_pitch": 2, "volume": 0.48, "track": 2},
+  "arp": {"enabled": true, "rate_beats": 0.125, "mode": "up/down", "octaves": 3, "gate": 0.72},
+  "master_fx": {"low": 1, "mid": 0, "high": -1, "drive": 0.2, "glue": true, "glue_amount": 0.4},
+  "delay_fx": {"enabled": true, "sync": "1/8.", "feedback": 0.4, "damping": 0.3, "ping_pong": true, "level": 1.09},
+  "reverb_fx": {"enabled": true, "size": 0.6, "damping": 0.5, "width": 1, "predelay": 0.025, "level": 1.1},
+  "loop_start": 4,
+  "loop_end": 16,
+  "loop_enabled": true
+}
