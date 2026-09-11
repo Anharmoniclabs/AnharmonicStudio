@@ -4,11 +4,11 @@ This file is the durable handoff for the ongoing Anharmonic Studio hardening cam
 
 ## Resume instruction
 
-If a future chat is asked to **continue the Anharmonic bug bounty**, first read this file, issue #9, open pull requests, and `RELEASE_AUDIT.md`. Continue from the first unchecked software-only tranche below. Do not claim physical-device, platform, commercial-plugin, or real-hardware acceptance without evidence from those environments.
+If a future chat is asked to **continue the Anharmonic bug bounty**, first read this file, issue #9, open pull requests, and `RELEASE_AUDIT.md`. Continue from the first safe unchecked software-only tranche below. Do not claim physical-device, platform, commercial-plugin, or real-hardware acceptance without evidence from those environments.
 
 ## Operating rule
 
-Work in small, reviewable tranches. Each fix should include reproducible regression coverage when practical. Do not combine unrelated high-risk engine, host, web, and release changes into one giant pull request. Prefer: reproduce -> test -> patch -> CI -> merge -> update this ledger.
+Work in small, reviewable tranches. Each fix should include reproducible regression coverage when practical. Do not combine unrelated high-risk engine, host, web, and release changes into one giant pull request. Prefer: reproduce -> test -> patch -> CI -> merge -> update this ledger. When a PR is intentionally stacked, merge its base first and retarget the dependent PR to `main` immediately.
 
 ## Completed / landed
 
@@ -19,42 +19,61 @@ Work in small, reviewable tranches. Each fix should include reproducible regress
 - [x] Read/Write/Touch/Latch automation modes.
 - [x] Standalone browser DAW foundation and project interchange hardening.
 - [x] Browser/mobile Safari audio-import compatibility fix (#24, main `c486299`).
-- [x] Premium roadmap issue #9 refreshed to remove stale already-completed items.
+- [x] Durable continuation gate (#26, main `132ebf9`).
+- [x] MIDI expression channels preserved for MPE-capable paths (#29, main `c968678`).
+- [x] Workflow keymap persistence bounded and atomically saved (#32, main `663da56`).
+- [x] Premium roadmap issue #9 refreshed to distinguish completed software from remaining qualification.
 
-## In flight
+## Active hardening dependency graph
 
-- [ ] PR #25: deterministic mobile compatibility regression tests. Merge only after Source Checks and Portable C++ Engine workflows pass.
-- [ ] PR #23: capability foundations. Review/integrate in qualified sub-tranches; do not treat its 216-capability ledger as release qualification by itself.
+- [ ] PR #30 `bug-bounty/automation-curves`: smooth automation evaluator + parser hardening. The first implementation accidentally replaced the mature automation panel; it has been corrected to preserve the production panel and add smooth curves additively. Await fresh Source Checks + Portable C++ results on head `b1290f5`.
+- [ ] PR #33 `bug-bounty/recovery-archive-atomicity`: transactional project/history recovery archive with rollback if the second move fails. Portable C++ is green; Source Checks is still running.
+- [ ] PR #36 `bug-bounty/bounded-project-load-clean`: intentionally stacked on #33. Bounded project/history JSON reads, explicit UTF-8/JSON errors, bounded autosave recovery, and atomic-save regressions. After #33 merges, retarget #36 to `main`.
+- [ ] PR #34 `bug-bounty/current-release-status-clean`: concise `CURRENT_RELEASE_STATUS.md`. Original gates were green; branch was synchronized with current main by merge commit `3b28008`; await fresh gates then merge.
+- [ ] PR #35 `bug-bounty/mobile-layout-clean`: mobile safe areas, `dvh`, horizontal controls, scroll containment, 40px touch targets and layout tests. Original gates were green; branch synchronized to current main by merge commit `bec7912`; await fresh gates then merge.
+- [ ] PR #38 `bug-bounty/web-engine-disclosure`: intentionally stacked on #35. Persistent `WEB ENGINE · NO DESKTOP PLUGINS / NATIVE DSP` disclosure. After #35 merges, retarget #38 to `main`.
+- [ ] PR #37 `bug-bounty/pattern-step-validation`: malformed nested pattern-step maps fail as explicit `ValueError`; includes seeded nested-step fuzzing. Await gates, then merge if green.
+- [ ] PR #23 capability foundations: large/high-regression surface. Do not blindly merge; integrate qualified sub-tranches only.
+
+## Superseded branches / PRs
+
+- PR #27 superseded by clean mobile-layout PR #35.
+- PR #31 superseded by clean release-status PR #34.
+- PR #28 old bounded-loader branch is superseded conceptually by stacked PR #36; close #28 once #36 is safely established against `main`.
 
 ## Software-only tranches ChatGPT can continue implementing
 
 ### Reliability and project safety
-- [ ] Expand malformed-project fuzzing on native and browser loaders.
-- [ ] Add explicit save/load interruption and atomic-write regressions.
-- [ ] Add crash/recovery simulations that can be performed without physical devices.
-- [ ] Harden disk/permission/storage failure reporting where code paths are testable in CI.
+- [x] Keymap persistence: bounded input + atomic fsync/replace.
+- [ ] Merge recovery archive atomicity (#33).
+- [ ] Merge bounded desktop project/history loaders (#36).
+- [ ] Expand malformed-project fuzzing beyond nested pattern steps.
+- [ ] Add more save/load interruption and autosave failure-path regressions.
+- [ ] Harden disk/permission/storage failure reporting where testable in CI.
 - [ ] Expand plugin subprocess failure/recovery tests.
 - [ ] Add longer CI soak tests with memory/thread/file-descriptor accounting where runner budgets permit.
 
 ### Browser/mobile
-- [ ] Add stronger phone/tablet interaction acceptance checks: safe-area layout, touch targets, orientation changes, scroll trapping, and viewport keyboard pressure where automatable.
-- [ ] Improve unsupported-native-processing disclosure so browser users cannot mistake preserved metadata for active processing.
+- [ ] Merge responsive mobile safe-area/layout hardening (#35).
+- [ ] Merge persistent unsupported-native-processing disclosure (#38).
 - [ ] Continue browser/native project-field parity tests.
 - [ ] Add browser marker/cue/region editing after native marker work is safely integrated.
 - [ ] Continue large-session memory-budget and failure-path tests.
 
 ### DAW editing/workflow
-- [ ] Richer automation curve shapes plus copy/paste tooling.
+- [ ] Merge additive smooth automation curves (#30), preserving all current automation UI/contracts.
+- [ ] Add automation copy/paste and richer editing after curve support is stable.
 - [ ] Clip crossfade handle workflow and realtime/offline equivalence tests.
 - [ ] Track folders and reusable track/project templates.
 - [ ] Expand scene/clip launcher toward a real grid workflow.
 - [ ] DAWproject interchange with bounded parsing and roundtrip tests.
-- [ ] Improve shortcut collision detection and workflow presets.
+- [ ] Continue shortcut collision detection and workflow presets.
 
 ### MIDI
+- [x] Preserve MIDI expression channels for MPE-capable paths.
 - [ ] MIDI output implementation.
 - [ ] MIDI clock output/synchronization implementation.
-- [ ] MPE message path and recorded expression automation.
+- [ ] Full MPE path and recorded expression automation.
 - [ ] Add software loopback tests; leave final hardware acceptance external.
 
 ### Audio analysis/mastering
@@ -74,8 +93,8 @@ Work in small, reviewable tranches. Each fix should include reproducible regress
 - [ ] Expand automated host stress tests around process death, preset/state churn and export failures.
 
 ### Release and commercial hardening
-- [ ] Keep `README.md`, issue #9 and release status synchronized with merged behavior.
-- [ ] Split current release status from historical audit material if the audit becomes ambiguous.
+- [ ] Merge current release-status gate (#34).
+- [ ] Keep `README.md`, issue #9 and current release status synchronized with merged behavior.
 - [ ] Add stale-roadmap / stale-feature-state checks where feasible.
 - [ ] Add purchase entitlement recovery design/code for lost confirmation links/accounts.
 - [ ] Add older-major-version catalog support.
@@ -95,15 +114,16 @@ These remain required but must be performed on real target systems/hardware:
 
 ## Current priority order
 
-1. Reliability / project safety.
-2. Browser/mobile regressions and usability hardening.
-3. Release-truth and CI gates.
-4. Editing/workflow gaps.
-5. MIDI software implementation.
-6. Mastering/analysis correctness.
-7. Plugin-host architecture upgrades.
-8. External hardware/platform qualification.
+1. Finish/merge the currently green-or-running reliability and mobile PRs.
+2. Reliability / project safety.
+3. Browser/mobile regressions and usability hardening.
+4. Release-truth and CI gates.
+5. Editing/workflow gaps.
+6. MIDI software implementation.
+7. Mastering/analysis correctness.
+8. Plugin-host architecture upgrades.
+9. External hardware/platform qualification.
 
 ## Continuation phrase
 
-A future chat request such as **"continue Anharmonic bug bounty"** should be treated as instruction to resume this ledger, inspect current GitHub state, and continue the first safe unchecked software-only item without asking the user to restate the project history.
+A future chat request such as **"continue Anharmonic bug bounty"** should be treated as instruction to resume this ledger, inspect current GitHub state, and continue the dependency graph / first safe unchecked software-only item without asking the user to restate the project history.
