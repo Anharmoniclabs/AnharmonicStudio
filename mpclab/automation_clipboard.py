@@ -98,6 +98,8 @@ def attach_automation_clipboard(window, controller):
         ),
     )
     for command in commands:
-        if command.command_id not in registry.commands:
+        try:
+            registry.get(command.id)
+        except KeyError:
             registry.register(command)
     return commands
