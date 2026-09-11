@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..music import AutomationLane, AutomationPoint, automation_targets
-from .theme import ACCENT, BG2, DIM, FG, LINE
+from ..music import AutomationLane, automation_targets
+from .theme import ACCENT, BG2, DIM, LINE
 
 
 class AutomationCanvas(QWidget):
