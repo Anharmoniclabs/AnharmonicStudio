@@ -27,6 +27,9 @@
   const engines = new Set();
   const originalResume = prototype.resume;
 
+  // AnharmonicAudio is intentionally Object.freeze()'d. Patch the class
+  // prototype instead of replacing the exported constructor, so mobile
+  // compatibility does not violate the public API's immutability contract.
   Object.defineProperty(prototype, '__anharmonicMobileCompat', {
     configurable: false,
     enumerable: false,
@@ -38,6 +41,9 @@
     try {
       return await originalResume.apply(this, args);
     } catch (error) {
+      // iOS can revoke transient user activation while a file picker closes.
+      // Decoding is still legal on a suspended AudioContext, so allow import to
+      // finish and unlock this exact context on the next real user gesture.
       const message = String(error?.message || error || '');
       if (
         this.context?.state === 'suspended'
@@ -50,6 +56,9 @@
     }
   };
 
+  // Safari requires resume() to happen synchronously from a user gesture.
+  // Run in capture phase so a previously-created suspended context is unlocked
+  // before pad, preview, transport, sampler, or file-input handlers run.
   const unlockAudio = () => {
     for (const engine of engines) {
       const context = engine.context;
