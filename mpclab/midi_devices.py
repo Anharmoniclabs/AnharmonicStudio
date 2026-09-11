@@ -302,13 +302,24 @@ class MidiRouter:
         if status >= 0xF0:
             return
         kind, channel = status & 0xF0, status & 15
+        if kind == 0xD0:
+            if len(message) < 2 or type(message[1]) is not int or not 0 <= message[1] < 128:
+                return
+            value = message[1]
+            self.last_event = f"Ch {channel + 1} · Channel pressure · {value}"
+            self.expression([status, value])
+            return
         if len(message) < 3 or any(type(v) is not int or not 0 <= v < 128 for v in message[1:3]):
             return
         number, value = message[1:3]
         settings = self.settings.setdefault(port_id, {})
         if kind == 0xE0:
             self.last_event = f"Ch {channel + 1} · Pitch bend"
-            self.expression([0xE0, number, value])
+            self.expression([status, number, value])
+            return
+        if kind == 0xA0:
+            self.last_event = f"Ch {channel + 1} · Poly pressure {number} · {value}"
+            self.expression([status, number, value])
             return
         if kind == 0x90 and value == 0:
             kind = 0x80
@@ -371,4 +382,4 @@ class MidiRouter:
                 if target not in {"play", "stop", "record"} or value >= 64 > previous:
                     self.control(target, value)
             elif number not in (64, 120, 123):
-                self.expression([0xB0, number, value])
+                self.expression([status, number, value])
