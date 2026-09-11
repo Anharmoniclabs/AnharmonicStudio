@@ -5,7 +5,7 @@ The caller retains Qt/project ownership; these operations receive it explicitly.
 
 from __future__ import annotations
 from PySide6.QtCore import Qt, QRectF, QPointF
-from PySide6.QtGui import QPainter, QPen, QFont, QFontMetrics, QPolygonF
+from PySide6.QtGui import QColor, QPainter, QPen, QFont, QFontMetrics, QPolygonF
 from ..model import Clip
 from .theme import q, TRACK_COLORS, is_light
 from .waveform import draw_peaks
@@ -23,7 +23,9 @@ def paintEvent(owner, ev):
     p.setFont(small)
     fm = QFontMetrics(small)
 
-    last_beat = owner.x_to_beat(w) + 4
+    # Limit work to the exposed viewport even for very distant named markers.
+    first_beat = max(0, int(owner.x_to_beat(ev.rect().left())) - 4)
+    last_beat = owner.x_to_beat(ev.rect().right()) + 4
 
     # The arrangement loop is drawn directly on the ruler and lanes. Drag
     # across the ruler to redefine it; the toolbar switch controls playback.
@@ -39,7 +41,7 @@ def paintEvent(owner, ev):
         p.drawLine(int(lx + lw), 0, int(lx + lw), h)
 
     # bar grid
-    b = 0
+    b = first_beat
     while b <= last_beat:
         x = owner.beat_to_x(b)
         is_bar = b % 4 == 0
@@ -135,6 +137,17 @@ def paintEvent(owner, ev):
         p.setPen(QPen(q("accent"), 2))
         p.drawLine(int(drop_x), RULER_H, int(drop_x), h)
 
+    # Continue named point/range boundaries from the pinned marker lanes.
+    for marker in owner.timeline_markers():
+        for beat in (marker.start_beat, marker.end_beat):
+            if beat is None or not first_beat - 4 <= beat <= last_beat:
+                continue
+            color = QColor(marker.color)
+            color.setAlpha(120)
+            p.setPen(QPen(color, 1, Qt.DashLine))
+            x = int(owner.beat_to_x(beat))
+            p.drawLine(x, RULER_H, x, h)
+
     # header column separator
     p.setPen(QPen(q("line")))
     p.drawLine(HEAD_W, 0, HEAD_W, h)
@@ -154,7 +167,7 @@ def paintEvent(owner, ev):
             QPolygonF([QPointF(lx + lw, 2), QPointF(lx + lw - 7, 2), QPointF(lx + lw, 10)])
         )
     p.setPen(q("dim2"))
-    b = 0
+    b = first_beat - first_beat % 4
     while b <= last_beat:
         if b % 4 == 0:
             x = owner.beat_to_x(b)

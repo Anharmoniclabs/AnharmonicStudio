@@ -9,6 +9,7 @@ def install_application_runtime():
     from .premium_workflows import install_premium_runtime
     from .pro_daw_state import install_pro_daw_state
     from .recording_workflows import install_recording_capture_extensions
+    from .timeline_markers import install_timeline_marker_state
     from .workflow_organization import install_organization_state
 
     install_premium_runtime()
@@ -18,6 +19,7 @@ def install_application_runtime():
     install_plugin_chain_runtime()
     install_recording_capture_extensions()
     install_mastering_runtime()
+    install_timeline_marker_state()
 
 
 def attach_application_features(window):
@@ -31,6 +33,7 @@ def attach_application_features(window):
     from .routing_ui import attach_routing_ui
     from .take_comping import attach_take_comping
     from .ui.mastering import attach_mastering_workspace
+    from .ui.timeline_markers import attach_timeline_markers
     from .workflow_compat import restore_unmanaged_legacy_shortcuts
     from .workflow_organization import attach_organization_workflows
 
@@ -44,5 +47,6 @@ def attach_application_features(window):
     attach_mastering_workspace(window, controller)
     attach_organization_workflows(window, controller)
     attach_dawproject_interchange(window, controller)
+    attach_timeline_markers(window, controller)
     restore_unmanaged_legacy_shortcuts(controller)
     return controller
