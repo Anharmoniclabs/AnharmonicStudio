@@ -26,6 +26,7 @@ from ..model import (
     uid,
     safe_filename,
 )
+from ..project_io import load_project_file
 from ..export import ExportJob
 from . import theme
 from .theme import stylesheet
@@ -239,7 +240,7 @@ def load_project_path(window, path: Path, *, prepare_patch, clear_session: bool 
         window.status.showMessage("Save or discard the vocal take before opening a project", 5000)
         return False
     try:
-        project = Project.load(Path(path))
+        project = load_project_file(Path(path))
         prepare_patch(project.synth)
     except Exception as exc:
         QMessageBox.warning(window, "Load failed", str(exc))
