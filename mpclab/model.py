@@ -18,7 +18,8 @@ from .project_migrations import legacy_mixer_track_id, migrate_project_document
 PADS_PER_BANK = 16
 BANKS = 4
 NPADS = PADS_PER_BANK * BANKS
-NTRACKS = 8
+NTRACKS = 8  # Legacy/default mixer size, never a runtime routing limit.
+MAX_TRACKS = 128
 
 # Classic 4x4 sampler layout: pad 1 sits bottom-left. Display row 0 is the top.
 # Pads are played from the numeric keypad, which no other binding touches — the
@@ -491,12 +492,44 @@ class Project:
         return self.pads[index]
 
     def _validate_track_ids(self) -> None:
+        if not isinstance(self.tracks, list) or not 1 <= len(self.tracks) <= MAX_TRACKS:
+            raise ValueError(f"project mixer must contain 1 to {MAX_TRACKS} tracks")
         ids: set[str] = set()
         for track in self.tracks:
             track.validate()
             if track.id in ids:
                 raise ValueError("mixer track ids must be unique")
             ids.add(track.id)
+
+    def add_track(self, name: str | None = None) -> Track:
+        """Append an independent mixer destination without changing existing routes."""
+        self._validate_track_ids()
+        if len(self.tracks) >= MAX_TRACKS:
+            raise ValueError(f"project supports at most {MAX_TRACKS} mixer tracks")
+        if name is not None and (not isinstance(name, str) or not name.strip()):
+            raise ValueError("mixer track name must be nonempty text")
+        track = Track(name=name.strip() if name is not None else f"TRK {len(self.tracks) + 1}")
+        self.tracks.append(track)
+        return track
+
+    def validate_track_index(self, index: int, label: str = "track output") -> int:
+        """Fail closed instead of silently rerouting malformed/high-index channels."""
+        if type(index) is not int or not 0 <= index < len(self.tracks):
+            raise ValueError(f"{label} is outside the mixer")
+        return index
+
+    def _validate_track_references(self) -> None:
+        self.validate_track_index(self.synth.track, "synth output")
+        self.validate_track_index(self.vocal_record.mixer_track, "vocal recording output")
+        for pad in self.pads:
+            self.validate_track_index(pad.track, "pad output")
+        for row in self.rows:
+            self.validate_track_index(row.record_track, "track recording output")
+            for clip in row.clips:
+                self.validate_track_index(clip.track, "clip output")
+        for lane in self.automation:
+            if lane.target.startswith("track:"):
+                self.validate_track_index(int(lane.target.split(":")[1]), "automation output")
 
     def track_index(self, track_id: str) -> int:
         """Resolve a persisted identity outside the realtime callback."""
@@ -527,6 +560,7 @@ class Project:
     # ── persistence ──────────────────────────────────────────
     def to_dict(self) -> dict:
         self._validate_track_ids()
+        self._validate_track_references()
         d = asdict(self)
         d["format_version"] = PROJECT_FORMAT_VERSION
         # JSON object keys must be strings; keep steps readable.
@@ -611,7 +645,7 @@ class Project:
         if any(not isinstance(value, list) for value in slices_data.values()):
             raise ValueError("project slice entries must be JSON arrays")
         pads_data = records("pads", NPADS)
-        tracks_data = records("tracks", NTRACKS)
+        tracks_data = records("tracks", MAX_TRACKS)
         patterns_data = records("patterns", 1_024)
         rows_data = records("rows", 4_096)
         vocal_comps_data = records("vocal_comps", 4_096)
@@ -679,7 +713,8 @@ class Project:
             fields = {k: v for k, v in t.items() if k in Track.__annotations__ and k != "fx"}
             tracks.append(Track(fx=_from_dict(TrackFX, t.get("fx")), **fields))
         defaults = _default_tracks()
-        proj.tracks = (tracks + defaults[len(tracks) :])[:NTRACKS]
+        # Retain legacy short/missing-list defaults, but never truncate added tracks.
+        proj.tracks = tracks + defaults[len(tracks) :]
         proj._validate_track_ids()
 
         pats = []
@@ -702,15 +737,12 @@ class Project:
                 )
             )
         proj.patterns = pats or [Pattern()]
-        proj.automation = read_automation(d.get("automation", []))
+        proj.automation = read_automation(d.get("automation", []), track_count=len(proj.tracks))
 
         rows = []
         for row_index, r in enumerate(rows_data):
-            try:
-                record_track = int(r.get("record_track", 3))
-            except (ValueError, TypeError, OverflowError) as exc:
-                raise ValueError("track recording output must be a mixer channel") from exc
-            if not 0 <= record_track < NTRACKS:
+            record_track = r.get("record_track", 3)
+            if type(record_track) is not int or not 0 <= record_track < len(proj.tracks):
                 raise ValueError("track recording output is outside the mixer")
             raw_clips = r.get("clips")
             if raw_clips is None:
@@ -788,6 +820,7 @@ class Project:
         proj.current_pattern = (
             cur if any(p.id == cur for p in proj.patterns) else proj.patterns[0].id
         )
+        proj._validate_track_references()
         return proj
 
     @classmethod

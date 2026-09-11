@@ -177,6 +177,9 @@ class VocalPanel(WindowClient, QWidget):
         self.count_in.setCurrentIndex(max(0, self.count_in.findData(rec.count_in_bars)))
         self.auto_place.setChecked(rec.auto_place)
         self.row_box.setValue(rec.playlist_row + 1)
+        self.track_box.clear()
+        for index, track in enumerate(self.app.project.tracks):
+            self.track_box.addItem(f"{index + 1} · {track.name}", index)
         self.track_box.setCurrentIndex(max(0, self.track_box.findData(rec.mixer_track)))
         self.key_box.setCurrentText(tune.key)
         self.scale_box.setCurrentText(tune.scale)

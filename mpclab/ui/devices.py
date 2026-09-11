@@ -428,7 +428,7 @@ class DevicesDialog(QDialog):
             self.learn_target.addItem(label, value)
         for index in range(16):
             self.learn_target.addItem(f"Pad {index + 1}", f"pad:{index}")
-        for index in range(8):
+        for index in range(len(controller.app.project.tracks)):
             self.learn_target.addItem(f"Track {index + 1} volume", f"track:{index}")
         learn_row = QHBoxLayout()
         learn_row.addWidget(self.learn_target, 1)
@@ -601,6 +601,16 @@ class DevicesDialog(QDialog):
 
     def refresh(self):
         controller = self.controller
+        track_count = len(controller.app.project.tracks)
+        if self.learn_target.count() != 20 + track_count:
+            selected_target = self.learn_target.currentData()
+            self.learn_target.blockSignals(True)
+            while self.learn_target.count() > 20:
+                self.learn_target.removeItem(self.learn_target.count() - 1)
+            for index in range(track_count):
+                self.learn_target.addItem(f"Track {index + 1} volume", f"track:{index}")
+            self.learn_target.setCurrentIndex(max(0, self.learn_target.findData(selected_target)))
+            self.learn_target.blockSignals(False)
         ports = controller.service.ports
         if ports != self._ports:
             selected = self._selected_port()

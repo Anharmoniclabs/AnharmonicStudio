@@ -20,9 +20,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QSizePolicy,
 )
-from ..model import (
-    NTRACKS,
-)
 from .playlist import PlaylistView
 from .layout_helpers import scrolling_bar, small, yielding
 
@@ -201,7 +198,7 @@ def _build_song(window) -> QWidget:
     cl.addWidget(window.clip_gain)
     cl.addWidget(small("MIXER"))
     window.clip_track = QComboBox()
-    for i in range(NTRACKS):
+    for i in range(len(window.project.tracks)):
         window.clip_track.addItem(str(i + 1), i)
     window.clip_track.currentIndexChanged.connect(window._selected_clip_track)
     cl.addWidget(window.clip_track)

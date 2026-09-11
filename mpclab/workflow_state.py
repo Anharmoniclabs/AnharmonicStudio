@@ -10,7 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 import math
 
-from .model import Project
+from .model import MAX_TRACKS, Project
 from .workflow_routing import MAX_ROUTING_BUSES
 
 
@@ -106,7 +106,7 @@ def _validate_routing(value) -> dict:
             raise ValueError("routing bus output does not exist")
 
     raw_outputs = value.get("track_outputs", {})
-    if not isinstance(raw_outputs, dict) or len(raw_outputs) > 64:
+    if not isinstance(raw_outputs, dict) or len(raw_outputs) > MAX_TRACKS:
         raise ValueError("track outputs must be a bounded object")
     track_outputs = {}
     for track_id, target in raw_outputs.items():
@@ -287,7 +287,7 @@ def validate_workflow(value) -> dict:
         if not isinstance(item, dict):
             raise ValueError("track group must be an object")
         members = item.get("members", [])
-        if not isinstance(members, list) or len(members) > 64:
+        if not isinstance(members, list) or len(members) > MAX_TRACKS:
             raise ValueError("track group members are invalid")
         checked_groups.append(
             {
