@@ -1,6 +1,6 @@
 """User-remappable workstation commands and bounded multi-action macros.
 
-The GUI historically bound keys directly to slots.  This module provides the
+The GUI historically bound keys directly to slots. This module provides the
 stable action layer needed by keyboard presets, MIDI learn, menus and command
 search without making any of those surfaces own the implementation.
 """
@@ -9,11 +9,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Callable, Iterable
 
 
 CommandCallback = Callable[[], object]
+MAX_BINDING_FILE_BYTES = 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -100,6 +103,29 @@ def _valid_shortcut(value: object) -> str:
     if len(text) > 80 or "\n" in text or "\r" in text:
         raise ValueError("shortcut is invalid")
     return text
+
+
+def _read_binding_document(path: Path) -> dict:
+    try:
+        with path.open("rb") as handle:
+            raw = handle.read(MAX_BINDING_FILE_BYTES + 1)
+    except OSError:
+        raise
+    if len(raw) > MAX_BINDING_FILE_BYTES:
+        raise ValueError("workflow binding file exceeds the 1 MiB safety limit")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("workflow binding file must be UTF-8 JSON") from exc
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"workflow binding file is not valid JSON (line {exc.lineno}, column {exc.colno})"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ValueError("workflow binding file must contain a JSON object")
+    return payload
 
 
 class CommandRegistry:
@@ -243,15 +269,25 @@ class CommandRegistry:
         if not self.path:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(self.path.suffix + ".tmp")
-        temporary.write_text(json.dumps(self.payload(), indent=2), encoding="utf-8")
-        temporary.replace(self.path)
+        payload = json.dumps(self.payload(), indent=2)
+        fd, temporary = tempfile.mkstemp(
+            prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent
+        )
+        temporary_path = Path(temporary)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, self.path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
     def load(self) -> None:
         if not self.path or not self.path.exists():
             return
-        payload = json.loads(self.path.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict) or payload.get("version") != self.VERSION:
+        payload = _read_binding_document(self.path)
+        if payload.get("version") != self.VERSION:
             raise ValueError("unsupported workflow binding file")
         preset = payload.get("preset", "Anharmonic / FL-style")
         if preset not in PRESET_BINDINGS and preset != "Custom":
