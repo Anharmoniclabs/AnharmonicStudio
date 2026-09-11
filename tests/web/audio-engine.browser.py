@@ -186,7 +186,7 @@ def main():
               });
               await test('lookahead uses audio clock, changes tempo without resetting beat, cancels stop', () => {
                 const { project, engine } = factory(); project.patterns[0].steps = { 0: { 0: 1, 1: 1, 2: 1 } };
-                engine.context = { currentTime: 0 }; engine.graph = { sync() {} }; engine.playing = true; engine.mode = 'pattern'; engine.tempo = 120; engine.project = project; engine.anchorTime = .04; engine.anchorBeat = 0; engine.cursor = 0;
+                engine.context = { currentTime: 0 }; engine.graph = { trackBuses: Array(project.tracks.length), sync() {} }; engine.playing = true; engine.mode = 'pattern'; engine.tempo = 120; engine.project = project; engine.anchorTime = .04; engine.anchorBeat = 0; engine.cursor = 0;
                 const scheduled = []; engine.schedule = (event, when) => scheduled.push({ beat: event.beat, when });
                 engine.tick(); equal(scheduled[0].when, .04); engine.context.currentTime = .1; engine.tick(); equal(scheduled[1].when, .165);
                 engine.context.currentTime = .15; project.bpm = 60; engine.sync(); const position = engine.anchorBeat; equal(position, .236); engine.tick(); engine.context.currentTime = .4; engine.tick();
@@ -195,7 +195,7 @@ def main():
               });
               await test('song loops schedule the next cycle ahead on the same audio clock', () => {
                 const { project, engine } = factory(); project.patterns[0].steps = { 0: { 0: 1 } }; project.rows[0].clips = [{ kind: 'pattern', ref: project.patterns[0].id, start_beat: 0, length_beats: 4, gain: 1 }]; project.loop_enabled = true; project.loop_start = 0; project.loop_end = 4;
-                engine.context = { currentTime: 1.95 }; engine.graph = { sync() {} }; engine.playing = true; engine.mode = 'song'; engine.tempo = 120; engine.project = project; engine.anchorTime = .04; engine.anchorBeat = 0; engine.cursor = 3.8;
+                engine.context = { currentTime: 1.95 }; engine.graph = { trackBuses: Array(project.tracks.length), sync() {} }; engine.playing = true; engine.mode = 'song'; engine.tempo = 120; engine.project = project; engine.anchorTime = .04; engine.anchorBeat = 0; engine.cursor = 3.8;
                 const scheduled = []; engine.schedule = (event, when) => { scheduled.push({ beat: event.beat, when }); }; engine.tick();
                 assert(scheduled.length === 1, 'next loop event was not scheduled in lookahead'); equal(scheduled[0].when, 2.04); equal(engine.anchorTime, .04);
               });
@@ -205,7 +205,7 @@ def main():
                 engine.registerVoice(first); engine.registerVoice(second); assert(engine.voices.size === 2, 'future scheduler pruned an audible source'); engine.stop(); assert(stopped === 2, 'stop omitted an audible source');
               });
               await test('tempo changes retime sustained gates while retaining musical position', () => {
-                const { project, engine } = factory(); engine.context = { currentTime: .5 }; engine.graph = { sync() {} }; engine.playing = true; engine.tempo = 120; engine.project = project; engine.anchorTime = 0; engine.anchorBeat = 0;
+                const { project, engine } = factory(); engine.context = { currentTime: .5 }; engine.graph = { trackBuses: Array(project.tracks.length), sync() {} }; engine.playing = true; engine.tempo = 120; engine.project = project; engine.anchorTime = 0; engine.anchorBeat = 0;
                 let retimed = 0; engine.voices.add({ when: 0, end: 3, endBeat: 4, retime(time) { retimed = time; }, stop() {} }); project.bpm = 60; engine.sync(); equal(retimed, .508 + (4 - 1.016));
               });
               await test('future voice eviction stays bounded and Stop owns pending cancellations', () => {
@@ -269,13 +269,31 @@ def main():
                   const clip = { id: 'active-audio', kind: 'audio', ref: 'tone', start_beat: 0, length_beats: 2, gain: 1, track: 0, loop: false }; row.clips = [clip];
                   // Separate stereo channels expose accidental cancellation of
                   // a live pad preview that is unrelated to the arrangement.
-                  const graph = { trackBuses: [{ input: context.destination }], sync() {} }; const pool = engine.voices;
+                  const graph = { trackBuses: Array.from({ length: project.tracks.length }, () => ({ input: context.destination })), sync() {} }; const pool = engine.voices;
                   const clipVoice = engine.bufferVoice(buffers.get('tone'), { start: 0, end: 1, gain: 1, pan: -1, attack: 0, release: 0, track: 0 }, { when: 0, project, row: row.id, clipId: clip.id }, context, graph, pool, true);
                   const preview = engine.bufferVoice(buffers.get('tone'), { start: 0, end: 1, gain: 1, pan: 1, attack: 0, release: 0, track: 0 }, { when: 0, project, pad: 0 }, context, graph, pool, true);
                   engine.context = { currentTime: .2 }; engine.graph = graph; engine.playing = true; engine.tempo = project.bpm; engine.project = { ...project }; engine.anchorTime = 0;
                   if (edit === 'mute') clip.mute = true; else row.clips = [];
                   engine.sync(); assert(clipVoice.end <= .209, `${edit} left the clip active`); assert(preview.end === 1, `${edit} canceled unrelated preview`);
                   const output = await pcm(AnharmonicAudio.encodeWav(await context.startRendering())); equal(output.peak(.22, .4, 0), 0); assert(output.peak(.22, .4, 1) > .3, 'unrelated preview was silenced');
+                }
+              });
+              await test('track 128 renders independently of track eight and retains mute', async () => {
+                const { project, engine } = factory();
+                project.tracks = Array.from({ length: 128 }, (_, i) => ({ ...project.tracks[i % 8], id: `channel-${i}` }));
+                project.pads[0].track = 127; project.tracks[7].gain = 0; project.tracks[127].gain = .25;
+                project.patterns[0].steps = { 0: { 0: 1 } };
+                let output = await pcm(await engine.render('pattern', { tail: 0 }));
+                equal(output.at(.1), .4 * .25 / Math.sqrt(2));
+                project.tracks[127].mute = true;
+                output = await pcm(await engine.render('pattern', { tail: 0 })); equal(output.peak(), 0);
+              });
+              await test('invalid output routes cannot alias a different mixer channel', () => {
+                const { engine } = factory(); const graph = { trackBuses: Array.from({ length: 128 }, (_, i) => ({ input: i })) };
+                assert(engine.output(127, graph) === 127, 'high route was redirected');
+                for (const route of [128, -1, .5, '127', true]) {
+                  let threw = false; try { engine.output(route, graph); } catch { threw = true; }
+                  assert(threw, `invalid route ${route} was silently accepted`);
                 }
               });
               return results;

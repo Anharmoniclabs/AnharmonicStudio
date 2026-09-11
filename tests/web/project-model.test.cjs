@@ -7,6 +7,47 @@ const sandbox = { window: {}, crypto: require('node:crypto').webcrypto };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../website/app/project-model.js'), 'utf8'), sandbox);
 const { ProjectStore, defaultProject } = sandbox.window.AnharmonicProject;
 
+test('128 independent tracks and high routes survive browser and desktop JSON roundtrip', () => {
+  const project = defaultProject();
+  project.tracks = Array.from({ length: 128 }, (_, index) => ({ ...project.tracks[index % 8], id: `channel-${index}`, name: `Channel ${index + 1}`, gain: index / 128 }));
+  project.pads[0].track = 127;
+  project.synth.track = 126;
+  project.rows[0].record_track = 125;
+  project.rows[0].clips = [{ kind: 'audio', ref: 'sample', start_beat: 0, length_beats: 2, track: 124 }];
+  const store = new ProjectStore(project);
+  store.setTrack(127, { gain: .42, mute: true });
+  const restored = new ProjectStore(JSON.parse(JSON.stringify(store.toJSON())));
+  assert.equal(restored.project.tracks.length, 128);
+  assert.equal(new Set(restored.project.tracks.map(track => track.id)).size, 128);
+  assert.equal(restored.project.tracks[127].gain, .42);
+  assert.equal(restored.project.tracks[7].gain, 7 / 128);
+  assert.equal(restored.project.pads[0].track, 127);
+  assert.equal(restored.project.synth.track, 126);
+  assert.equal(restored.project.rows[0].record_track, 125);
+  assert.equal(restored.project.rows[0].clips[0].track, 124);
+  const before = JSON.stringify(restored.toJSON());
+  for (const edit of [() => restored.addTrack(), () => restored.setTrack(128, { gain: 1 }), () => restored.transact('bad route', p => { p.pads[0].track = 128; })]) {
+    assert.throws(edit);
+    assert.equal(JSON.stringify(restored.toJSON()), before);
+    assert.equal(restored.history.length, 0);
+  }
+  assert.throws(() => new ProjectStore({ tracks: Array.from({ length: 129 }, (_, i) => ({ id: `overflow-${i}` })) }));
+});
+
+test('adding tracks retains existing IDs and provides atomic undo and redo', () => {
+  const store = new ProjectStore();
+  const first = store.project.tracks.map(track => track.id);
+  const id = store.addTrack('Strings');
+  assert.equal(store.project.tracks.length, 9);
+  assert.equal(store.project.tracks[8].id, id);
+  assert.equal(store.project.tracks[8].name, 'Strings');
+  assert.deepEqual(store.project.tracks.slice(0, 8).map(track => track.id), first);
+  store.undo(); assert.equal(store.project.tracks.length, 8);
+  store.redo(); assert.equal(store.project.tracks[8].id, id);
+  assert.throws(() => store.addTrack('x'.repeat(201)));
+  assert.equal(store.project.tracks.length, 9);
+});
+
 test('desktop current pattern, MIDI zero, silence and clip metadata survive roundtrip', () => {
   const project = defaultProject();
   const second = { ...project.patterns[0], id: 'second', notes: [{ pitch: 0, start: 0, duration: 1, velocity: .8, pad: 0 }] };
