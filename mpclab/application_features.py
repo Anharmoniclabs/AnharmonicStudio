@@ -9,8 +9,10 @@ def install_application_runtime():
     from .premium_workflows import install_premium_runtime
     from .pro_daw_state import install_pro_daw_state
     from .recording_workflows import install_recording_capture_extensions
+    from .workflow_organization import install_organization_state
 
     install_premium_runtime()
+    install_organization_state()
     install_pro_daw_state()
     install_automation_mode_state()
     install_plugin_chain_runtime()
@@ -29,6 +31,7 @@ def attach_application_features(window):
     from .take_comping import attach_take_comping
     from .ui.mastering import attach_mastering_workspace
     from .workflow_compat import restore_unmanaged_legacy_shortcuts
+    from .workflow_organization import attach_organization_workflows
 
     controller = attach_premium_workflows(window)
     attach_routing_ui(window, controller)
@@ -38,5 +41,6 @@ def attach_application_features(window):
     attach_automation_modes(window, controller)
     attach_automation_clipboard(window, controller)
     attach_mastering_workspace(window, controller)
+    attach_organization_workflows(window, controller)
     restore_unmanaged_legacy_shortcuts(controller)
     return controller
