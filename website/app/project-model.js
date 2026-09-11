@@ -4,6 +4,7 @@
   const FORMAT_VERSION = 5;
   const PAD_COUNT = 64;
   const TRACK_COUNT = 8;
+  const MAX_TRACKS = 128;
   const MAX_DOCUMENT_BYTES = 32 * 1024 * 1024;
   const MAX_HISTORY_BYTES = 32 * 1024 * 1024;
   const uid = prefix => `${prefix || 'id'}-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
@@ -16,8 +17,8 @@
     }));
   }
 
-  function defaultTracks() {
-    return Array.from({ length: TRACK_COUNT }, (_, index) => ({
+  function defaultTracks(count = TRACK_COUNT) {
+    return Array.from({ length: count }, (_, index) => ({
       id: `mixer:${String(index).padStart(2, '0')}`, name: index === 0 ? 'Drums' : `Track ${String(index + 1).padStart(2, '0')}`,
       gain: 0.85, pan: 0, mute: false, solo: false,
       fx: { low: 0, mid: 0, mid_freq: 900, high: 0, filter_type: 'off', cutoff: 20000, resonance: 0.15, drive: 0, comp: false, threshold: -18, ratio: 4, attack: 0.01, release: 0.12, makeup: 0, send_delay: 0, send_reverb: 0 }
@@ -160,12 +161,15 @@
     number(document.format_version, 0, 0, FORMAT_VERSION, true);
     const source = clone(document);
     const base = defaultProject(string(source.name, 'Untitled project'));
+    const suppliedTracks = records(source.tracks, 'tracks', MAX_TRACKS);
+    const trackCount = Math.max(TRACK_COUNT, suppliedTracks.length);
+    base.tracks = defaultTracks(trackCount);
     const normalized = { ...base, ...source, format_version: FORMAT_VERSION,
       bpm: number(source.bpm ?? source.tempo, 110, 20, 400), master: number(source.master, base.master, 0, 2), swing: number(source.swing, 0, 0, 100) };
     normalized.pads = records(source.pads, 'pads', PAD_COUNT).map((pad, index) => {
       const result = numericFields({ ...base.pads[index], ...pad, id: identity(pad.id, base.pads[index].id) }, {
         start: [0, 0, 1000000], end: [0, 0, 1000000], gain: [1, 0, 4], pan: [0, -1, 1], pitch: [0, -96, 96], sync_beats: [0, 0, 1000000],
-        attack: [.002, 0, 60], release: [.03, 0, 60], loop_crossfade: [.005, 0, 60], choke: [0, 0, 8, true], track: [0, 0, TRACK_COUNT - 1, true], root_note: [60, 0, 127, true]
+        attack: [.002, 0, 60], release: [.03, 0, 60], loop_crossfade: [.005, 0, 60], choke: [0, 0, 8, true], track: [0, 0, trackCount - 1, true], root_note: [60, 0, 127, true]
       });
       result.sample_id = pad.sample_id === null ? '' : string(pad.sample_id);
       result.name = string(pad.name, base.pads[index].name);
@@ -184,7 +188,7 @@
         pitch: number(note.pitch, 60, 0, 127, true), start: number(note.start, 0, 0, 1000000), duration: number(note.duration, .25, Number.MIN_VALUE, 4096), velocity: number(note.velocity, .8, Number.MIN_VALUE, 1),
         pad: note.pad === undefined || note.pad === null ? null : number(note.pad, 0, 0, PAD_COUNT - 1, true) })), 'note')
     })), 'pattern');
-    normalized.tracks = records(source.tracks, 'tracks', TRACK_COUNT).map((track, index) => {
+    normalized.tracks = suppliedTracks.map((track, index) => {
       if (source.format_version === FORMAT_VERSION && !track.id) throw new Error('Mixer track ID required in project format 5');
       const result = numericFields({ ...base.tracks[index], ...track, id: identity(track.id, base.tracks[index].id) }, { gain: [.85, 0, 4], pan: [0, -1, 1] });
       result.name = string(track.name, base.tracks[index].name);
@@ -197,24 +201,24 @@
       result.fx.filter_type = choice(result.fx.filter_type, 'off', ['off', 'lowpass', 'highpass']);
       return result;
     });
-    while (normalized.tracks.length < TRACK_COUNT) normalized.tracks.push(base.tracks[normalized.tracks.length]);
+    while (normalized.tracks.length < trackCount) normalized.tracks.push(base.tracks[normalized.tracks.length]);
     unique(normalized.tracks, 'mixer track');
     normalized.media = unique(records(source.media, 'media', 10000).map(media => ({ ...media, id: identity(media.id, uid('sample')), name: string(media.name, 'Untitled sample'), mime: string(media.mime, 'audio/wav', 128),
       duration: number(media.duration, 0, 0, 1000000), sample_rate: number(media.sample_rate, 0, 0, 384000, true), size: number(media.size, 0, 0, Number.MAX_SAFE_INTEGER, true) })), 'media');
     normalized.synth = numericFields({ ...base.synth, ...object(source.synth ?? {}, 'synth') }, {
       osc_mix: [.42, 0, 1], osc2_octave: [0, -4, 4, true], detune: [8, 0, 1200], sub: [.18, 0, 1], noise: [.015, 0, 1],
       attack: [.025, 0, 60], decay: [.32, 0, 60], sustain: [.68, 0, 1], release: [.65, 0, 60], cutoff: [2400, 20, 24000], resonance: [.28, 0, 1],
-      drive: [.18, 0, 1], spread: [.42, 0, 1], lfo_rate: [.32, 0, 100], lfo_pitch: [2, 0, 1200], volume: [.42, 0, 2], track: [2, 0, TRACK_COUNT - 1, true]
+      drive: [.18, 0, 1], spread: [.42, 0, 1], lfo_rate: [.32, 0, 100], lfo_pitch: [2, 0, 1200], volume: [.42, 0, 2], track: [2, 0, trackCount - 1, true]
     });
     for (const key of ['osc1', 'osc2']) normalized.synth[key] = choice(normalized.synth[key], 'saw', ['saw', 'sawtooth', 'square', 'sine', 'triangle', 'pulse', 'noise']);
     normalized.arp = numericFields({ ...base.arp, ...object(source.arp ?? {}, 'arp') }, { rate_beats: [.25, 1 / 128, 16], octaves: [1, 1, 8, true], gate: [.72, .01, 1] });
     normalized.arp.enabled = boolean(normalized.arp.enabled);
     normalized.arp.mode = choice(normalized.arp.mode, 'up', ['up', 'down', 'up/down', 'random']);
     normalized.rows = unique(records(source.rows, 'rows', 4096).map(row => ({ ...row, id: identity(row.id, uid('row')), name: string(row.name, 'Track'),
-      mute: boolean(row.mute), solo: boolean(row.solo), record_armed: boolean(row.record_armed), record_source: choice(row.record_source, 'audio', ['audio', 'notes']), record_track: number(row.record_track, 3, 0, TRACK_COUNT - 1, true),
+      mute: boolean(row.mute), solo: boolean(row.solo), record_armed: boolean(row.record_armed), record_source: choice(row.record_source, 'audio', ['audio', 'notes']), record_track: number(row.record_track, 3, 0, trackCount - 1, true),
       clips: unique(records(row.clips, 'clips', 100000).map(clip => ({ ...clip, id: identity(clip.id, uid('clip')), kind: choice(clip.kind, 'pattern', ['pattern', 'audio']), ref: string(clip.ref),
         start_beat: number(clip.start_beat, 0, 0, 1000000), length_beats: number(clip.length_beats, 4, 0, 1000000), offset: number(clip.offset, 0, 0, 1000000), source_length: number(clip.source_length, 0, 0, 1000000),
-        gain: number(clip.gain, 1, 0, 4), track: number(clip.track, 3, 0, TRACK_COUNT - 1, true), loop: boolean(clip.loop), loop_crossfade: number(clip.loop_crossfade, .005, 0, 60), reverse: boolean(clip.reverse), mute: boolean(clip.mute) })), 'clip')
+        gain: number(clip.gain, 1, 0, 4), track: number(clip.track, 3, 0, trackCount - 1, true), loop: boolean(clip.loop), loop_crossfade: number(clip.loop_crossfade, .005, 0, 60), reverse: boolean(clip.reverse), mute: boolean(clip.mute) })), 'clip')
     })), 'row');
     if (source.rows === undefined) normalized.rows = defaultRows();
     numericFields(normalized, { loop_start: [0, 0, 1000000], loop_end: [8, 0, 1000000] });
@@ -301,7 +305,14 @@
       });
     }
     setPad(pad, changes) { number(pad, 0, 0, PAD_COUNT - 1, true); this.transact('edit pad', document => { document.pads[pad] = { ...document.pads[pad], ...changes }; }); }
-    setTrack(track, changes) { number(track, 0, 0, TRACK_COUNT - 1, true); this.transact('edit mixer track', document => { document.tracks[track] = { ...document.tracks[track], ...changes }; }); }
+    setTrack(track, changes) { number(track, 0, 0, this.document.tracks.length - 1, true); this.transact('edit mixer track', document => { document.tracks[track] = { ...document.tracks[track], ...changes }; }); }
+    addTrack(name) {
+      if (this.document.tracks.length >= MAX_TRACKS) throw new Error('This project already contains 128 mixer tracks');
+      const track = defaultTracks(this.document.tracks.length + 1).at(-1);
+      track.id = uid('mixer'); track.name = string(name, track.name, 200);
+      this.transact('add mixer track', document => document.tracks.push(track));
+      return track.id;
+    }
     setRow(row, changes) { number(row, 0, 0, this.document.rows.length - 1, true); this.transact('edit arrangement row', document => { document.rows[row] = { ...document.rows[row], ...changes }; }); }
     setSynth(changes) { this.transact('edit synth patch', document => { document.synth = { ...document.synth, ...changes }; }); }
     setArp(changes) { this.transact('edit arpeggiator', document => { document.arp = { ...document.arp, ...changes }; }); }
@@ -321,5 +332,5 @@
     load(document) { this.document = normalize(document); this.history = []; this.future = []; this.notify(); }
   }
 
-  window.AnharmonicProject = Object.freeze({ FORMAT_VERSION, PAD_COUNT, TRACK_COUNT, defaultProject, normalize, ProjectStore });
+  window.AnharmonicProject = Object.freeze({ FORMAT_VERSION, PAD_COUNT, TRACK_COUNT, MAX_TRACKS, defaultProject, normalize, ProjectStore });
 })();
