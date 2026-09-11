@@ -5,6 +5,7 @@ import json
 import pytest
 
 from mpclab.model import Project
+from mpclab import model as model_module
 from mpclab import project_io
 
 
@@ -51,3 +52,33 @@ def test_bounded_history_loader_rejects_oversized_history(tmp_path, monkeypatch)
 
     with pytest.raises(ValueError, match="undo history exceeds the 64 bytes safety limit"):
         project_io.load_history_file(path)
+
+
+def test_atomic_save_keeps_previous_project_when_replace_fails(tmp_path, monkeypatch):
+    path = tmp_path / "project.json"
+    Project(name="old").save(path)
+    previous = path.read_bytes()
+
+    def fail_replace(_source, _destination):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(model_module.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated replace failure"):
+        Project(name="new").save(path)
+
+    assert path.read_bytes() == previous
+    assert not list(tmp_path.glob(".project.json.*.tmp"))
+
+
+def test_atomic_save_cleans_temporary_file_when_fsync_fails(tmp_path, monkeypatch):
+    path = tmp_path / "project.json"
+
+    def fail_fsync(_fd):
+        raise OSError("simulated fsync failure")
+
+    monkeypatch.setattr(model_module.os, "fsync", fail_fsync)
+    with pytest.raises(OSError, match="simulated fsync failure"):
+        Project(name="unsaved").save(path)
+
+    assert not path.exists()
+    assert not list(tmp_path.glob(".project.json.*.tmp"))
