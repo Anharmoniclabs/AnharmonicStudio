@@ -98,6 +98,29 @@ class AutomationCanvas(QWidget):
     def mouseReleaseEvent(self, event):
         self.drag_beat = None
 
+    def _draw_lane_path(self, path, lane):
+        """Draw the same curve shape evaluated by the shared automation lane."""
+        first = lane.points[0]
+        path.moveTo(self.point(0, first.value))
+        if lane.interpolation == "smooth" and len(lane.points) > 1:
+            if first.beat > 0:
+                path.lineTo(self.point(first.beat, first.value))
+            for left, right in zip(lane.points, lane.points[1:], strict=False):
+                span = right.beat - left.beat
+                for sample in range(1, 17):
+                    beat = left.beat + span * sample / 16
+                    value = float(lane.values([beat])[0])
+                    path.lineTo(self.point(beat, value))
+            previous = lane.points[-1].value
+        else:
+            previous = first.value
+            for point in lane.points:
+                if lane.interpolation == "step":
+                    path.lineTo(self.point(point.beat, previous))
+                path.lineTo(self.point(point.beat, point.value))
+                previous = point.value
+        path.lineTo(self.point(self.panel.bars.value() * 4, previous))
+
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
@@ -122,14 +145,7 @@ class AutomationCanvas(QWidget):
         p.setClipRect(r.adjusted(-6, -6, 6, 6))
         if lane and lane.points:
             path = QPainterPath()
-            path.moveTo(self.point(0, lane.points[0].value))
-            previous = lane.points[0].value
-            for point in lane.points:
-                if lane.interpolation == "step":
-                    path.lineTo(self.point(point.beat, previous))
-                path.lineTo(self.point(point.beat, point.value))
-                previous = point.value
-            path.lineTo(self.point(self.panel.bars.value() * 4, previous))
+            self._draw_lane_path(path, lane)
             p.setPen(QPen(q("accent2") if lane.enabled else q("dim"), 2.5))
             p.drawPath(path)
             p.setBrush(q("accent"))
@@ -181,6 +197,7 @@ class AutomationPanel(WindowClient, QWidget):
         self.interpolation = QComboBox()
         self.interpolation.addItem("Linear ramp", "linear")
         self.interpolation.addItem("Hold / step", "step")
+        self.interpolation.addItem("Smooth S-curve", "smooth")
         self.interpolation.currentIndexChanged.connect(self.set_interpolation)
         top.addWidget(self.interpolation)
         top.addStretch()
@@ -244,7 +261,8 @@ class AutomationPanel(WindowClient, QWidget):
         self.enabled.setChecked(lane.enabled if lane else True)
         self.enabled.blockSignals(False)
         self.interpolation.blockSignals(True)
-        self.interpolation.setCurrentIndex(1 if lane and lane.interpolation == "step" else 0)
+        curve = lane.interpolation if lane else "linear"
+        self.interpolation.setCurrentIndex(max(0, self.interpolation.findData(curve)))
         self.interpolation.blockSignals(False)
         self.value.setRange(*target_range(self.target.currentData()))
         self.value.setValue(0 if self.target.currentData().endswith(":pan") else 1)
@@ -286,7 +304,9 @@ class AutomationPanel(WindowClient, QWidget):
 
     def set_interpolation(self):
         self.app.snapshot()
-        self.lane(create=True).interpolation = self.interpolation.currentData()
+        lane = self.lane(create=True)
+        lane.interpolation = self.interpolation.currentData()
+        lane.validate()
         self.changed()
 
     def clear_lane(self):
