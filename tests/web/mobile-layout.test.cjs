@@ -13,6 +13,10 @@ test('mobile hardening stylesheet is loaded after base studio styles', () => {
   assert.ok(base >= 0 && mobile > base, 'mobile.css must override studio.css');
 });
 
+test('mobile viewport opts into iOS safe-area geometry', () => {
+  assert.match(html, /name="viewport"[^>]+viewport-fit=cover/);
+});
+
 test('mobile project actions scroll instead of being clipped', () => {
   assert.match(css, /\.project-bar\s*\{[\s\S]*overflow-x:\s*auto/);
   assert.match(css, /\.project-actions\s*\{[\s\S]*min-width:\s*max-content/);
