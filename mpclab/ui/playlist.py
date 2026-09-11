@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QWidget, QMenu
 from ..library import AUDIO_EXT
 from ..model import Clip
 from .sample_drag import RANGE_MIME
+from ..timeline_markers import marker_items
 
 from . import playlist_rendering, playlist_edits, playlist_drop
 from .playlist_geometry import (
@@ -100,8 +101,32 @@ class PlaylistView(WindowClient, QWidget):
     def rows(self):
         return self.app.project.rows
 
+    def timeline_markers(self):
+        # Marker edits replace their validated sidecar atomically. Cache its
+        # immutable entries so transport repaints do not revalidate thousands
+        # of names and colors on every frame. Project replacement invalidates it.
+        project = self.app.project
+        state = getattr(project, "timeline_markers", None)
+        if (
+            getattr(self, "_marker_project", None) is not project
+            or getattr(self, "_marker_state", None) is not state
+        ):
+            self._marker_project = project
+            self._marker_state = state
+            self._marker_items = marker_items(project)
+        return self._marker_items
+
     def minimumSizeHint(self) -> QSize:
-        length = max(self.app.project.song_end() + 32, self.app.project.loop_end + 8, 64)
+        marker_end = max(
+            (marker.end_beat or marker.start_beat for marker in self.timeline_markers()),
+            default=0,
+        )
+        length = max(
+            self.app.project.song_end() + 32,
+            self.app.project.loop_end + 8,
+            marker_end + 8,
+            64,
+        )
         return QSize(
             int(HEAD_W + length * self.px_per_beat + 40),
             int(RULER_H + len(self.rows()) * ROW_H + 20),
