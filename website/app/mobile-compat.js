@@ -21,40 +21,44 @@
   }
 
   const api = window.AnharmonicAudio;
-  if (!api?.AudioEngine) return;
+  const prototype = api?.AudioEngine?.prototype;
+  if (!prototype || prototype.__anharmonicMobileCompat) return;
 
-  const BaseAudioEngine = api.AudioEngine;
   const engines = new Set();
+  const originalResume = prototype.resume;
 
-  class MobileSafeAudioEngine extends BaseAudioEngine {
-    constructor(...args) {
-      super(...args);
-      engines.add(this);
-    }
+  // AnharmonicAudio is intentionally Object.freeze()'d. Patch the class
+  // prototype instead of replacing the exported constructor, so mobile
+  // compatibility does not violate the public API's immutability contract.
+  Object.defineProperty(prototype, '__anharmonicMobileCompat', {
+    configurable: false,
+    enumerable: false,
+    value: true,
+  });
 
-    async resume() {
-      try {
-        return await super.resume();
-      } catch (error) {
-        // iOS can revoke the transient user activation while a file picker is
-        // closing. Decoding audio is still legal on a suspended AudioContext,
-        // so do not reject an import merely because output is not unlocked yet.
-        // The next real tap resumes the exact same context below.
-        const message = String(error?.message || error || '');
-        if (this.context?.state === 'suspended' && /audio could not start|not.?allowed|user gesture|interaction/i.test(message)) {
-          this.sync();
-          return this.context;
-        }
-        throw error;
+  prototype.resume = async function(...args) {
+    engines.add(this);
+    try {
+      return await originalResume.apply(this, args);
+    } catch (error) {
+      // iOS can revoke transient user activation while a file picker closes.
+      // Decoding is still legal on a suspended AudioContext, so allow import to
+      // finish and unlock this exact context on the next real user gesture.
+      const message = String(error?.message || error || '');
+      if (
+        this.context?.state === 'suspended'
+        && /audio could not start|not.?allowed|user gesture|interaction/i.test(message)
+      ) {
+        this.sync();
+        return this.context;
       }
+      throw error;
     }
-  }
-
-  api.AudioEngine = MobileSafeAudioEngine;
+  };
 
   // Safari requires resume() to happen synchronously from a user gesture.
-  // Run in capture phase so the context is unlocked before pad, preview,
-  // transport, sampler, or file-input handlers perform asynchronous work.
+  // Run in capture phase so a previously-created suspended context is unlocked
+  // before pad, preview, transport, sampler, or file-input handlers run.
   const unlockAudio = () => {
     for (const engine of engines) {
       const context = engine.context;
