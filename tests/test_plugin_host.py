@@ -26,6 +26,8 @@ def fixture_worker(connection, specification, sample_rate):
             break
         if mode == "process_crash":
             os._exit(9)
+        if mode == "process_hang":
+            time.sleep(30)
         audio = np.frombuffer(raw, dtype="<f4").reshape(request["frames"], 2)
         send_packet(connection, {"frames": len(audio)}, audio * 0.25)
 
@@ -75,11 +77,20 @@ def test_isolated_audio_and_crash_handling():
         plugin.close()
     assert not plugin.process.is_alive()
     plugin = IsolatedPlugin({"mode": "process_crash"}, worker=fixture_worker)
-    try:
-        with pytest.raises(PluginError, match="closed unexpectedly"):
-            plugin.render(np.ones((128, 2), np.float32), 128)
-    finally:
-        plugin.close()
+    with pytest.raises(PluginError, match="closed unexpectedly"):
+        plugin.render(np.ones((128, 2), np.float32), 128)
+    assert plugin.closed
+    assert not plugin.process.is_alive()
+
+
+def test_hung_plugin_process_is_quarantined_after_render_timeout():
+    plugin = IsolatedPlugin({"mode": "process_hang"}, worker=fixture_worker)
+    with pytest.raises(PluginError, match="stopped responding"):
+        plugin.render(np.ones((64, 2), np.float32), 64, timeout=0.1)
+    assert plugin.closed
+    assert not plugin.process.is_alive()
+    with pytest.raises(PluginError, match="closed"):
+        plugin.render(np.ones((64, 2), np.float32), 64)
 
 
 @pytest.mark.parametrize("mode", ["load_crash", "load_hang"])
@@ -89,7 +100,6 @@ def test_failed_or_hung_plugin_load_returns_control(mode):
 
 
 def live_fixture():
-    # Supply already-completed worker responses: timing tests are deterministic.
     bridge = LivePlugin.__new__(LivePlugin)
     bridge.blocksize = 16
     bridge.requests = queue.Queue(maxsize=4)
