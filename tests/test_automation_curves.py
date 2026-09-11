@@ -55,3 +55,20 @@ def test_unknown_automation_curve_is_rejected_explicitly():
                 ]
             }
         )
+
+
+@pytest.mark.parametrize(
+    ("lane", "message"),
+    [
+        ({"enabled": "false"}, "automation enabled must be a boolean"),
+        ({"unexpected": 1}, "automation lane contains unsupported fields"),
+        (
+            {"points": [{"beat": 0, "value": 1, "unexpected": 2}]},
+            "automation point contains unsupported fields",
+        ),
+        ({"points": [{"beat": None, "value": 1}]}, "automation point is invalid"),
+    ],
+)
+def test_malformed_automation_json_fails_without_coercion_or_internal_exceptions(lane, message):
+    with pytest.raises(ValueError, match=message):
+        Project.from_dict({"automation": [lane]})
