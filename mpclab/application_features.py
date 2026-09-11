@@ -18,6 +18,7 @@ def install_application_runtime():
 
 def attach_application_features(window):
     """Attach the same commands and UI controllers to every application window."""
+    from .automation_clipboard import attach_automation_clipboard
     from .automation_modes import attach_automation_modes
     from .plugin_chain_ui import attach_plugin_chain_ui
     from .premium_workflows import attach_premium_workflows
@@ -32,5 +33,6 @@ def attach_application_features(window):
     attach_recording_workflows(window, controller)
     attach_take_comping(window, controller)
     attach_automation_modes(window, controller)
+    attach_automation_clipboard(window, controller)
     restore_unmanaged_legacy_shortcuts(controller)
     return controller
