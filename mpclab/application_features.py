@@ -4,6 +4,7 @@
 def install_application_runtime():
     """Install persistence and engine hooks before constructing a project/window."""
     from .automation_mode_state import install_automation_mode_state
+    from .mastering_runtime import install_mastering_runtime
     from .plugin_chain_runtime import install_plugin_chain_runtime
     from .premium_workflows import install_premium_runtime
     from .pro_daw_state import install_pro_daw_state
@@ -14,6 +15,7 @@ def install_application_runtime():
     install_automation_mode_state()
     install_plugin_chain_runtime()
     install_recording_capture_extensions()
+    install_mastering_runtime()
 
 
 def attach_application_features(window):
@@ -25,6 +27,7 @@ def attach_application_features(window):
     from .recording_workflows import attach_recording_workflows
     from .routing_ui import attach_routing_ui
     from .take_comping import attach_take_comping
+    from .ui.mastering import attach_mastering_workspace
     from .workflow_compat import restore_unmanaged_legacy_shortcuts
 
     controller = attach_premium_workflows(window)
@@ -34,5 +37,6 @@ def attach_application_features(window):
     attach_take_comping(window, controller)
     attach_automation_modes(window, controller)
     attach_automation_clipboard(window, controller)
+    attach_mastering_workspace(window, controller)
     restore_unmanaged_legacy_shortcuts(controller)
     return controller
