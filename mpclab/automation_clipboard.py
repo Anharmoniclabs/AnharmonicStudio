@@ -60,7 +60,9 @@ def paste_automation_lane(window, *, at_playhead: bool = False) -> AutomationLan
         enabled=payload.enabled,
         interpolation=payload.interpolation,
     )
-    window.project.automation = [lane for lane in window.project.automation if lane.target != target]
+    window.project.automation = [
+        lane for lane in window.project.automation if lane.target != target
+    ]
     window.project.automation.append(replacement)
     window._set_dirty(True)
     panel.sync()
