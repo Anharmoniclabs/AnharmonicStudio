@@ -48,14 +48,15 @@ function makeSandbox({ resumeRejects = false } = {}) {
     },
   };
 
+  const audioApi = Object.freeze({ AudioEngine: BaseAudioEngine });
   const window = {
     crypto: compatCrypto,
-    AnharmonicAudio: { AudioEngine: BaseAudioEngine },
+    AnharmonicAudio: audioApi,
   };
 
   const sandbox = { window, document, crypto: compatCrypto, console, Uint8Array };
   vm.runInNewContext(source, sandbox);
-  return { sandbox, listeners };
+  return { sandbox, listeners, BaseAudioEngine };
 }
 
 test('mobile compatibility supplies RFC4122-shaped UUIDs when randomUUID is unavailable', () => {
@@ -63,6 +64,13 @@ test('mobile compatibility supplies RFC4122-shaped UUIDs when randomUUID is unav
   assert.equal(typeof sandbox.window.crypto.randomUUID, 'function');
   const id = sandbox.window.crypto.randomUUID();
   assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+});
+
+test('mobile compatibility preserves the frozen AnharmonicAudio export', () => {
+  const { sandbox, BaseAudioEngine } = makeSandbox();
+  assert.equal(sandbox.window.AnharmonicAudio.AudioEngine, BaseAudioEngine);
+  assert.equal(Object.isFrozen(sandbox.window.AnharmonicAudio), true);
+  assert.equal(BaseAudioEngine.prototype.__anharmonicMobileCompat, true);
 });
 
 test('suspended Safari-style resume failure does not abort import/decode setup', async () => {
@@ -74,33 +82,40 @@ test('suspended Safari-style resume failure does not abort import/decode setup',
   assert.equal(engine.syncCalls, 1);
 });
 
-test('capture-phase user gestures retry the exact suspended audio context', async () => {
+test('capture-phase user gestures retry the exact known suspended audio context', async () => {
   const { sandbox, listeners } = makeSandbox();
   const Engine = sandbox.window.AnharmonicAudio.AudioEngine;
   const engine = new Engine();
 
   assert.equal(listeners.get('pointerdown').options.capture, true);
   assert.equal(listeners.get('touchstart').options.capture, true);
-  assert.equal(engine.context.resumeCalls, 0);
+
+  await engine.resume();
+  assert.equal(engine.context.state, 'running');
+  engine.context.state = 'suspended';
+  const calls = engine.context.resumeCalls;
 
   listeners.get('pointerdown').callback();
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(engine.context.resumeCalls, 1);
+  assert.equal(engine.context.resumeCalls, calls + 1);
   assert.equal(engine.context.state, 'running');
 });
 
-test('visible-page transition retries suspended audio after returning from a picker or background', async () => {
+test('visible-page transition retries known suspended audio after returning from a picker', async () => {
   const { sandbox, listeners } = makeSandbox();
   const Engine = sandbox.window.AnharmonicAudio.AudioEngine;
   const engine = new Engine();
 
+  await engine.resume();
+  engine.context.state = 'suspended';
+  const calls = engine.context.resumeCalls;
   listeners.get('visibilitychange').callback();
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(engine.context.resumeCalls, 1);
+  assert.equal(engine.context.resumeCalls, calls + 1);
 
   engine.context.state = 'suspended';
   sandbox.document.hidden = true;
   listeners.get('visibilitychange').callback();
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(engine.context.resumeCalls, 1);
+  assert.equal(engine.context.resumeCalls, calls + 1);
 });
