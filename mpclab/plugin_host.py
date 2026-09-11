@@ -65,24 +65,16 @@ def receive_packet(connection):
 def plugin_worker(connection, specification, sample_rate):
     """Entry point for multiprocessing spawn (also supported by frozen builds)."""
     try:
-        # Native plugins can write directly to C stdout/stderr. Their child must
-        # not corrupt the export supervisor's JSON stream or flood the terminal.
-        # User-facing failures still travel over the bounded IPC connection.
         with open(os.devnull, "wb") as sink:
             os.dup2(sink.fileno(), 1)
             os.dup2(sink.fileno(), 2)
         import pedalboard_native
 
-        # The native API exposes normalized controls directly. The high-level
-        # wrapper probes thousands of values per parameter to infer units, which
-        # can stall loading MIDI-heavy instruments. Keep this adapter versioned.
         plugin_class = pedalboard_native.VST3Plugin
         if Path(specification["path"]).suffix.casefold() == ".component":
             plugin_class = pedalboard_native.AudioUnitPlugin
 
         def initialize_parameters(self, parameter_values):
-            # The native constructor calls this Python hook. Values are
-            # restored below by stable native index, without unit inference.
             if parameter_values:
                 raise PluginError("Unexpected constructor parameters")
 
@@ -244,7 +236,11 @@ class IsolatedPlugin:
             if not np.isfinite(result).all():
                 raise PluginError("Plugin returned nonfinite audio")
             return result
+        except PluginError:
+            self.close()
+            raise
         except (EOFError, BrokenPipeError, OSError) as exc:
+            self.close()
             raise PluginError("Plugin process closed unexpectedly") from exc
 
     def close(self):
@@ -252,7 +248,6 @@ class IsolatedPlugin:
             return
         self.closed = True
         self.connection.close()
-        # This handle refers only to the child created above, never a desktop app.
         if self.process.is_alive():
             self.process.terminate()
         self.process.join(timeout=1)
