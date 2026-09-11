@@ -89,7 +89,11 @@ class AutomationLane:
             t = np.clip((samples - start) / span, 0.0, 1.0)
             eased = t * t * (3.0 - 2.0 * t)
             result = values[left] + (values[left + 1] - values[left]) * eased
-            return np.where(samples <= positions[0], values[0], np.where(samples >= positions[-1], values[-1], result))
+            return np.where(
+                samples <= positions[0],
+                values[0],
+                np.where(samples >= positions[-1], values[-1], result),
+            )
         return np.interp(samples, positions, values)
 
     def put(self, beat, value):
