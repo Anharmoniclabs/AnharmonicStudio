@@ -54,8 +54,8 @@ class AutomationLane:
     def __post_init__(self):
         if self.target not in automation_targets():
             raise ValueError(f"unsupported automation target: {self.target}")
-        if self.interpolation not in ("linear", "step"):
-            raise ValueError("automation interpolation must be linear or step")
+        if self.interpolation not in ("linear", "step", "smooth"):
+            raise ValueError("automation interpolation must be linear, step or smooth")
         lo, hi = target_range(self.target)
         if any(not lo <= p.value <= hi for p in self.points):
             raise ValueError("automation value outside target range")
@@ -67,14 +67,30 @@ class AutomationLane:
         points = self.points if points is None else points
         if not points:
             raise ValueError("Cannot evaluate an empty automation lane")
-        positions = [p.beat for p in points]
-        values = [p.value for p in points]
+        positions = np.asarray([p.beat for p in points], dtype=np.float64)
+        values = np.asarray([p.value for p in points], dtype=np.float64)
+        samples = np.asarray(beats, dtype=np.float64)
         if self.interpolation == "step":
             indices = np.clip(
-                np.searchsorted(positions, beats, side="right") - 1, 0, len(values) - 1
+                np.searchsorted(positions, samples, side="right") - 1, 0, len(values) - 1
             )
-            return np.asarray(values)[indices]
-        return np.interp(beats, positions, values)
+            return values[indices]
+        if self.interpolation == "smooth" and len(points) > 1:
+            # Per-segment cubic smoothstep keeps point values exact while easing
+            # both ends of each transition. It is deterministic in live/offline
+            # renderers because both call this shared evaluator.
+            left = np.clip(
+                np.searchsorted(positions, samples, side="right") - 1,
+                0,
+                len(values) - 2,
+            )
+            start = positions[left]
+            span = positions[left + 1] - start
+            t = np.clip((samples - start) / span, 0.0, 1.0)
+            eased = t * t * (3.0 - 2.0 * t)
+            result = values[left] + (values[left + 1] - values[left]) * eased
+            return np.where(samples <= positions[0], values[0], np.where(samples >= positions[-1], values[-1], result))
+        return np.interp(samples, positions, values)
 
     def put(self, beat, value):
         lo, hi = target_range(self.target)
