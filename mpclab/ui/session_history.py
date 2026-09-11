@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QMessageBox
 from .. import APP_NAME
 from ..library import LibraryHistoryError
 from ..model import Project, uid
+from ..project_io import load_history_file, load_project_file
 
 
 class SessionHistoryMixin:
@@ -107,8 +108,10 @@ class SessionHistoryMixin:
         self._undo.clear()
         self._redo.clear()
         try:
-            payload = json.loads(Path(path).read_text())
+            payload = load_history_file(Path(path))
         except (OSError, ValueError, TypeError):
+            return
+        if not isinstance(payload, dict):
             return
 
         def validated(items) -> list[str]:
@@ -211,7 +214,7 @@ class SessionHistoryMixin:
             self._set_dirty(False)
             return
         try:
-            project = Project.load(self.session_path)
+            project = load_project_file(self.session_path)
         except Exception:
             self._archive_session_recovery()
             self._set_dirty(False)
