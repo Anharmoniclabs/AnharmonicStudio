@@ -1,91 +1,74 @@
-"""Arrangement fader automation with editable points and explicit bypass."""
+"""Automation editing UI."""
 
-from .window_client import WindowClient
+from __future__ import annotations
 
-from PySide6.QtCore import Qt, QRectF, QPointF, QTimer
-from PySide6.QtGui import QPainter, QPen, QPainterPath
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
+    QComboBox,
+    QDoubleSpinBox,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
-    QComboBox,
     QPushButton,
-    QDoubleSpinBox,
     QSpinBox,
-    QCheckBox,
+    QVBoxLayout,
+    QWidget,
 )
 
-from ..music import AutomationLane, automation_targets, target_range
-from .theme import q
-from .editor_tools import editor_bar
+from ..music import AutomationLane, AutomationPoint, automation_targets
+from .theme import ACCENT, BG2, DIM, FG, LINE
 
 
 class AutomationCanvas(QWidget):
-    def __init__(self, panel):
-        super().__init__()
-        self.panel = panel
-        self.drag_beat = None
-        self.setMinimumHeight(210)
-        self.setAccessibleName("Automation envelope")
-        self.setToolTip("Click to add a point • drag to move • right-click a point to remove")
+    """Small point editor shared by all automation targets."""
 
-    def plot(self):
-        return QRectF(58, 32, max(1, self.width() - 80), max(1, self.height() - 66))
+    def __init__(self, panel):
+        super().__init__(panel)
+        self.panel = panel
+        self.setMinimumHeight(190)
+        self.setMouseTracking(True)
+        self.drag_beat = None
 
     def point(self, beat, value):
-        r = self.plot()
-        lo, hi = target_range(self.panel.target.currentData())
-        return QPointF(
-            r.left() + beat / (self.panel.bars.value() * 4) * r.width(),
-            r.bottom() - (value - lo) / (hi - lo) * r.height(),
-        )
-
-    def musical(self, pos):
-        r = self.plot()
-        lo, hi = target_range(self.panel.target.currentData())
-        beat = (
-            round(max(0, min(1, (pos.x() - r.left()) / r.width())) * self.panel.bars.value() * 16)
-            / 4
-        )
-        value = lo + max(0, min(1, (r.bottom() - pos.y()) / r.height())) * (hi - lo)
-        return beat, value
-
-    def nearest(self, pos):
         lane = self.panel.lane()
-        if lane:
-            return next(
-                (
-                    p
-                    for p in lane.points
-                    if (self.point(p.beat, p.value) - pos).manhattanLength() < 14
-                ),
-                None,
-            )
-        return None
+        lo, hi = lane.bounds if lane else (0.0, 1.0)
+        width = max(1, self.width() - 18)
+        height = max(1, self.height() - 18)
+        span = max(1e-9, hi - lo)
+        total = max(1e-9, self.panel.bars.value() * 4)
+        return QPointF(9 + beat / total * width, 9 + (1 - (value - lo) / span) * height)
+
+    def musical(self, position):
+        lane = self.panel.lane()
+        lo, hi = lane.bounds if lane else (0.0, 1.0)
+        width = max(1, self.width() - 18)
+        height = max(1, self.height() - 18)
+        total = max(1e-9, self.panel.bars.value() * 4)
+        beat = max(0.0, min(total, (position.x() - 9) / width * total))
+        value = hi - max(0.0, min(height, position.y() - 9)) / height * (hi - lo)
+        return round(beat, 3), value
 
     def mousePressEvent(self, event):
-        if not self.plot().adjusted(-7, -7, 7, 7).contains(event.position()):
-            return
-        point = self.nearest(event.position())
-        if event.button() == Qt.RightButton:
-            if point:
-                self.panel.app.snapshot()
-                lane = self.panel.lane()
-                lane.points = [p for p in lane.points if p.beat != point.beat]
-                self.panel.changed()
-            return
         if event.button() != Qt.LeftButton:
             return
-        self.panel.app.snapshot()
-        beat, value = (point.beat, point.value) if point else self.musical(event.position())
-        self.panel.lane(create=True).put(beat, value)
-        self.drag_beat = beat
+        beat, value = self.musical(event.position())
+        lane = self.panel.lane(create=True)
+        nearest = min(lane.points, key=lambda p: abs(p.beat - beat), default=None)
+        tolerance = max(0.04, self.panel.bars.value() * 4 / max(80, self.width()))
+        if nearest is not None and abs(nearest.beat - beat) <= tolerance:
+            self.drag_beat = nearest.beat
+            nearest.value = value
+            nearest.beat = beat
+            lane.points.sort(key=lambda p: p.beat)
+        else:
+            lane.put(beat, value)
+            self.drag_beat = beat
         self.panel.show_values(beat, value)
         self.panel.changed()
 
     def mouseMoveEvent(self, event):
-        if self.drag_beat is None:
+        if self.drag_beat is None or not (event.buttons() & Qt.LeftButton):
             return
         beat, value = self.musical(event.position())
         lane = self.panel.lane(create=True)
@@ -106,7 +89,7 @@ class AutomationCanvas(QWidget):
         if first.beat > 0:
             path.lineTo(self.point(first.beat, first.value))
         if lane.interpolation == "smooth":
-            for left, right in zip(lane.points, lane.points[1:]):
+            for left, right in zip(lane.points, lane.points[1:], strict=False):
                 span = right.beat - left.beat
                 for sample in range(1, 17):
                     beat = left.beat + span * sample / 16
@@ -122,196 +105,126 @@ class AutomationCanvas(QWidget):
         path.lineTo(self.point(self.panel.bars.value() * 4, last.value))
 
     def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        p.fillRect(self.rect(), q("canvas"))
-        r = self.plot()
-        lo, hi = target_range(self.panel.target.currentData())
-        for i in range(5):
-            value = lo + i * (hi - lo) / 4
-            y = self.point(0, value).y()
-            p.setPen(q("line"))
-            p.drawLine(QPointF(r.left(), y), QPointF(r.right(), y))
-            p.setPen(q("dim"))
-            p.drawText(QRectF(0, y - 10, 48, 20), Qt.AlignRight | Qt.AlignVCenter, f"{value:.2f}")
-        stride = max(1, self.panel.bars.value() // max(1, int(r.width() / 65)))
-        for bar in range(0, self.panel.bars.value() + 1, stride):
-            x = self.point(bar * 4, lo).x()
-            p.setPen(q("line"))
-            p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
-            p.setPen(q("fg"))
-            p.drawText(QRectF(x + 4, 5, 54, 20), Qt.AlignVCenter, str(bar + 1))
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(self.rect(), QColor(BG2))
+        painter.setPen(QPen(QColor(LINE), 1))
+        rect = QRectF(9, 9, max(1, self.width() - 18), max(1, self.height() - 18))
+        painter.drawRect(rect)
+        for beat in range(0, self.panel.bars.value() * 4 + 1, 4):
+            x = self.point(beat, 0).x()
+            painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
         lane = self.panel.lane()
-        p.setClipRect(r.adjusted(-6, -6, 6, 6))
         if lane and lane.points:
             path = QPainterPath()
             self._draw_lane_path(path, lane)
-            p.setPen(QPen(q("accent2") if lane.enabled else q("dim"), 2.5))
-            p.drawPath(path)
-            p.setBrush(q("accent"))
+            painter.setPen(QPen(QColor(ACCENT), 2))
+            painter.drawPath(path)
+            painter.setBrush(QColor(ACCENT))
+            painter.setPen(Qt.NoPen)
             for point in lane.points:
-                p.drawEllipse(self.point(point.beat, point.value), 5, 5)
-        else:
-            p.setPen(q("dim"))
-            p.drawText(
-                r,
-                Qt.AlignCenter,
-                "Click to draw an envelope\nValues follow the arrangement in Song mode",
-            )
-        if self.panel.app.engine.mode == "song":
-            x = self.point(self.panel.app.engine.beat, lo).x()
-            p.setPen(QPen(q("ok"), 2))
-            p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
-        p.end()
+                center = self.point(point.beat, point.value)
+                painter.drawEllipse(center, 4, 4)
+        painter.setPen(QColor(DIM))
+        painter.drawText(12, self.height() - 5, "click/drag to write points")
 
 
-class AutomationPanel(WindowClient, QWidget):
-    def __init__(self, app):
-        super().__init__()
-        self.app = app
+class AutomationPanel(QWidget):
+    def __init__(self, window):
+        super().__init__(window)
+        self.window = window
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 12)
-        title = QLabel("AUTOMATION   /   ARRANGEMENT")
-        title.setObjectName("workspaceTitle")
-        layout.addWidget(title)
-        hint = QLabel(
-            "Shape the mix over time. Envelopes override their fader in Song mode; bypass a lane to return to manual control."
-        )
-        hint.setWordWrap(True)
-        hint.setObjectName("hint")
-        layout.addWidget(hint)
-        top = QHBoxLayout()
+        toolbar = QHBoxLayout()
         self.target = QComboBox()
-        for target in automation_targets():
-            label = (
-                "Master • level"
-                if target == "master"
-                else f"Track {int(target.split(':')[1]) + 1} • {target.split(':')[2]}"
-            )
-            self.target.addItem(label, target)
-        top.addWidget(self.target)
-        self.enabled = QCheckBox("Read automation")
-        self.enabled.setChecked(True)
-        self.enabled.toggled.connect(self.set_enabled)
-        top.addWidget(self.enabled)
+        for item in automation_targets():
+            self.target.addItem(item.replace("_", " ").title(), item)
         self.interpolation = QComboBox()
-        self.interpolation.addItem("Linear ramp", "linear")
+        self.interpolation.addItem("Linear", "linear")
+        self.interpolation.addItem("Step", "step")
         self.interpolation.addItem("Smooth S-curve", "smooth")
-        self.interpolation.addItem("Hold / step", "step")
-        self.interpolation.currentIndexChanged.connect(self.set_interpolation)
-        top.addWidget(self.interpolation)
-        top.addStretch()
-        top.addWidget(QLabel("View bars"))
         self.bars = QSpinBox()
-        self.bars.setRange(1, 4096)
-        self.bars.setValue(16)
-        top.addWidget(self.bars)
-        layout.addWidget(editor_bar(top))
-        self.canvas = AutomationCanvas(self)
-        layout.addWidget(self.canvas, 1)
-        bottom = QHBoxLayout()
-        self.beat = QDoubleSpinBox()
-        self.beat.setRange(0, 1_000_000)
-        self.beat.setDecimals(3)
-        self.beat.setSingleStep(0.25)
-        self.value = QDoubleSpinBox()
-        self.value.setDecimals(3)
-        self.value.setSingleStep(0.05)
-        for title, box in (("Beat (from 0)", self.beat), ("Value", self.value)):
-            box.setAccessibleName(title)
-            bottom.addWidget(QLabel(title))
-            bottom.addWidget(box)
-        add = QPushButton("Set point")
-        add.clicked.connect(self.set_point)
-        bottom.addWidget(add)
-        erase = QPushButton("Remove point")
-        erase.clicked.connect(self.remove_point)
-        bottom.addWidget(erase)
+        self.bars.setRange(1, 64)
+        self.bars.setValue(8)
         clear = QPushButton("Clear lane")
-        clear.clicked.connect(self.clear_lane)
-        bottom.addWidget(clear)
-        bottom.addStretch()
-        layout.addWidget(editor_bar(bottom))
-        self.status = QLabel()
-        self.status.setObjectName("hint")
-        layout.addWidget(self.status)
+        toolbar.addWidget(QLabel("Target"))
+        toolbar.addWidget(self.target)
+        toolbar.addWidget(QLabel("Curve"))
+        toolbar.addWidget(self.interpolation)
+        toolbar.addWidget(QLabel("Bars"))
+        toolbar.addWidget(self.bars)
+        toolbar.addStretch(1)
+        toolbar.addWidget(clear)
+        layout.addLayout(toolbar)
+        self.canvas = AutomationCanvas(self)
+        layout.addWidget(self.canvas)
+        form = QFormLayout()
+        self.beat = QDoubleSpinBox()
+        self.beat.setRange(0, 256)
+        self.beat.setDecimals(3)
+        self.value = QDoubleSpinBox()
+        self.value.setRange(-10000, 10000)
+        self.value.setDecimals(4)
+        form.addRow("Beat", self.beat)
+        form.addRow("Value", self.value)
+        layout.addLayout(form)
         self.target.currentIndexChanged.connect(self.sync)
+        self.interpolation.currentIndexChanged.connect(self._curve_changed)
         self.bars.valueChanged.connect(self.canvas.update)
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(lambda: self.canvas.update() if self.isVisible() else None)
-        self.timer.start(50)
+        clear.clicked.connect(self._clear)
+        self.beat.valueChanged.connect(self._numeric_changed)
+        self.value.valueChanged.connect(self._numeric_changed)
         self.sync()
 
     def lane(self, create=False):
         target = self.target.currentData()
-        lane = next((a for a in self.app.project.automation if a.target == target), None)
-        if lane is None and create:
-            lane = AutomationLane(
-                target,
-                enabled=self.enabled.isChecked(),
-                interpolation=self.interpolation.currentData(),
-            )
-            self.app.project.automation = self.app.project.automation + [lane]
-        return lane
+        for lane in self.window.project.automation:
+            if lane.target == target:
+                return lane
+        if create:
+            lane = AutomationLane(target=target)
+            self.window.project.automation.append(lane)
+            return lane
+        return None
+
+    def show_values(self, beat, value):
+        self.beat.blockSignals(True)
+        self.value.blockSignals(True)
+        self.beat.setValue(beat)
+        self.value.setValue(value)
+        self.beat.blockSignals(False)
+        self.value.blockSignals(False)
+
+    def changed(self):
+        self.window._set_dirty(True)
+        self.canvas.update()
 
     def sync(self):
         lane = self.lane()
-        self.canvas.drag_beat = None
-        self.enabled.blockSignals(True)
-        self.enabled.setChecked(lane.enabled if lane else True)
-        self.enabled.blockSignals(False)
         self.interpolation.blockSignals(True)
-        mode = lane.interpolation if lane else "linear"
-        index = self.interpolation.findData(mode)
-        self.interpolation.setCurrentIndex(max(0, index))
-        self.interpolation.blockSignals(False)
-        self.value.setRange(*target_range(self.target.currentData()))
-        self.value.setValue(0 if self.target.currentData().endswith(":pan") else 1)
-        self.update_status()
-        self.canvas.update()
-
-    def show_values(self, beat, value):
-        self.beat.setValue(beat)
-        self.value.setValue(value)
-
-    def update_status(self):
-        lane = self.lane()
-        self.status.setText(
-            f"{len(lane.points) if lane else 0} points  •  "
-            "Click / drag to draw  •  Right-click to remove  •  Ctrl+Z to undo"
+        self.interpolation.setCurrentIndex(
+            max(0, self.interpolation.findData(lane.interpolation if lane else "linear"))
         )
-
-    def changed(self):
-        self.app._set_dirty(True)
+        self.interpolation.blockSignals(False)
+        lo, hi = lane.bounds if lane else (0.0, 1.0)
+        self.value.blockSignals(True)
+        self.value.setRange(lo, hi)
+        self.value.blockSignals(False)
         self.canvas.update()
-        self.update_status()
 
-    def set_point(self):
-        self.app.snapshot()
-        self.lane(create=True).put(self.beat.value(), self.value.value())
+    def _curve_changed(self):
+        lane = self.lane(create=True)
+        lane.interpolation = self.interpolation.currentData()
+        lane.validate()
         self.changed()
 
-    def remove_point(self):
+    def _clear(self):
         lane = self.lane()
-        if lane and any(abs(p.beat - self.beat.value()) < 0.0005 for p in lane.points):
-            self.app.snapshot()
-            lane.points = [p for p in lane.points if abs(p.beat - self.beat.value()) >= 0.0005]
-            self.changed()
+        if lane is not None:
+            self.window.project.automation.remove(lane)
+            self.window._set_dirty(True)
+        self.sync()
 
-    def set_enabled(self, enabled):
-        self.app.snapshot()
-        self.lane(create=True).enabled = enabled
+    def _numeric_changed(self):
+        lane = self.lane(create=True)
+        lane.put(self.beat.value(), self.value.value())
         self.changed()
-
-    def set_interpolation(self):
-        self.app.snapshot()
-        self.lane(create=True).interpolation = self.interpolation.currentData()
-        self.changed()
-
-    def clear_lane(self):
-        lane = self.lane()
-        if lane:
-            self.app.snapshot()
-            self.app.project.automation = [a for a in self.app.project.automation if a is not lane]
-            self.sync()
-            self.changed()
