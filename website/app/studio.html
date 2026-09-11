@@ -9,6 +9,7 @@
   <link rel="icon" href="../assets/mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="studio.css">
   <link rel="stylesheet" href="mobile.css">
+  <link rel="stylesheet" href="compatibility.css">
   <script src="project-model.js" defer></script>
   <script src="audio-engine.js" defer></script>
   <script src="mobile-compat.js" defer></script>
@@ -26,7 +27,7 @@
     <select id="playback-mode" aria-label="Playback scope"><option value="pattern">Current pattern</option><option value="song">Song timeline</option></select>
     <label class="compact-control">BPM <input id="tempo" type="number" value="110" min="40" max="240"></label><button id="tap-tempo" class="small-button">TAP</button>
     <label class="slider-control">SWING <input id="swing" type="range" min="0" max="70" value="0"><span id="swing-value">0%</span></label><button id="metronome" class="small-button" aria-pressed="false">MET</button>
-    <output id="counter">001 . 1 . 00</output><label class="slider-control main-volume">MAIN <input id="master-volume" type="range" min="0" max="200" value="82"><span id="master-value">82%</span></label><span class="transport-spacer"></span><span class="audio-ready">AUDIO IDLE</span>
+    <output id="counter">001 . 1 . 00</output><label class="slider-control main-volume">MAIN <input id="master-volume" type="range" min="0" max="200" value="82"><span id="master-value">82%</span></label><span class="transport-spacer"></span><span class="engine-boundary" role="note" title="Web Studio preserves desktop-only settings but cannot run native desktop plugins, device routing, or native-only DSP. Projects using active unsupported processing are blocked from browser playback/export instead of being silently changed."><strong>NO DESKTOP PLUGINS / NATIVE DSP</strong></span><span class="audio-ready">AUDIO IDLE</span>
   </div>
   <nav class="studio-nav" aria-label="Studio workspaces"><button data-workspace="song" class="active">Song</button><button data-workspace="beats">Beats</button><button data-workspace="notes">Notes</button><button data-workspace="sampler">Sampler</button><button data-workspace="instruments">Instruments</button><button data-workspace="mix">Mix</button><button class="tools" id="capabilities">Capabilities</button><span></span><button class="panel-toggle" data-toggle="browser">Browser</button><button class="panel-toggle" data-toggle="pads">Pads</button><button class="panel-toggle" id="focus-toggle">Focus</button></nav>
   <main class="main-split">
