@@ -98,21 +98,33 @@ def test_bad_settings_and_messages_do_not_break_input():
     assert result["a"]["pad_base"] == 36
     router, calls, _ = make_router()
     router.settings = result
-    for event in ([0x90], [0x90, 60, 900], [0x90, -1, 50], [0xF8], [2, 2, 2]):
+    for event in ([0x90], [0x90, 60, 900], [0x90, -1, 50], [0xF8], [2, 2, 2], [0xD2]):
         router.handle("a", event)
     assert not calls
 
 
-def test_unmapped_expression_reaches_instrument_and_mapped_controls_are_consumed():
+def test_unmapped_expression_preserves_midi_channel_and_mapped_controls_are_consumed():
     router, calls, _ = make_router()
     expression = []
     router.expression = expression.append
     router.settings["keys"] = {"cc": {"0:7": "master"}}
     router.handle("keys", [0xE3, 0, 100])
-    router.handle("keys", [0xB0, 1, 90])
+    router.handle("keys", [0xB4, 1, 90])
     router.handle("keys", [0xB0, 7, 100])
-    assert expression == [[0xE0, 0, 100], [0xB0, 1, 90]]
+    assert expression == [[0xE3, 0, 100], [0xB4, 1, 90]]
     assert calls == [("control", "master", 100)]
+
+
+def test_mpe_pressure_messages_reach_instrument_with_original_channel():
+    router, _calls, _ = make_router()
+    expression = []
+    router.expression = expression.append
+
+    router.handle("keys", [0xA5, 64, 91])
+    router.handle("keys", [0xD7, 88])
+
+    assert expression == [[0xA5, 64, 91], [0xD7, 88]]
+    assert "Ch 8" in router.last_event
 
 
 def test_transport_button_is_rearmed_after_disconnect():
