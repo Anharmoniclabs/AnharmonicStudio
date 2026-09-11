@@ -7,7 +7,7 @@ import random
 
 import pytest
 
-from mpclab.model import NPADS, NTRACKS, Project
+from mpclab.model import MAX_TRACKS, NPADS, Project
 
 
 @pytest.mark.parametrize(
@@ -36,8 +36,8 @@ def test_untrusted_collection_sizes_are_bounded_before_construction():
         Project.from_dict(payload)
 
     payload = Project().to_dict()
-    payload["tracks"] = [{}] * (NTRACKS + 1)
-    with pytest.raises(ValueError, match="8-item safety limit"):
+    payload["tracks"] = [{}] * (MAX_TRACKS + 1)
+    with pytest.raises(ValueError, match="128-item safety limit"):
         Project.from_dict(payload)
 
 
