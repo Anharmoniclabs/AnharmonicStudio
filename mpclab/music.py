@@ -133,20 +133,33 @@ def read_automation(data):
     if not isinstance(data, list) or len(data) > 17:
         raise ValueError("automation must be an array of at most 17 lanes")
     lanes = []
+    allowed_lane_keys = {"target", "points", "enabled", "interpolation"}
+    allowed_point_keys = {"beat", "value"}
     for item in data:
         if not isinstance(item, dict):
             raise ValueError("automation lanes must be objects")
+        if set(item) - allowed_lane_keys:
+            raise ValueError("automation lane contains unsupported fields")
+        enabled = item.get("enabled", True)
+        if type(enabled) is not bool:
+            raise ValueError("automation enabled must be a boolean")
         points = item.get("points", [])
         if not isinstance(points, list) or len(points) > 100_000:
             raise ValueError("automation points must be an array of at most 100000 points")
         if any(not isinstance(p, dict) for p in points):
             raise ValueError("automation points must be objects")
+        if any(set(point) - allowed_point_keys for point in points):
+            raise ValueError("automation point contains unsupported fields")
+        try:
+            parsed_points = [AutomationPoint(**point) for point in points]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("automation point is invalid") from exc
         lanes.append(
             AutomationLane(
                 target=item.get("target", "master"),
-                enabled=bool(item.get("enabled", True)),
+                enabled=enabled,
                 interpolation=item.get("interpolation", "linear"),
-                points=[AutomationPoint(**p) for p in points],
+                points=parsed_points,
             )
         )
     if len({lane.target for lane in lanes}) != len(lanes):
