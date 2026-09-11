@@ -134,6 +134,9 @@ def _playlist_selection_changed(window, clip):
     window.btn_clip_reverse.blockSignals(True)
     window.clip_gain.blockSignals(True)
     window.clip_track.blockSignals(True)
+    window.clip_track.clear()
+    for index, track in enumerate(window.project.tracks):
+        window.clip_track.addItem(f"{index + 1} · {track.name}", index)
     window.clip_crossfade.blockSignals(True)
     window.btn_clip_loop.setChecked(bool(audio and clip.loop))
     window.btn_clip_reverse.setChecked(bool(audio and clip.reverse))

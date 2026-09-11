@@ -76,9 +76,6 @@ class AutomationLane:
             )
             return values[indices]
         if self.interpolation == "smooth" and len(points) > 1:
-            # Per-segment cubic smoothstep keeps point values exact while easing
-            # both ends of each transition. It is deterministic in live/offline
-            # renderers because both call this shared evaluator.
             left = np.clip(
                 np.searchsorted(positions, samples, side="right") - 1,
                 0,
@@ -105,8 +102,13 @@ class AutomationLane:
         )
 
 
-def automation_targets():
-    return ["master"] + [f"track:{i}:{param}" for i in range(8) for param in ("gain", "pan")]
+def automation_targets(track_count=None):
+    from .model import MAX_TRACKS
+
+    count = MAX_TRACKS if track_count is None else track_count
+    if type(count) is not int or not 1 <= count <= MAX_TRACKS:
+        raise ValueError("automation track count is outside the mixer limit")
+    return ["master"] + [f"track:{i}:{param}" for i in range(count) for param in ("gain", "pan")]
 
 
 def target_range(target):
@@ -129,9 +131,10 @@ def read_notes(data):
     return [Note(**{k: v for k, v in item.items() if k in Note.__annotations__}) for item in data]
 
 
-def read_automation(data):
-    if not isinstance(data, list) or len(data) > 17:
-        raise ValueError("automation must be an array of at most 17 lanes")
+def read_automation(data, *, track_count=None):
+    targets = set(automation_targets(track_count))
+    if not isinstance(data, list) or len(data) > len(targets):
+        raise ValueError(f"automation must be an array of at most {len(targets)} lanes")
     lanes = []
     allowed_lane_keys = {"target", "points", "enabled", "interpolation"}
     allowed_point_keys = {"beat", "value"}
@@ -140,6 +143,9 @@ def read_automation(data):
             raise ValueError("automation lanes must be objects")
         if set(item) - allowed_lane_keys:
             raise ValueError("automation lane contains unsupported fields")
+        target = item.get("target", "master")
+        if not isinstance(target, str) or target not in targets:
+            raise ValueError(f"unsupported automation target: {target}")
         enabled = item.get("enabled", True)
         if type(enabled) is not bool:
             raise ValueError("automation enabled must be a boolean")
@@ -156,7 +162,7 @@ def read_automation(data):
             raise ValueError("automation point is invalid") from exc
         lanes.append(
             AutomationLane(
-                target=item.get("target", "master"),
+                target=target,
                 enabled=enabled,
                 interpolation=item.get("interpolation", "linear"),
                 points=parsed_points,

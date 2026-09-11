@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
 )
 
-from ..model import PADS_PER_BANK, NTRACKS, DISPLAY_ORDER, PAD_KEYS, MODES
+from ..model import PADS_PER_BANK, DISPLAY_ORDER, PAD_KEYS, MODES
 from .theme import q, TRACK_COLORS
 from .waveform import draw_peaks, RANGE_MIME
 
@@ -740,7 +740,7 @@ class PadInspector(WindowClient, QScrollArea):
         out.addItems(
             [
                 f"{i + 1} · {t.name}" + ("  ·  fx" if t.fx.active or t.fx.sends_active else "")
-                for i, t in enumerate(proj.tracks[:NTRACKS])
+                for i, t in enumerate(proj.tracks)
             ]
         )
         out.setCurrentIndex(pad.track)

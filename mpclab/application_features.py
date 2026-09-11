@@ -34,6 +34,7 @@ def attach_application_features(window):
     from .take_comping import attach_take_comping
     from .ui.mastering import attach_mastering_workspace
     from .ui.timeline_markers import attach_timeline_markers
+    from .ui.track_management import attach_track_management
     from .workflow_compat import restore_unmanaged_legacy_shortcuts
     from .workflow_organization import attach_organization_workflows
 
@@ -48,5 +49,6 @@ def attach_application_features(window):
     attach_organization_workflows(window, controller)
     attach_dawproject_interchange(window, controller)
     attach_timeline_markers(window, controller)
+    attach_track_management(window, controller)
     restore_unmanaged_legacy_shortcuts(controller)
     return controller

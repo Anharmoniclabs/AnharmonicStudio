@@ -9,8 +9,16 @@ import re
 import threading
 import time
 
+from .model import MAX_TRACKS
 
-CONTROL_TARGETS = {"play", "stop", "record", "master", *(f"track:{i}" for i in range(8))}
+
+CONTROL_TARGETS = {
+    "play",
+    "stop",
+    "record",
+    "master",
+    *(f"track:{i}" for i in range(MAX_TRACKS)),
+}
 
 
 def controller_settings(value):
@@ -211,7 +219,6 @@ class MidiService:
                             try:
                                 port = factory()
                                 port.ignore_types(sysex=True, timing=False, active_sense=True)
-                                # Recheck the list on this native handle before opening an index.
                                 current_names = port.get_ports()
                                 current = stable_ports(current_names, backend)
                                 match = next(item for item in current if item.id == p.id)
