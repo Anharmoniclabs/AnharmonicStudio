@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..music import AutomationLane, automation_targets
-from .theme import ACCENT, BG2, DIM, LINE
+from . import theme
 
 
 class AutomationCanvas(QWidget):
@@ -107,8 +107,8 @@ class AutomationCanvas(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor(BG2))
-        painter.setPen(QPen(QColor(LINE), 1))
+        painter.fillRect(self.rect(), QColor(theme.C["bg2"]))
+        painter.setPen(QPen(QColor(theme.C["line"]), 1))
         rect = QRectF(9, 9, max(1, self.width() - 18), max(1, self.height() - 18))
         painter.drawRect(rect)
         for beat in range(0, self.panel.bars.value() * 4 + 1, 4):
@@ -118,14 +118,14 @@ class AutomationCanvas(QWidget):
         if lane and lane.points:
             path = QPainterPath()
             self._draw_lane_path(path, lane)
-            painter.setPen(QPen(QColor(ACCENT), 2))
+            painter.setPen(QPen(QColor(theme.C["accent"]), 2))
             painter.drawPath(path)
-            painter.setBrush(QColor(ACCENT))
+            painter.setBrush(QColor(theme.C["accent"]))
             painter.setPen(Qt.NoPen)
             for point in lane.points:
                 center = self.point(point.beat, point.value)
                 painter.drawEllipse(center, 4, 4)
-        painter.setPen(QColor(DIM))
+        painter.setPen(QColor(theme.C["dim"]))
         painter.drawText(12, self.height() - 5, "click/drag to write points")
 
 
