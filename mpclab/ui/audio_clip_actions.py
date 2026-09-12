@@ -51,6 +51,7 @@ def _source_region(owner, clip):
 
 
 def _resample_exact(data: np.ndarray, target_frames: int) -> np.ndarray:
+    """Linear stereo resample with deterministic exact-length output."""
     audio = np.asarray(data, dtype=np.float32)
     if audio.ndim == 1:
         audio = np.column_stack((audio, audio))
@@ -113,7 +114,7 @@ def fit_audio_to_beats(owner, clip, beats: float, label: str | None = None):
 
 
 def match_audio_to_project_tempo(owner, clip):
-    """Infer the source's musical length and conform it to the project tempo."""
+    """Infer source musical length, then resample it to the project tempo."""
     region = _source_region(owner, clip)
     if region is None:
         owner.app.status.showMessage("The clip source is unavailable", 3000)
