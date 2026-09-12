@@ -41,6 +41,7 @@ def paste_clips(owner, beat=None, row_index=None):
     destination = owner.paste_row if row_index is None else row_index
     destination = max(0, min(destination, len(owner.rows()) - 1 - last_row + first_row))
     origin = min(clip.start_beat for _, clip in owner.clipboard)
+    # Clipboard contents can outlive Undo or a project load.
     patterns = {pattern.id for pattern in owner.app.project.patterns}
     if any(
         (
