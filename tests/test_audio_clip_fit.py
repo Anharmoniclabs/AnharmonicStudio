@@ -4,6 +4,7 @@ import numpy as np
 
 from mpclab.model import Clip
 from mpclab.ui.audio_clip_actions import (
+    _resample_exact,
     make_audio_unique,
     match_audio_to_project_tempo,
     normalize_clip_gain,
@@ -109,6 +110,12 @@ def test_resample_audio_returns_exact_stereo_length():
     assert np.isclose(result[-1, 1], 1.0)
 
 
+def test_advanced_resample_handles_empty_audio_without_shape_breakage():
+    result = _resample_exact(np.empty((0, 2), dtype=np.float32), 32)
+    assert result.shape == (32, 2)
+    assert np.all(result == 0.0)
+
+
 def test_fit_audio_to_four_bars_renders_real_audio_at_project_tempo():
     sr = 1000
     source = np.column_stack(
@@ -156,7 +163,6 @@ def test_source_bpm_prefers_metadata_then_filename():
 
 def test_match_project_tempo_infers_musical_length_from_source_bpm():
     sr = 1000
-    # 4 bars at 120 BPM = 8 seconds = 16 beats.
     source = np.column_stack((np.ones(8000, dtype=np.float32), np.ones(8000, dtype=np.float32)))
     owner = _attach_snapshot(_Owner(source, bpm=90.0, sr=sr, name="Four Bar Loop 120 BPM"))
     clip = Clip(kind="audio", ref="source", length_beats=16.0, source_length=8.0)
