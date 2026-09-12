@@ -12,6 +12,7 @@ from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import QMenu
 
 from ..model import Clip, uid
+from .audio_clip_actions import add_audio_clip_actions
 from .theme import TRACK_COLORS
 
 
@@ -40,7 +41,6 @@ def paste_clips(owner, beat=None, row_index=None):
     destination = owner.paste_row if row_index is None else row_index
     destination = max(0, min(destination, len(owner.rows()) - 1 - last_row + first_row))
     origin = min(clip.start_beat for _, clip in owner.clipboard)
-    # Clipboard contents can outlive Undo or a project load.
     patterns = {pattern.id for pattern in owner.app.project.patterns}
     if any(
         (
@@ -185,12 +185,7 @@ def split_clip(owner, clip: Clip | None = None, beat: float | None = None) -> No
 
 
 def _resample_audio(data: np.ndarray, target_frames: int) -> np.ndarray:
-    """Return a stereo float32 linear resample with an exact output length.
-
-    Fit-to-bars intentionally uses the classic resample behavior: time and pitch
-    move together. It is deterministic, dependency-free and safe to render into
-    the library today; pitch-preserving stretch can be added as a separate mode.
-    """
+    """Return a stereo float32 linear resample with an exact output length."""
     audio = np.asarray(data, dtype=np.float32)
     if audio.ndim == 1:
         audio = np.column_stack((audio, audio))
@@ -214,14 +209,6 @@ def _resample_audio(data: np.ndarray, target_frames: int) -> np.ndarray:
 
 
 def fit_audio_to_bars(owner, clip: Clip, bars: int) -> Clip | None:
-    """Render the selected source region to an exact musical bar length.
-
-    This is a real audio operation rather than a visual resize. The current
-    implementation is the transparent Resample mode: shrinking raises pitch and
-    expanding lowers pitch, exactly as changing playback speed would. The
-    original library source remains untouched and the rendered derivative keeps
-    it as its parent for auditability.
-    """
     if clip.kind != "audio" or bars <= 0:
         return None
     meta = owner.app.library.clips.get(clip.ref)
@@ -241,14 +228,12 @@ def fit_audio_to_bars(owner, clip: Clip, bars: int) -> Clip | None:
     if len(source) < 2:
         owner.app.status.showMessage("The selected source range is too short to fit", 3000)
         return None
-
     beats = float(bars * 4)
     bpm = max(1e-6, float(owner.app.project.bpm))
     target_seconds = beats * 60.0 / bpm
     target_frames = max(1, int(round(target_seconds * sr)))
     rendered = _resample_audio(source, target_frames)
     name = f"{meta.name} [fit {bars} bar{'s' if bars != 1 else ''}]"
-
     owner.app.snapshot()
     fitted = owner.app.library.add_audio(rendered, name, kind="render", parent=clip.ref)
     clip.ref = fitted.id
@@ -257,8 +242,6 @@ def fit_audio_to_bars(owner, clip: Clip, bars: int) -> Clip | None:
     clip.length_beats = beats
     clip.loop = False
     clip.reverse = False
-
-    # Ensure live playback can resolve the derivative before the next callback.
     preload = getattr(owner.app.engine, "preload_project_audio", None)
     if preload is not None:
         preload(owner.app.project)
@@ -283,12 +266,7 @@ def _clip_menu(owner, global_pos, clip: Clip, beat: float) -> None:
         menu.addAction("Make pattern unique", lambda: owner.app.make_pattern_unique(clip))
     if clip.kind == "audio":
         menu.addSeparator()
-        fit = menu.addMenu("Fit to tempo")
-        for bars in (1, 2, 4, 8, 16):
-            fit.addAction(
-                f"{bars} bar{'s' if bars != 1 else ''} · Resample",
-                lambda _checked=False, n=bars: fit_audio_to_bars(owner, clip, n),
-            )
+        add_audio_clip_actions(menu, owner, clip)
         menu.addSeparator()
         menu.addAction("Open in Autotune", lambda: owner.app.open_vocal_clip(clip))
         menu.addAction(
