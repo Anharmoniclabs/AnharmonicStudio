@@ -6,9 +6,13 @@ The caller retains Qt/project ownership; these operations receive it explicitly.
 from __future__ import annotations
 from dataclasses import replace
 import math
+
+import numpy as np
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import QMenu
+
 from ..model import Clip, uid
+from .audio_clip_actions import add_audio_clip_actions
 from .theme import TRACK_COLORS
 
 
@@ -181,6 +185,76 @@ def split_clip(owner, clip: Clip | None = None, beat: float | None = None) -> No
     owner.refresh()
 
 
+def _resample_audio(data: np.ndarray, target_frames: int) -> np.ndarray:
+    """Return a stereo float32 linear resample with an exact output length."""
+    audio = np.asarray(data, dtype=np.float32)
+    if audio.ndim == 1:
+        audio = np.column_stack((audio, audio))
+    if audio.ndim != 2 or audio.shape[1] not in (1, 2):
+        raise ValueError("audio clip must be mono or stereo")
+    if audio.shape[1] == 1:
+        audio = np.repeat(audio, 2, axis=1)
+    target_frames = max(1, int(target_frames))
+    if len(audio) == 0:
+        return np.zeros((target_frames, 2), dtype=np.float32)
+    if len(audio) == target_frames:
+        return np.ascontiguousarray(audio[:, :2], dtype=np.float32)
+    if len(audio) == 1:
+        return np.repeat(audio[:, :2], target_frames, axis=0).astype(np.float32, copy=False)
+    source_x = np.arange(len(audio), dtype=np.float64)
+    target_x = np.linspace(0.0, float(len(audio) - 1), target_frames, dtype=np.float64)
+    out = np.empty((target_frames, 2), dtype=np.float32)
+    out[:, 0] = np.interp(target_x, source_x, audio[:, 0]).astype(np.float32)
+    out[:, 1] = np.interp(target_x, source_x, audio[:, 1]).astype(np.float32)
+    return np.ascontiguousarray(out)
+
+
+def fit_audio_to_bars(owner, clip: Clip, bars: int) -> Clip | None:
+    if clip.kind != "audio" or bars <= 0:
+        return None
+    meta = owner.app.library.clips.get(clip.ref)
+    data = owner.app.library.audio(clip.ref)
+    if meta is None or data is None:
+        owner.app.status.showMessage("The clip source is unavailable", 3000)
+        return None
+    sr = int(getattr(owner.app.library, "sr", getattr(meta, "sample_rate", 48000)))
+    start = max(0, min(len(data), int(round(clip.offset * sr))))
+    wanted = (
+        int(round(clip.source_length * sr))
+        if clip.source_length > 0
+        else len(data) - start
+    )
+    end = max(start, min(len(data), start + max(0, wanted)))
+    source = np.asarray(data[start:end], dtype=np.float32)
+    if len(source) < 2:
+        owner.app.status.showMessage("The selected source range is too short to fit", 3000)
+        return None
+    beats = float(bars * 4)
+    bpm = max(1e-6, float(owner.app.project.bpm))
+    target_seconds = beats * 60.0 / bpm
+    target_frames = max(1, int(round(target_seconds * sr)))
+    rendered = _resample_audio(source, target_frames)
+    name = f"{meta.name} [fit {bars} bar{'s' if bars != 1 else ''}]"
+    owner.app.snapshot()
+    fitted = owner.app.library.add_audio(rendered, name, kind="render", parent=clip.ref)
+    clip.ref = fitted.id
+    clip.offset = 0.0
+    clip.source_length = float(target_frames) / sr
+    clip.length_beats = beats
+    clip.loop = False
+    clip.reverse = False
+    preload = getattr(owner.app.engine, "preload_project_audio", None)
+    if preload is not None:
+        preload(owner.app.project)
+    owner.changed.emit()
+    owner.refresh()
+    owner.app.status.showMessage(
+        f"Fit audio to {bars} bar{'s' if bars != 1 else ''} at {bpm:g} BPM (Resample)",
+        3500,
+    )
+    return clip
+
+
 def _clip_menu(owner, global_pos, clip: Clip, beat: float) -> None:
     menu = QMenu(owner)
     menu.addAction("Copy · Ctrl+C", owner.copy_selected)
@@ -192,6 +266,9 @@ def _clip_menu(owner, global_pos, clip: Clip, beat: float) -> None:
         menu.addAction("Edit pattern", lambda: owner.app.open_pattern_clip(clip))
         menu.addAction("Make pattern unique", lambda: owner.app.make_pattern_unique(clip))
     if clip.kind == "audio":
+        menu.addSeparator()
+        add_audio_clip_actions(menu, owner, clip)
+        menu.addSeparator()
         menu.addAction("Open in Autotune", lambda: owner.app.open_vocal_clip(clip))
         menu.addAction(
             "Write notes with sample", lambda: owner.app.sample_workflow.from_arrangement(clip)
