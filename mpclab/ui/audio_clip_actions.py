@@ -59,10 +59,12 @@ def _resample_exact(data: np.ndarray, target_frames: int) -> np.ndarray:
     if audio.shape[1] == 1:
         audio = np.repeat(audio, 2, axis=1)
     target_frames = max(1, int(target_frames))
+    if len(audio) == 0:
+        return np.zeros((target_frames, 2), dtype=np.float32)
     if len(audio) == target_frames:
         return np.ascontiguousarray(audio[:, :2], dtype=np.float32)
-    if len(audio) < 2:
-        return np.repeat(audio[:1, :2], target_frames, axis=0).astype(np.float32, copy=False)
+    if len(audio) == 1:
+        return np.repeat(audio[:, :2], target_frames, axis=0).astype(np.float32, copy=False)
     source_x = np.arange(len(audio), dtype=np.float64)
     target_x = np.linspace(0.0, float(len(audio) - 1), target_frames, dtype=np.float64)
     out = np.empty((target_frames, 2), dtype=np.float32)
@@ -123,8 +125,6 @@ def match_audio_to_project_tempo(owner, clip):
         return None
     source_seconds = len(source) / sr
     raw_beats = source_seconds * bpm / 60.0
-    # Loop libraries are normally authored on quarter-beat boundaries. Snapping
-    # the inferred length suppresses tiny encoder/trim tails without guessing bars.
     beats = max(0.25, round(raw_beats * 4.0) / 4.0)
     project_bpm = max(1e-6, float(owner.app.project.bpm))
     result = fit_audio_to_beats(owner, clip, beats, f"tempo {bpm:g}→{project_bpm:g}")
