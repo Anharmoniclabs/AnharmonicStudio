@@ -13,6 +13,7 @@ import numpy as np
 from .engine_constants import AUDITION, METRONOME, SEND_TAIL, TRACK_DSP_TAIL
 from .model import NPADS
 from .music import automation_values
+from .instrument_state import decode_destination, voice_patch
 from .sample_voice import _balance_gains
 from .native_dsp import NATIVE
 from .workflow_routing import clear_bus_buffers, finish_buses, route_track
@@ -79,12 +80,14 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         for beat, pad_idx, vel, _gate, sequence_id in notes:
             off = int(max(0.0, (beat - b0) / bps))
             if pad_idx < 0:
+                instrument_id, pitch = decode_destination(proj, pad_idx)
                 engine._spawn_synth(
-                    -pad_idx - 1,
+                    pitch,
                     vel,
                     min(max(0, round((beat - b0) / bps)), frames - 1),
                     max(1, int(_gate / bps)),
                     live_trigger=False,
+                    instrument_id=instrument_id,
                 )
             elif pad_idx >= NPADS:
                 index, pitch = divmod(pad_idx - NPADS, 128)
@@ -139,7 +142,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
             travelled %= span
         engine.audition_time = (preview.s0 + travelled) / engine.sr
     for voice in engine.synth_voices:
-        voice.render(tbuf[voice.track], proj.synth)
+        voice.render(tbuf[voice.track], voice_patch(proj, voice))
     for index in range(len(engine.synth_voices) - 1, -1, -1):
         if engine.synth_voices[index].dead:
             del engine.synth_voices[index]

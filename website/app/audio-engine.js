@@ -672,7 +672,9 @@
         if (duration > LIMITS.renderSeconds) throw new Error(`Browser WAV export is limited to ${LIMITS.renderSeconds} seconds including effect tails. Use the desktop app for longer exports.`);
         const Context = window.OfflineAudioContext || window.webkitOfflineAudioContext;
         if (!Context) throw new Error('This browser does not support offline audio export.');
-        const sampleRate = Math.round(clamp(opts.sampleRate, 22050, LIMITS.sampleRate, 44100));
+        const sampleRate = Math.round(
+          clamp(opts.sampleRate, 22050, LIMITS.sampleRate, LIMITS.sampleRate),
+        );
         const events = collectEvents(project, mode, 0, beats);
         let estimatedNodes = 100 + project.tracks.length * 32;
         for (const event of events) {

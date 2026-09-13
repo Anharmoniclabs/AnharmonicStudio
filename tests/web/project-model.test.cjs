@@ -69,7 +69,7 @@ test('invalid imports leave the current document and history intact', () => {
   const store = new ProjectStore();
   store.setTempo(125);
   const before = JSON.stringify(store.toJSON());
-  for (const invalid of [[], null, { format_version: 6 }, { pads: Array(65).fill({}) }, { bpm: Infinity }, { tracks: 'broken' }]) {
+  for (const invalid of [[], null, { format_version: 7 }, { pads: Array(65).fill({}) }, { bpm: Infinity }, { tracks: 'broken' }]) {
     assert.throws(() => store.load(invalid));
     assert.equal(JSON.stringify(store.toJSON()), before);
     assert.equal(store.history.length, 1);
@@ -116,7 +116,7 @@ test('invalid nested state and ambiguous identities are rejected atomically', ()
     { patterns: [{ bars: 1.5 }] }, { patterns: [{ notes: [{ pitch: .5 }] }] },
     { patterns: [{ notes: [{ pad: 64 }] }] }, { patterns: [{ notes: 'broken' }] },
     { patterns: [{ id: 'same' }, { id: 'same' }] },
-    { tracks: [{ id: 'same' }, { id: 'same' }] }, { format_version: 5, tracks: [{}] },
+    { tracks: [{ id: 'same' }, { id: 'same' }] }, { format_version: 6, tracks: [{}] },
     { rows: [{ clips: [{ track: -1 }] }] }, { rows: [{ clips: 'broken' }] },
     { synth: { volume: NaN } }, { arp: { rate_beats: 0 } }, { workflow: { bad: Infinity } },
     JSON.parse('{"patterns":[{"steps":{"__proto__":{"0":1}}}]}'),

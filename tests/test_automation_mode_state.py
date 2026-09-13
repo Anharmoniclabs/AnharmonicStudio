@@ -6,7 +6,7 @@ from mpclab.automation_mode_state import (
     set_automation_mode,
     validate_automation_control,
 )
-from mpclab.model import Project
+from mpclab.model import PROJECT_FORMAT_VERSION, Project
 from mpclab.premium_workflows import install_premium_runtime
 
 
@@ -19,7 +19,7 @@ def test_automation_modes_roundtrip_without_format_bump(tmp_path):
     path = tmp_path / "automation.json"
     project.save(path)
     payload = project.to_dict()
-    assert payload["format_version"] == 5
+    assert payload["format_version"] == PROJECT_FORMAT_VERSION
     restored = Project.load(path)
     assert automation_mode(restored, "track:0:gain") == "touch"
     assert automation_mode(restored, "track:0:pan") == "latch"

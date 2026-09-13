@@ -1,4 +1,5 @@
 #include "anharmonic/engine.hpp"
+#include "anharmonic/control_shadow.hpp"
 
 #include <alsa/asoundlib.h>
 #include <lilv/lilv.h>
@@ -78,6 +79,7 @@ public:
 
         const std::uint32_t count = lilv_plugin_get_num_ports(plugin_);
         controls_.resize(count, 0.0f);
+        control_shadow_ = std::make_unique<Lv2ControlShadow>(count);
         port_scratch_.resize(count);
 
         LilvNode* audio = lilv_new_uri(world_, LILV_URI_AUDIO_PORT);
@@ -104,6 +106,7 @@ public:
                 lilv_node_free(def);
                 lilv_node_free(min);
                 lilv_node_free(max);
+                if (is_input) control_shadow_->configure_input(i, controls_[i]);
                 lilv_instance_connect_port(instance_, i, &controls_[i]);
             }
         }
@@ -128,12 +131,14 @@ public:
     }
 
     void set_control(std::uint32_t port, float value) {
-        if (port >= controls_.size()) throw std::out_of_range("LV2 control port index");
-        controls_[port] = value;
+        if (!control_shadow_->set(port, value)) {
+            throw std::invalid_argument("LV2 control must be a finite input control port");
+        }
     }
 
     void process(float* interleaved, unsigned long frames) noexcept {
         if (!instance_ || frames > max_frames_) return;
+        control_shadow_->apply(controls_.data());
         const auto n_in = std::min<std::size_t>(2, audio_inputs_.size());
         const auto n_out = std::min<std::size_t>(2, audio_outputs_.size());
 
@@ -173,6 +178,7 @@ private:
     std::vector<std::uint32_t> audio_inputs_;
     std::vector<std::uint32_t> audio_outputs_;
     std::vector<float> controls_;
+    std::unique_ptr<Lv2ControlShadow> control_shadow_;
     std::vector<std::vector<float>> port_scratch_;
 };
 
@@ -193,7 +199,8 @@ Engine::~Engine() {
 }
 
 void Engine::start(int output_device, int input_device) {
-    if (running()) return;
+    auto lock = plugin_lifecycle_.lock();
+    if (plugin_lifecycle_.running_unlocked()) return;
     PaStreamParameters out{};
     out.device = output_device >= 0 ? output_device : Pa_GetDefaultOutputDevice();
     if (out.device == paNoDevice) throw std::runtime_error("no PortAudio output device");
@@ -221,8 +228,10 @@ void Engine::start(int output_device, int input_device) {
         &stream_, in_ptr, &out, sample_rate_, block_size_, paNoFlag,
         reinterpret_cast<PaStreamCallback*>(&Engine::pa_callback), this);
     if (err != paNoError) throw pa_error(err, "Pa_OpenStream");
+    plugin_lifecycle_.set_running_unlocked(true);
     err = Pa_StartStream(stream_);
     if (err != paNoError) {
+        plugin_lifecycle_.set_running_unlocked(false);
         Pa_CloseStream(stream_);
         stream_ = nullptr;
         throw pa_error(err, "Pa_StartStream");
@@ -233,6 +242,7 @@ void Engine::start(int output_device, int input_device) {
 }
 
 void Engine::stop() noexcept {
+    auto lock = plugin_lifecycle_.lock();
     midi_running_.store(false, std::memory_order_release);
     if (midi_thread_) {
         midi_thread_->join();
@@ -243,6 +253,7 @@ void Engine::stop() noexcept {
         Pa_CloseStream(stream_);
         stream_ = nullptr;
     }
+    plugin_lifecycle_.set_running_unlocked(false);
     running_.store(false, std::memory_order_release);
 }
 
@@ -388,19 +399,20 @@ std::vector<std::string> Engine::list_lv2_plugins() const {
 }
 
 std::size_t Engine::load_lv2(const std::string& uri) {
-    if (running()) throw std::runtime_error("stop audio before modifying the LV2 graph");
-    std::lock_guard<std::mutex> lock(plugin_mutex_);
+    auto lock = plugin_lifecycle_.lock();
+    if (plugin_lifecycle_.running_unlocked()) throw std::runtime_error("stop audio before modifying the LV2 graph");
     plugins_.push_back(std::make_unique<Lv2Plugin>(sample_rate_, block_size_, uri));
     return plugins_.size() - 1;
 }
 
 void Engine::clear_plugins() {
-    if (running()) throw std::runtime_error("stop audio before modifying the LV2 graph");
-    std::lock_guard<std::mutex> lock(plugin_mutex_);
+    auto lock = plugin_lifecycle_.lock();
+    if (plugin_lifecycle_.running_unlocked()) throw std::runtime_error("stop audio before modifying the LV2 graph");
     plugins_.clear();
 }
 
 void Engine::set_plugin_control(std::size_t plugin_index, std::uint32_t port_index, float value) {
+    auto lock = plugin_lifecycle_.lock();
     if (plugin_index >= plugins_.size()) throw std::out_of_range("plugin index");
     plugins_[plugin_index]->set_control(port_index, value);
 }

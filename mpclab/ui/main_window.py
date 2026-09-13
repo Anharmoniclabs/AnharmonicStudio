@@ -1206,11 +1206,11 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
     def release_selected_note(self, note: int):
         return window_transport.release_selected_note(self, note)
 
-    def play_synth_note(self, note: int, velocity: float = 1.0):
-        return window_transport.play_synth_note(self, note, velocity)
+    def play_synth_note(self, note: int, velocity: float = 1.0, **kwargs):
+        return window_transport.play_synth_note(self, note, velocity, **kwargs)
 
-    def release_synth_note(self, note: int):
-        return window_transport.release_synth_note(self, note)
+    def release_synth_note(self, note: int, **kwargs):
+        return window_transport.release_synth_note(self, note, **kwargs)
 
     def panic_synth(self):
         return window_transport.panic_synth(self)

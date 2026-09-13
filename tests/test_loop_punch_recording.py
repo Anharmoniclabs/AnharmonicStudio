@@ -194,6 +194,41 @@ def test_loop_note_passes_split_into_patterns_with_local_timing(window):
     assert [lane.clips[0].start_beat for lane in lanes] == [0.0, 0.0]
 
 
+def test_loop_note_takes_preserve_each_instrument_and_midi_channel(window):
+    row = _arm(window, source="notes")
+    instrument = window.project.add_instrument("Second synth", window.project.synth, midi_channel=5)
+    window.project.loop_start = 0.0
+    window.project.loop_end = 4.0
+    _set_recording(
+        window,
+        loop_takes=True,
+        auto_take_lanes=True,
+        loop_passes=0,
+        punch_enabled=False,
+    )
+
+    assert window.track_capture.prepare()
+    window.track_capture.start()
+    window.engine.beat = 0.5
+    window.track_capture.note_on(60, 0.8, instrument=instrument.id, channel=5)
+    window.engine.beat = 1.0
+    window.track_capture.note_off(60, instrument=instrument.id)
+    # A same-pitch note from the legacy synth is independent rather than
+    # replacing the note held by the additional instrument.
+    window.engine.beat = 1.25
+    window.track_capture.note_on(60, 0.7, channel=2)
+    window.engine.beat = 1.75
+    window.track_capture.note_off(60)
+    window.track_capture.finish()
+
+    lane = window.project.rows[window.project.rows.index(row) + 1]
+    pattern = next(pattern for pattern in window.project.patterns if pattern.id == lane.clips[0].ref)
+    assert [(note.instrument, note.channel, note.pitch, note.start, note.duration) for note in pattern.notes] == [
+        (instrument.id, 5, 60, 0.5, 0.5),
+        (None, 2, 60, 1.25, 0.5),
+    ]
+
+
 def test_recording_metadata_rejects_conflicting_modes_and_round_trips(window):
     with pytest.raises(ValueError, match="mutually exclusive"):
         validate_workflow(

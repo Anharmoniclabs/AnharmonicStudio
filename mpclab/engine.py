@@ -296,6 +296,8 @@ class Engine:
         if self.stream is not None:
             return
         prepare_patch(self.project.synth)
+        for instrument in self.project.instruments:
+            prepare_patch(instrument.patch)
         import sounddevice as sd
 
         output_device = self.output_device if device is _CONFIGURED_DEVICE else device
@@ -505,12 +507,14 @@ class Engine:
     def sample_panic(self) -> None:
         self.cmds.put(("samplepanic",))
 
-    def synth_note_on(self, note: int, velocity: float = 1.0) -> None:
-        prepare_patch(self.project.synth)
-        self.cmds.put(("synthon", max(0, min(127, int(note))), velocity))
+    def synth_note_on(self, note: int, velocity: float = 1.0, *, instrument_id=None) -> None:
+        prepare_patch(self.project.instrument_patch(instrument_id))
+        command = ("synthon", max(0, min(127, int(note))), velocity)
+        self.cmds.put(command if instrument_id is None else (*command, instrument_id))
 
-    def synth_note_off(self, note: int) -> None:
-        self.cmds.put(("synthoff", max(0, min(127, int(note)))))
+    def synth_note_off(self, note: int, *, instrument_id=None) -> None:
+        command = ("synthoff", max(0, min(127, int(note))))
+        self.cmds.put(command if instrument_id is None else (*command, instrument_id))
 
     def synth_panic(self) -> None:
         self.cmds.put(("synthpanic",))
@@ -705,16 +709,26 @@ class Engine:
         *,
         voices=None,
         live_trigger: bool = True,
+        instrument_id: str | None = None,
     ) -> None:
         voices = self.synth_voices if voices is None else voices
-        if voices is self.synth_voices and self.external.instrument is not None:
+        if (
+            instrument_id is None
+            and voices is self.synth_voices
+            and self.external.instrument is not None
+        ):
             self.external.note_on(note, velocity, offset, gate_frames, live_trigger)
             return
-        patch = self.project.synth
+        patch = self.project.instrument_patch(instrument_id)
         # Retrigger within the same performance source. Playing along must not
         # release the backing pattern (or the held live note at its next event).
         for voice in voices:
-            if voice.note == note and voice.live_trigger == live_trigger and not voice.dead:
+            if (
+                voice.note == note
+                and voice.instrument_id == instrument_id
+                and voice.live_trigger == live_trigger
+                and not voice.dead
+            ):
                 voice.note_off(0.008)
         max_voices = 4 if self.blocksize <= ULTRA_LOW_LATENCY_BLOCKSIZE else MAX_SYNTH_VOICES
         live_count = 0
@@ -728,11 +742,17 @@ class Engine:
             oldest.dead = True
             voices.remove(oldest)
         source_key = (patch.sample_source, patch.sample_layer)
-        if source_key != self._variant_patch:
+        if instrument_id is None:
+            if source_key != self._variant_patch:
+                self._synth_variants.clear()
+                self._variant_patch = source_key
+            variant_key = note
+        else:
+            variant_key = (instrument_id, source_key, note)
+        variant = self._synth_variants.get(variant_key, 0)
+        if len(self._synth_variants) > 32768:
             self._synth_variants.clear()
-            self._variant_patch = source_key
-        variant = self._synth_variants.get(note, 0)
-        self._synth_variants[note] = variant + 1
+        self._synth_variants[variant_key] = variant + 1
         voices.append(
             SynthVoice(
                 note=note,
@@ -743,15 +763,22 @@ class Engine:
                 gate_frames=gate_frames,
                 variant=variant,
                 live_trigger=live_trigger,
+                instrument_id=instrument_id,
+                patch_ref=patch if instrument_id is not None else None,
             )
         )
 
-    def _release_synth(self, note: int) -> None:
-        if self.external.instrument is not None:
+    def _release_synth(self, note: int, instrument_id=None) -> None:
+        if instrument_id is None and self.external.instrument is not None:
             self.external.note_off(note)
         for voice in self.synth_voices:
-            if voice.note == note and voice.live_trigger and not voice.dead:
-                voice.note_off(self.project.synth.release)
+            if (
+                voice.note == note
+                and voice.instrument_id == instrument_id
+                and voice.live_trigger
+                and not voice.dead
+            ):
+                voice.note_off((voice.patch_ref or self.project.synth).release)
 
     def _schedule_arp(self, frames: int, start_beat: float) -> None:
         return engine_scheduling.schedule_arp(self, frames, start_beat)
@@ -825,7 +852,10 @@ class Engine:
     def preload_project_audio(self, project: Project | None = None) -> None:
         """Decode every referenced source and reverse copy off the audio thread."""
         proj = project or self.project
+        proj._validate_instruments()
         prepare_patch(proj.synth)
+        for instrument in proj.instruments:
+            prepare_patch(instrument.patch)
         normal: set[str] = set()
         reversed_refs: set[str] = set()
         for pad in proj.pads:
@@ -972,6 +1002,11 @@ class Engine:
                         v.release_now(max(1, int(FADE * self.sr)))
             elif kind == "synthon":
                 note, vel = cmd[1], cmd[2]
+                instrument_id = cmd[3] if len(cmd) > 3 else None
+                if instrument_id is not None:
+                    if any(instance.id == instrument_id for instance in proj.instruments):
+                        self._spawn_synth(note, vel, instrument_id=instrument_id)
+                    continue
                 was_empty = not self.arp_state.held
                 self.arp_state.press(note)
                 if proj.arp.enabled:
@@ -982,6 +1017,10 @@ class Engine:
                     self._spawn_synth(note, vel)
             elif kind == "synthoff":
                 note = cmd[1]
+                instrument_id = cmd[2] if len(cmd) > 2 else None
+                if instrument_id is not None:
+                    self._release_synth(note, instrument_id)
+                    continue
                 self.arp_state.release(note)
                 self._release_synth(note)
             elif kind == "synthpanic":

@@ -241,7 +241,9 @@
     try {
       const engine = await ensureAudio(); if (!engine) return;
       setStatus('Rendering ' + ($('#playback-mode').value === 'song' ? 'song' : 'current pattern') + '…');
-      const blob = await engine.render($('#playback-mode').value, { sampleRate: 44100 });
+      const blob = await engine.render($('#playback-mode').value, {
+        sampleRate: window.AnharmonicAudio.LIMITS.sampleRate,
+      });
       download(safeFilename(projectDocument().name) + '.wav', blob);
       setStatus('WAV exported with the selected playback scope and browser mixer settings.');
     } finally { $('#export-wav').disabled = false; }
@@ -515,9 +517,14 @@
             if (!length || split % length !== 0) throw new Error('Pattern clips can be split at whole pattern boundaries. Render a pattern to WAV for a cut within the pattern.');
           } else if (original.reverse || original.loop) throw new Error('Render reversed or looping clips to WAV before slicing to preserve their playback phase.');
           return edit('slice clip', (row, clip) => {
-            const right = { ...clip, id: uid('clip'), start_beat: clip.start_beat + split, length_beats: clip.length_beats - split, offset: clip.kind === 'audio' ? (clip.offset || 0) + split * 60 / projectStore.project.bpm : 0 };
+            // A stretched clip's source timeline is proportional to its
+            // arranged length; using seconds-per-beat here shortens/extends
+            // the wrong source region when the clip is time-stretched.
+            const elapsed = clip.kind === 'audio' && clip.source_length > 0
+              ? split * clip.source_length / clip.length_beats
+              : split * 60 / projectStore.project.bpm;
+            const right = { ...clip, id: uid('clip'), start_beat: clip.start_beat + split, length_beats: clip.length_beats - split, offset: clip.kind === 'audio' ? (clip.offset || 0) + elapsed : 0 };
             if (clip.kind === 'audio' && clip.source_length > 0) {
-              const elapsed = split * 60 / projectStore.project.bpm;
               if (elapsed >= clip.source_length) throw new Error('The cut falls beyond the source audio. Render this extended clip before slicing.');
               right.source_length = Math.max(.001, clip.source_length - elapsed);
               clip.source_length = Math.min(clip.source_length, elapsed);
@@ -615,10 +622,13 @@
     on('.assign-sample', 'click', () => { projectStore.setPad(state.selectedPad, currentSelection()); syncInspector(); setStatus('Pad trim saved. Source audio is unchanged.'); });
     on('.reverse-sample', 'click', () => { projectStore.setPad(state.selectedPad, { reverse: !padRecord().reverse }); renderSampler(); });
     on('.sample-snap', 'click', event => openMenu(event.currentTarget, [['OFF', 0], ['BEAT', 1], ['1/8', .5], ['1/16', .25]].map(([label, value]) => ({ label, action: () => { state.sampleSnap = value; renderSampler(); } }))));
-    on('.chop-tools', 'click', event => openMenu(event.currentTarget, [4, 8, 16].map(count => ({
-      label: count + ' equal slices from the selection',
+    on('.chop-tools', 'click', event => {
+      const available = 64 - state.selectedPad;
+      openMenu(event.currentTarget, [4, 8, 16].map(count => ({
+      label: count + ' equal slices from the selection' + (count > available ? ' — need ' + count + ' contiguous pads' : ''),
+      disabled: count > available,
       action: () => {
-        const available = 64 - state.selectedPad, slices = Math.min(count, available);
+        const slices = count;
         const targets = projectStore.project.pads.slice(state.selectedPad, state.selectedPad + slices);
         if (targets.slice(1).some(pad => pad.sample_id) && !confirm('Replace samples on the next ' + (slices - 1) + ' pads? Undo will restore them.')) return;
         projectStore.transact('map sample slices', project => {
@@ -629,7 +639,8 @@
           };
         }); state.selections.clear(); renderPads(); renderSampler(); setStatus(slices + ' slices mapped to pads.');
       }
-    }))));
+    })));
+    });
     if (buffer) {
       const canvas = $('#waveform'); let edge = null;
       canvas.addEventListener('pointerdown', event => {

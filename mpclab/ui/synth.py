@@ -81,7 +81,7 @@ class SynthVisualizer(WindowClient, QWidget):
         p.setPen(QPen(q("line"), 1))
         p.drawRoundedRect(outer, 5, 5)
 
-        patch = self.app.project.synth
+        patch = self.app.project.selected_patch
         wave = QRectF(
             outer.left() + 12, outer.top() + 22, outer.width() * 0.49, outer.height() - 52
         )
@@ -683,13 +683,13 @@ class SynthPanel(WindowClient, QWidget):
 
     def _set_patch(self, attr, value, *, snapshot=True):
         if not self._building:
-            if value == getattr(self.app.project.synth, attr):
+            if value == getattr(self.app.project.selected_patch, attr):
                 return
             self._load_request += 1
-            if self.app.project.synth.sample_source and snapshot:
+            if self.app.project.selected_patch.sample_source and snapshot:
                 self.app.snapshot()
-            setattr(self.app.project.synth, attr, value)
-            self.app.project.synth.name = "Custom"
+            setattr(self.app.project.selected_patch, attr, value)
+            self.app.project.selected_patch.name = "Custom"
             self.patch_name.setText("Custom")
             self.preset.blockSignals(True)
             self.preset.setCurrentIndex(-1)
@@ -706,7 +706,7 @@ class SynthPanel(WindowClient, QWidget):
 
     def _track_changed(self, index):
         if not self._building:
-            self.app.project.synth.track = index
+            self.app.project.selected_patch.track = index
             self.app._set_dirty(True)
 
     def _arp_toggled(self, enabled):
@@ -749,18 +749,26 @@ class SynthPanel(WindowClient, QWidget):
 
     def preview_sound(self):
         # Preview goes directly to the engine; it must not record notes.
-        note = orchestra.PREVIEW_NOTES.get(self.app.project.synth.name, self.base_note)
+        note = orchestra.PREVIEW_NOTES.get(self.app.project.selected_patch.name, self.base_note)
         self._preview_generation += 1
         generation = self._preview_generation
+        instrument_id = self.app.project.selected_instrument
         if self._preview_note is not None:
-            self.app.engine.synth_note_off(self._preview_note)
+            self.app.engine.synth_note_off(self._preview_note, instrument_id=getattr(self, "_preview_instrument", None))
         self._preview_note = note
-        self.app.engine.synth_note_on(note, 0.7)
-        duration = 1800 if self.app.project.synth.sample_source else 650
+        self._preview_instrument = instrument_id
+        if instrument_id is None:
+            self.app.engine.synth_note_on(note, 0.7)
+        else:
+            self.app.engine.synth_note_on(note, 0.7, instrument_id=instrument_id)
+        duration = 1800 if self.app.project.selected_patch.sample_source else 650
 
         def release_preview():
             if generation == self._preview_generation:
-                self.app.engine.synth_note_off(note)
+                if instrument_id is None:
+                    self.app.engine.synth_note_off(note)
+                else:
+                    self.app.engine.synth_note_off(note, instrument_id=instrument_id)
                 self._preview_note = None
 
         QTimer.singleShot(duration, self, release_preview)
@@ -785,7 +793,7 @@ class SynthPanel(WindowClient, QWidget):
                 f"{name} · {PATCH_CATEGORIES[name]}\n{description}\nEnter to preview; click to load"
             )
             self.sound_cards.addItem(item)
-            item.setSelected(name == self.app.project.synth.name)
+            item.setSelected(name == self.app.project.selected_patch.name)
         count = self.sound_cards.count()
         self.sound_result_count.setText(
             f"{count} instruments · click to load · Enter to preview"
@@ -797,7 +805,7 @@ class SynthPanel(WindowClient, QWidget):
         if not hasattr(self, "preset"):
             return
         self._populate_sound_cards(category)
-        selected = self.app.project.synth.name
+        selected = self.app.project.selected_patch.name
         self.preset.blockSignals(True)
         self.preset.clear()
         self.preset.addItems(
@@ -814,7 +822,7 @@ class SynthPanel(WindowClient, QWidget):
         if self._building or name not in PATCHES:
             return
         self._load_request += 1
-        if name == self.app.project.synth.name:
+        if name == self.app.project.selected_patch.name:
             return True
         patch = PATCHES[name]
         if patch.sample_source and not orchestra.is_prepared(patch):
@@ -847,11 +855,11 @@ class SynthPanel(WindowClient, QWidget):
     def _commit_preset(self, name):
         self.app.snapshot()
         self.app.engine.synth_panic()
-        track = self.app.project.synth.track
-        self.app.project.synth = patch_copy(name)
-        self.app.project.synth.track = track
+        track = self.app.project.selected_patch.track
+        self.app.project.selected_patch = patch_copy(name)
+        self.app.project.selected_patch.track = track
         self.sync()
-        kind = "orchestral instrument" if self.app.project.synth.sample_source else "analog patch"
+        kind = "orchestral instrument" if self.app.project.selected_patch.sample_source else "analog patch"
         self.app.status.showMessage(f"{kind} · {name}", 3500)
 
     def set_octave(self, octave):
@@ -873,7 +881,11 @@ class SynthPanel(WindowClient, QWidget):
 
     def sync(self):
         self._building = True
-        patch = self.app.project.synth
+        if getattr(self, "_displayed_instrument", None) != self.app.project.selected_instrument:
+            self._load_request += 1
+            self._preview_generation += 1
+        self._displayed_instrument = self.app.project.selected_instrument
+        patch = self.app.project.selected_patch
         self.patch_name.setText(patch.name)
         sampled = bool(patch.sample_source)
         self.sample_controls.setVisible(sampled)
@@ -928,6 +940,9 @@ class SynthPanel(WindowClient, QWidget):
         self.arp_mode.setCurrentText(arp.mode)
         self.arp_octaves.setCurrentIndex(max(0, min(3, arp.octaves - 1)))
         self.arp_gate.setValue(round(arp.gate * 100))
+        for control in (self.arp_on, self.arp_rate, self.arp_mode, self.arp_octaves, self.arp_gate):
+            control.setEnabled(self.app.project.selected_instrument is None)
+            control.setToolTip("The live arpeggiator currently belongs to the primary instrument only")
         self.set_octave(self.octave)
         self.visualizer.update()
         self._building = False

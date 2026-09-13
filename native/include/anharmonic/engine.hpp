@@ -39,6 +39,20 @@ private:
 
 class Lv2Plugin;
 
+// Serializes control-plane graph and lifecycle transitions.  The PortAudio
+// callback never acquires this mutex; callers must hold lock() for the
+// *_unlocked() state methods.
+class Lv2LifecycleGate {
+public:
+    std::unique_lock<std::mutex> lock() { return std::unique_lock<std::mutex>(mutex_); }
+    bool running_unlocked() const noexcept { return running_; }
+    void set_running_unlocked(bool running) noexcept { running_ = running; }
+
+private:
+    std::mutex mutex_;
+    bool running_{false};
+};
+
 class Engine {
 public:
     Engine(double sample_rate, unsigned long block_size);
@@ -106,7 +120,7 @@ private:
     float master_gain_{0.85f};
     float limiter_gain_{1.0f};
 
-    mutable std::mutex plugin_mutex_;
+    Lv2LifecycleGate plugin_lifecycle_;
     std::vector<std::unique_ptr<Lv2Plugin>> plugins_;
 };
 

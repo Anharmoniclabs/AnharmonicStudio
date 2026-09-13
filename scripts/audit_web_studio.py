@@ -196,6 +196,21 @@ def main():
                 )
                 page.locator(".reverse-sample").click()
                 check("reverse_persisted", model()["pads"][16]["reverse"])
+                page.locator('.pad-bank button[data-bank="3"]').click()
+                page.locator('.pad[data-pad="62"]').click()
+                page.locator("#sound-tree .sound[data-media-id]").dblclick()
+                workspace("sampler")
+                page.locator(".chop-tools").click()
+                check(
+                    "slice_mapping_requires_contiguous_pads",
+                    page.get_by_role(
+                        "menuitem",
+                        name="4 equal slices from the selection — need 4 contiguous pads",
+                        exact=True,
+                    ).is_disabled(),
+                )
+                page.keyboard.press("Escape")
+                page.locator('.pad-bank button[data-bank="1"]').click()
 
                 workspace("notes")
                 page.locator(".note-action").click()
@@ -448,7 +463,7 @@ def main():
                 desktop_project = json.loads(desktop_path.read_text())
                 check(
                     "desktop_export_is_raw_project",
-                    desktop_project["format_version"] == 5
+                    desktop_project["format_version"] == 6
                     and len(desktop_project["pads"]) == 64
                     and "anharmonic_bundle" not in desktop_project,
                 )
@@ -513,7 +528,9 @@ def main():
                     samples = struct.unpack("<" + "h" * (len(frames) // 2), frames)
                     check(
                         "song_export_is_stereo_pcm_wav",
-                        rendered_wav.getnchannels() == 2 and rendered_wav.getsampwidth() == 2,
+                        rendered_wav.getnchannels() == 2
+                        and rendered_wav.getsampwidth() == 2
+                        and rendered_wav.getframerate() == 48_000,
                     )
                     check("song_export_is_audible", max(abs(sample) for sample in samples) > 100)
                     check(

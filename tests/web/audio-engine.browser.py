@@ -69,6 +69,7 @@ def main():
               await test('offline PCM applies velocity, pad/track/master gain and silence', async () => {
                 const { project, engine } = factory(); project.patterns[0].steps = { 0: { 0: .5 } }; project.pads[0].gain = .5; project.tracks[0].gain = .5; project.master = .5;
                 let output = await pcm(await engine.render('pattern', { tail: 0 }));
+                assert(output.rate === LIMITS.sampleRate, 'default export rate diverged from the browser contract');
                 equal(output.at(.1), .4 * .5 ** 4 / Math.sqrt(2)); equal(output.duration, 2);
                 project.master = 0; output = await pcm(await engine.render('pattern', { tail: 0 })); equal(output.peak(), 0);
               });

@@ -8,7 +8,7 @@ import os
 import re
 import tempfile
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 from pathlib import Path
 
 from .music import Note, AutomationLane, read_notes, read_automation
@@ -34,7 +34,8 @@ PAD_KEYS = ["0", ".", "/", "*", "1", "2", "3", "⏎", "4", "5", "6", "+", "7", "
 DISPLAY_ORDER = [12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3]
 
 MODES = ("one-shot", "gate", "loop")
-PROJECT_FORMAT_VERSION = 5
+PROJECT_FORMAT_VERSION = 6
+MAX_INSTRUMENTS = 127  # Additional native instances; the legacy synth remains primary.
 _UNSAFE_FILENAME = re.compile(r"[^\w .()-]+", re.UNICODE)
 
 
@@ -150,6 +151,39 @@ class ArpSettings:
     mode: str = "up"  # up | down | up/down | random
     octaves: int = 1
     gate: float = 0.72
+
+
+@dataclass
+class Instrument:
+    """An independently recalled native instrument; MIDI channels are zero-based."""
+
+    id: str = field(default_factory=uid)
+    name: str = "Instrument"
+    patch: SynthPatch = field(default_factory=SynthPatch)
+    midi_channel: int | None = None  # None = selected/typing input only, not omni.
+
+    def validate(self):
+        if (
+            not isinstance(self.id, str)
+            or not self.id
+            or len(self.id) > 128
+            or not all(
+                character.isascii() and (character.isalnum() or character in "_-")
+                for character in self.id
+            )
+        ):
+            raise ValueError("instrument ID must contain 1–128 ASCII letters, digits, _ or -")
+        if not isinstance(self.name, str) or not self.name.strip() or len(self.name) > 200:
+            raise ValueError("instrument name must contain 1–200 characters")
+        if self.midi_channel is not None and (
+            type(self.midi_channel) is not int or not 0 <= self.midi_channel <= 15
+        ):
+            raise ValueError("instrument MIDI channel must be null or an integer from 0 to 15")
+        if not isinstance(self.patch, SynthPatch):
+            raise ValueError("instrument patch must be a SynthPatch")
+        from .instrument_state import validate_patch
+
+        validate_patch(self.patch)
 
 
 @dataclass
@@ -459,6 +493,8 @@ class Project:
     rows: list[Row] = field(default_factory=lambda: [Row(name=f"TRACK {i + 1}") for i in range(4)])
     slices: dict[str, list[float]] = field(default_factory=dict)
     synth: SynthPatch = field(default_factory=SynthPatch)
+    instruments: list[Instrument] = field(default_factory=list)
+    selected_instrument: str | None = None
     arp: ArpSettings = field(default_factory=ArpSettings)
     song_length_beats: float = 128.0
     loop_start: float = 0.0
@@ -490,6 +526,66 @@ class Project:
 
     def pad(self, index: int) -> Pad:
         return self.pads[index]
+
+    def instrument_patch(self, instrument_id: str | None = None) -> SynthPatch:
+        if instrument_id is None:
+            return self.synth
+        for instrument in self.instruments:
+            if instrument.id == instrument_id:
+                return instrument.patch
+        raise ValueError(f"unknown instrument: {instrument_id}")
+
+    @property
+    def selected_patch(self) -> SynthPatch:
+        return self.instrument_patch(self.selected_instrument)
+
+    @selected_patch.setter
+    def selected_patch(self, patch: SynthPatch) -> None:
+        self.set_instrument_patch(self.selected_instrument, patch)
+
+    def set_instrument_patch(self, instrument_id: str | None, patch: SynthPatch) -> None:
+        from .instrument_state import validate_patch
+
+        validate_patch(patch)
+        self.validate_track_index(patch.track, "instrument output")
+        if instrument_id is None:
+            self.synth = patch
+            return
+        for instrument in self.instruments:
+            if instrument.id == instrument_id:
+                instrument.patch = patch
+                return
+        raise ValueError(f"unknown instrument: {instrument_id}")
+
+    def add_instrument(self, name: str, patch: SynthPatch, midi_channel=None) -> Instrument:
+        if len(self.instruments) >= MAX_INSTRUMENTS:
+            raise ValueError(f"a project supports at most {MAX_INSTRUMENTS} additional instruments")
+        instrument = Instrument(name=name, patch=replace(patch), midi_channel=midi_channel)
+        instrument.validate()
+        self.validate_track_index(patch.track, "instrument output")
+        self.instruments.append(instrument)
+        return instrument
+
+    def _validate_instruments(self):
+        if not isinstance(self.instruments, list) or len(self.instruments) > MAX_INSTRUMENTS:
+            raise ValueError(f"instruments must be a list of at most {MAX_INSTRUMENTS} instances")
+        ids = set()
+        for instrument in self.instruments:
+            if not isinstance(instrument, Instrument):
+                raise ValueError("instrument entries must be Instrument objects")
+            instrument.validate()
+            if instrument.id in ids:
+                raise ValueError("instrument IDs must be unique")
+            ids.add(instrument.id)
+            self.validate_track_index(instrument.patch.track, "instrument output")
+        if self.selected_instrument is not None and (
+            not isinstance(self.selected_instrument, str) or self.selected_instrument not in ids
+        ):
+            raise ValueError("selected instrument does not exist")
+        for pattern in self.patterns:
+            for note in pattern.notes:
+                if note.instrument is not None and note.instrument not in ids:
+                    raise ValueError("note refers to a missing instrument")
 
     def _validate_track_ids(self) -> None:
         if not isinstance(self.tracks, list) or not 1 <= len(self.tracks) <= MAX_TRACKS:
@@ -561,7 +657,10 @@ class Project:
     def to_dict(self) -> dict:
         self._validate_track_ids()
         self._validate_track_references()
+        self._validate_instruments()
         d = asdict(self)
+        # The schema version describes the document contract, never whether a
+        # particular optional collection happens to be empty.
         d["format_version"] = PROJECT_FORMAT_VERSION
         # JSON object keys must be strings; keep steps readable.
         d["patterns"] = [
@@ -623,24 +722,21 @@ class Project:
                 raise ValueError(f"project {name} entries must be JSON objects")
             return value
 
-        def number(name: str, default: float) -> float:
-            try:
-                value = float(d.get(name, default))
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"project {name} must be a finite number") from exc
-            if not math.isfinite(value):
+        def number(name: str, default: float, low=-math.inf, high=math.inf) -> float:
+            value = d.get(name, default)
+            if type(value) not in (int, float) or not math.isfinite(value):
                 raise ValueError(f"project {name} must be a finite number")
+            value = float(value)
+            if not low <= value <= high:
+                raise ValueError(f"project {name} must be between {low:g} and {high:g}")
             return value
 
-        try:
-            version = int(d.get("format_version", 0))
-        except (TypeError, ValueError) as exc:
-            raise ValueError("project format_version must be an integer") from exc
-        if version > PROJECT_FORMAT_VERSION:
-            raise ValueError(
-                f"project format {version} is newer than this build supports "
-                f"({PROJECT_FORMAT_VERSION})"
-            )
+        def boolean(name: str, default=False) -> bool:
+            value = d.get(name, default)
+            if type(value) is not bool:
+                raise ValueError(f"project {name} must be a boolean")
+            return value
+
         slices_data = mapping("slices")
         if any(not isinstance(value, list) for value in slices_data.values()):
             raise ValueError("project slice entries must be JSON arrays")
@@ -649,12 +745,13 @@ class Project:
         patterns_data = records("patterns", 1_024)
         rows_data = records("rows", 4_096)
         vocal_comps_data = records("vocal_comps", 4_096)
+        instruments_data = records("instruments", MAX_INSTRUMENTS)
         proj = cls(
             name=str(d.get("name", "untitled")),
-            bpm=number("bpm", 90),
-            swing=number("swing", 0),
-            master=number("master", 0.85),
-            self_choke=bool(d.get("self_choke", False)),
+            bpm=number("bpm", 90, 1, 1_000),
+            swing=number("swing", 0, 0, 100),
+            master=number("master", 0.85, 0, 2),
+            self_choke=boolean("self_choke"),
             slices={str(k): list(v) for k, v in slices_data.items()},
             synth=SynthPatch(
                 **{k: v for k, v in mapping("synth").items() if k in SynthPatch.__annotations__}
@@ -662,10 +759,10 @@ class Project:
             arp=ArpSettings(
                 **{k: v for k, v in mapping("arp").items() if k in ArpSettings.__annotations__}
             ),
-            song_length_beats=number("song_length_beats", 128),
-            loop_start=max(0.0, number("loop_start", 0.0)),
-            loop_end=max(0.0, number("loop_end", 16.0)),
-            loop_enabled=bool(d.get("loop_enabled", False)),
+            song_length_beats=number("song_length_beats", 128, 0, 1_000_000),
+            loop_start=number("loop_start", 0.0, 0, 1_000_000),
+            loop_end=number("loop_end", 16.0, 0, 1_000_000),
+            loop_enabled=boolean("loop_enabled"),
             accent_color=str(d.get("accent_color", "#d5a354")),
             delay_fx=_from_dict(DelayFX, mapping("delay_fx")),
             reverb_fx=_from_dict(ReverbFX, mapping("reverb_fx")),
@@ -696,42 +793,129 @@ class Project:
             raise ValueError("synth layer_octave must be an integer between -2 and 2")
         if type(proj.synth.sample_reverse) is not bool:
             raise ValueError("synth sample_reverse must be a boolean")
+
+        def finite_field(value, label: str, low: float, high: float) -> float:
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError(f"{label} must be a finite number")
+            value = float(value)
+            if not low <= value <= high:
+                raise ValueError(f"{label} must be between {low:g} and {high:g}")
+            return value
+
+        def boolean_value(record: dict, field_name: str, label: str, default=False) -> bool:
+            value = record.get(field_name, default)
+            if type(value) is not bool:
+                raise ValueError(f"{label} must be a boolean")
+            return value
+
+        def record_source_value(record: dict, row_index: int) -> str:
+            value = record.get("record_source", "audio")
+            if value not in ("audio", "notes"):
+                raise ValueError(f"project rows[{row_index}].record_source must be audio or notes")
+            return value
+
         for pad in pads:
-            try:
-                pad.sync_beats = float(pad.sync_beats)
-            except (TypeError, ValueError) as exc:
-                raise ValueError("pad sync_beats must be a finite non-negative number") from exc
-            if not math.isfinite(pad.sync_beats) or pad.sync_beats < 0:
-                raise ValueError("pad sync_beats must be a finite non-negative number")
+            for field_name, low, high in (
+                ("start", 0, 1_000_000),
+                ("end", 0, 1_000_000),
+                ("gain", 0, 4),
+                ("pan", -1, 1),
+                ("pitch", -96, 96),
+                ("sync_beats", 0, 1_000_000),
+                ("attack", 0, 60),
+                ("release", 0, 60),
+                ("loop_crossfade", 0, 60),
+            ):
+                setattr(
+                    pad,
+                    field_name,
+                    finite_field(getattr(pad, field_name), f"pad {field_name}", low, high),
+                )
+            if pad.mode not in MODES:
+                raise ValueError("pad mode must be one-shot, gate, or loop")
+            for field_name in ("reverse", "mono"):
+                if type(getattr(pad, field_name)) is not bool:
+                    raise ValueError(f"pad {field_name} must be a boolean")
+            if type(pad.choke) is not int or not 0 <= pad.choke <= 8:
+                raise ValueError("pad choke must be an integer from 0 to 8")
+            if type(pad.track) is not int:
+                raise ValueError("pad track must be an integer")
         pads += [Pad() for _ in range(NPADS - len(pads))]
         proj.pads = pads[:NPADS]
 
         tracks = []
         for t in tracks_data:
             if "id" not in t:
-                raise ValueError("mixer track id is required in project format 5")
+                raise ValueError("mixer track id is required in project format 6")
             fields = {k: v for k, v in t.items() if k in Track.__annotations__ and k != "fx"}
-            tracks.append(Track(fx=_from_dict(TrackFX, t.get("fx")), **fields))
+            track = Track(fx=_from_dict(TrackFX, t.get("fx")), **fields)
+            track.gain = finite_field(track.gain, "track gain", 0, 4)
+            track.pan = finite_field(track.pan, "track pan", -1, 1)
+            for field_name in ("mute", "solo"):
+                if type(getattr(track, field_name)) is not bool:
+                    raise ValueError(f"track {field_name} must be a boolean")
+            tracks.append(track)
         defaults = _default_tracks()
         # Retain legacy short/missing-list defaults, but never truncate added tracks.
         proj.tracks = tracks + defaults[len(tracks) :]
         proj._validate_track_ids()
+        for item in instruments_data:
+            if set(item) - {"id", "name", "patch", "midi_channel"}:
+                raise ValueError("unsupported instrument fields")
+            patch = item.get("patch")
+            if not isinstance(patch, dict) or set(patch) - set(SynthPatch.__annotations__):
+                raise ValueError("instrument patch contains unsupported fields")
+            instrument = Instrument(
+                id=item.get("id"),
+                name=item.get("name", "Instrument"),
+                patch=SynthPatch(**patch),
+                midi_channel=item.get("midi_channel"),
+            )
+            instrument.validate()
+            proj.instruments.append(instrument)
+        proj.selected_instrument = d.get("selected_instrument")
 
         pats = []
         for pattern_index, p in enumerate(patterns_data):
             raw_steps = p.get("steps")
             if raw_steps is not None and not isinstance(raw_steps, dict):
                 raise ValueError(f"project patterns[{pattern_index}].steps must be an object")
-            steps = {
-                int(k): {int(s): float(v) for s, v in row.items()}
-                for k, row in (raw_steps or {}).items()
-            }
+            try:
+                steps = {
+                    int(k): {int(s): float(v) for s, v in row.items()}
+                    for k, row in (raw_steps or {}).items()
+                }
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"project patterns[{pattern_index}].steps are invalid") from exc
+            for pad_index, row in steps.items():
+                if not 0 <= pad_index < NPADS:
+                    raise ValueError(
+                        f"project patterns[{pattern_index}] pad index is outside the pad grid"
+                    )
+                for step, velocity in row.items():
+                    if (
+                        not 0 <= step < 100_000
+                        or not math.isfinite(velocity)
+                        or not 0 <= velocity <= 1
+                    ):
+                        raise ValueError(
+                            f"project patterns[{pattern_index}] step data is out of range"
+                        )
+            bars, div = p.get("bars", 2), p.get("div", 4)
+            if type(bars) is not int or not 1 <= bars <= 256:
+                raise ValueError(
+                    f"project patterns[{pattern_index}].bars must be an integer from 1 to 256"
+                )
+            if type(div) is not int or not 1 <= div <= 64:
+                raise ValueError(
+                    f"project patterns[{pattern_index}].div must be an integer from 1 to 64"
+                )
             pats.append(
                 Pattern(
                     id=p.get("id") or uid(),
                     name=p.get("name", "pattern"),
-                    bars=int(p.get("bars", 2)),
-                    div=int(p.get("div", 4)),
+                    bars=bars,
+                    div=div,
                     steps=steps,
                     notes=read_notes(p.get("notes", [])),
                 )
@@ -758,15 +942,36 @@ class Project:
             clips = [
                 Clip(**{k: v for k, v in c.items() if k in Clip.__annotations__}) for c in raw_clips
             ]
+            for clip in clips:
+                if clip.kind not in ("pattern", "audio"):
+                    raise ValueError("clip kind must be pattern or audio")
+                for field_name, low, high in (
+                    ("start_beat", 0, 1_000_000),
+                    ("length_beats", 1e-9, 1_000_000),
+                    ("offset", 0, 1_000_000),
+                    ("source_length", 0, 1_000_000),
+                    ("gain", 0, 4),
+                    ("loop_crossfade", 0, 60),
+                ):
+                    setattr(
+                        clip,
+                        field_name,
+                        finite_field(getattr(clip, field_name), f"clip {field_name}", low, high),
+                    )
+                if type(clip.track) is not int:
+                    raise ValueError("clip track must be an integer")
+                for field_name in ("loop", "reverse", "mute"):
+                    if type(getattr(clip, field_name)) is not bool:
+                        raise ValueError(f"clip {field_name} must be a boolean")
             rows.append(
                 Row(
                     id=r.get("id") or uid(),
                     name=r.get("name", "TRACK"),
-                    mute=bool(r.get("mute")),
-                    solo=bool(r.get("solo")),
+                    mute=boolean_value(r, "mute", f"project rows[{row_index}].mute"),
+                    solo=boolean_value(r, "solo", f"project rows[{row_index}].solo"),
                     color=str(r.get("color", "")),
                     clips=clips,
-                    record_source="notes" if r.get("record_source") == "notes" else "audio",
+                    record_source=record_source_value(r, row_index),
                     record_track=record_track,
                 )
             )
@@ -821,6 +1026,7 @@ class Project:
             cur if any(p.id == cur for p in proj.patterns) else proj.patterns[0].id
         )
         proj._validate_track_references()
+        proj._validate_instruments()
         return proj
 
     @classmethod

@@ -390,7 +390,7 @@ def install_recording_capture_extensions() -> None:
         elif float(capture.app.engine.beat) >= float(session["punch_end"]):
             capture.app.stop_all()
 
-    def note_on(capture, pitch, velocity, pad=None):
+    def note_on(capture, pitch, velocity, pad=None, *, instrument=None, channel=0):
         session = _session(capture)
         if not (
             session
@@ -398,11 +398,14 @@ def install_recording_capture_extensions() -> None:
             and capture.active
             and capture.target.record_source == "notes"
         ):
-            return original_note_on(capture, pitch, velocity, pad)
-        note_off(capture, pitch, pad)
-        capture.held[(pitch, pad)] = (_observe_beat(capture), velocity)
+            return original_note_on(
+                capture, pitch, velocity, pad, instrument=instrument, channel=channel
+            )
+        note_off(capture, pitch, pad, instrument=instrument)
+        key = (pitch, pad) if instrument is None else (pitch, pad, instrument)
+        capture.held[key] = (_observe_beat(capture), velocity, channel)
 
-    def note_off(capture, pitch, pad=None):
+    def note_off(capture, pitch, pad=None, *, instrument=None):
         session = _session(capture)
         if not (
             session
@@ -410,11 +413,12 @@ def install_recording_capture_extensions() -> None:
             and capture.active
             and capture.target.record_source == "notes"
         ):
-            return original_note_off(capture, pitch, pad)
-        held = capture.held.pop((pitch, pad), None)
+            return original_note_off(capture, pitch, pad, instrument=instrument)
+        key = (pitch, pad) if instrument is None else (pitch, pad, instrument)
+        held = capture.held.pop(key, None)
         if held is None:
             return
-        beat, velocity = held
+        beat, velocity, channel = held
         now = _observe_beat(capture)
         capture.notes.append(
             Note(
@@ -423,6 +427,8 @@ def install_recording_capture_extensions() -> None:
                 max(0.03125, now - beat),
                 velocity,
                 pad,
+                instrument=instrument,
+                channel=channel,
             )
         )
 

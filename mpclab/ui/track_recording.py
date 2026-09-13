@@ -128,19 +128,21 @@ class TrackCapture(WindowClient, QObject):
         app.status.showMessage(self.message)
         self.changed.emit()
 
-    def note_on(self, pitch, velocity, pad=None):
+    def note_on(self, pitch, velocity, pad=None, *, instrument=None, channel=0):
         if self.active and self.target.record_source == "notes":
-            self.note_off(pitch, pad)
-            self.held[(pitch, pad)] = (self.app.engine.beat, velocity)
+            self.note_off(pitch, pad, instrument=instrument)
+            key = (pitch, pad) if instrument is None else (pitch, pad, instrument)
+            self.held[key] = (self.app.engine.beat, velocity, channel)
 
     def tick(self):
         if self.active and self.target.record_source == "audio":
             self.peaks.append((self.app.engine.beat, min(1.0, self.recorder.input_peak)))
 
-    def note_off(self, pitch, pad=None):
-        held = self.held.pop((pitch, pad), None)
+    def note_off(self, pitch, pad=None, *, instrument=None):
+        key = (pitch, pad) if instrument is None else (pitch, pad, instrument)
+        held = self.held.pop(key, None)
         if held is not None:
-            beat, velocity = held
+            beat, velocity, channel = held
             self.notes.append(
                 Note(
                     pitch,
@@ -148,6 +150,8 @@ class TrackCapture(WindowClient, QObject):
                     max(0.03125, self.app.engine.beat - beat),
                     velocity,
                     pad,
+                    instrument=instrument,
+                    channel=channel,
                 )
             )
 
@@ -161,8 +165,8 @@ class TrackCapture(WindowClient, QObject):
         if not self.active:
             return
         self.app.engine.arp_note_capture = None
-        for pitch, pad in tuple(self.held):
-            self.note_off(pitch, pad)
+        for key in tuple(self.held):
+            self.note_off(key[0], key[1], instrument=key[2] if len(key) > 2 else None)
         self.active = False
         self.app.engine.loop_song = self.previous_loop
         self.app.engine.stop_transport(rewind=False)

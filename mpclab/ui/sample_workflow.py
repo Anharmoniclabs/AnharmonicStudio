@@ -41,6 +41,7 @@ class SampleWorkflow(WindowClient):
         self.app = app
         self.held = {}  # pitch -> slot captured at key-down; None is the original synth
         self.recorded = {}
+        self.held_instruments = {}
 
     def send(
         self, sample_id, start=0.0, end=None, *, destination="beats", index=None, source_clip=None
@@ -231,7 +232,12 @@ class SampleWorkflow(WindowClient):
         slot = app.piano_roll.target_pad
         self.held[note] = slot
         if slot is None:
-            app.play_synth_note(note, velocity)
+            instrument = getattr(app.piano_roll, "target_instrument", None)
+            self.held_instruments[note] = instrument
+            if instrument is None:
+                app.play_synth_note(note, velocity)
+            else:
+                app.play_synth_note(note, velocity, instrument_id=instrument)
             return
         if app.project.pads[slot].empty:
             app.status.showMessage("This instrument has no sound. Load or replace it first.", 4000)
@@ -252,7 +258,11 @@ class SampleWorkflow(WindowClient):
         app = self.app
         slot = self.held.pop(note)
         if slot is None:
-            app.release_synth_note(note)
+            instrument = self.held_instruments.pop(note, None)
+            if instrument is None:
+                app.release_synth_note(note)
+            else:
+                app.release_synth_note(note, instrument_id=instrument)
             return
         capture = getattr(app, "track_capture", None)
         if capture is not None:

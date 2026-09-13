@@ -2,7 +2,7 @@ import base64
 
 import pytest
 
-from mpclab.model import Project
+from mpclab.model import PROJECT_FORMAT_VERSION, Project
 from mpclab.pro_daw_state import install_pro_daw_state, validate_pro_daw
 from mpclab.workflow_state import install_project_workflow_state
 
@@ -30,7 +30,7 @@ def test_plugin_chain_sidecar_roundtrips_without_project_format_bump(tmp_path):
     path = tmp_path / "song.json"
     project.save(path)
     payload = project.to_dict()
-    assert payload["format_version"] == 5
+    assert payload["format_version"] == PROJECT_FORMAT_VERSION
     restored = Project.load(path)
     assert restored.pro_daw == validate_pro_daw(project.pro_daw)
 

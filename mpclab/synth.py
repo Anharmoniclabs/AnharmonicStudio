@@ -527,6 +527,8 @@ class SynthVoice:
     ic2_r: float = 0.0
     dead: bool = False
     live_trigger: bool = True  # keyboard/arp ownership, independent of gate length
+    instrument_id: str | None = None
+    patch_ref: SynthPatch | None = None
 
     def __post_init__(self):
         self._rng = default_rng(self.note * 7919 + self.age)

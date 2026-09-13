@@ -51,7 +51,7 @@ class PianoCanvas(WindowClient, QWidget):
 
     def visible_indices(self):
         return {
-            i for i, note in enumerate(self.pattern().notes) if note.pad == self.panel.target_pad
+            i for i, note in enumerate(self.pattern().notes) if self.panel.matches(note)
         }
 
     def refresh(self):
@@ -74,7 +74,7 @@ class PianoCanvas(WindowClient, QWidget):
             (
                 i
                 for i in reversed(range(len(self.pattern().notes)))
-                if self.pattern().notes[i].pad == self.panel.target_pad
+                if self.panel.matches(self.pattern().notes[i])
                 and self.rect_for(self.pattern().notes[i]).contains(pos)
             ),
             None,
@@ -123,7 +123,8 @@ class PianoCanvas(WindowClient, QWidget):
             duration = min(self.panel.duration.value(), self.pattern().length_beats - beat)
             self.pattern().notes.append(
                 Note(
-                    pitch, beat, duration, self.panel.velocity.value() / 100, self.panel.target_pad
+                    pitch, beat, duration, self.panel.velocity.value() / 100, self.panel.target_pad,
+                    instrument=self.panel.target_instrument,
                 )
             )
             self.selected = {len(self.pattern().notes) - 1}
@@ -216,6 +217,7 @@ class PianoCanvas(WindowClient, QWidget):
                             n,
                             start=start,
                             pad=self.panel.target_pad,
+                            instrument=self.panel.target_instrument,
                             duration=min(n.duration, self.pattern().length_beats - start),
                         )
                     )
@@ -258,7 +260,7 @@ class PianoCanvas(WindowClient, QWidget):
             painter.drawLine(x, event.rect().top(), x, event.rect().bottom())
         painter.setRenderHint(QPainter.Antialiasing)
         for i, note in enumerate(self.pattern().notes):
-            if note.pad != self.panel.target_pad:
+            if not self.panel.matches(note):
                 continue
             rect = self.rect_for(note)
             if not rect.intersects(QRectF(event.rect())):
@@ -294,6 +296,7 @@ class PianoRollPanel(WindowClient, QWidget):
         super().__init__()
         self.app = app
         self.target_pad = None
+        self.target_instrument = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 8)
         self.heading = QLabel("PIANO ROLL")
@@ -433,13 +436,18 @@ class PianoRollPanel(WindowClient, QWidget):
         self.channel.blockSignals(True)
         self.channel.clear()
         self.channel.addItem(f"Synth · {project.synth.name}", None)
+        for instrument in project.instruments:
+            self.channel.addItem(f"{instrument.name} · {instrument.patch.name}", instrument.id)
         for index, pad in enumerate(project.pads):
             if not pad.empty or index in referenced:
                 label = f"{chr(65 + index // 16)}{index % 16 + 1} · {pad.name or 'Missing sound'}"
                 self.channel.addItem(label, index)
-        selected = self.channel.findData(self.target_pad)
+        selected = self.channel.findData(
+            self.target_instrument if self.target_instrument is not None else self.target_pad
+        )
         if selected < 0:
             selected, self.target_pad = 0, None
+            self.target_instrument = None
         self.channel.setCurrentIndex(selected)
         self.channel.blockSignals(False)
         pad = project.pads[self.target_pad] if self.target_pad is not None else None
@@ -457,7 +465,17 @@ class PianoRollPanel(WindowClient, QWidget):
             self.app.typing_keyboard.sync()
 
     def select_channel(self, index):
-        self.target_pad = index
+        if isinstance(index, str):
+            self.app.project.instrument_patch(index)
+            self.target_pad, self.target_instrument = None, index
+        else:
+            self.target_pad, self.target_instrument = index, None
+        if self.target_pad is None:
+            selected = self.app.project.selected_instrument
+            if selected != self.target_instrument:
+                self.app.panic_synth()
+                self.app.project.selected_instrument = self.target_instrument
+                self.app.synth_panel.sync()
         self.canvas.selected.clear()
         if self.canvas.drag and self.canvas.drag[0] == "audition":
             self.app.release_selected_note(self.canvas.drag[1])
@@ -469,7 +487,7 @@ class PianoRollPanel(WindowClient, QWidget):
 
     def focus_sound(self):
         """Keep this channel's notes (or its source root) in the visible octave."""
-        pitches = [n.pitch for n in self.canvas.pattern().notes if n.pad == self.target_pad]
+        pitches = [n.pitch for n in self.canvas.pattern().notes if self.matches(n)]
         root = (
             self.app.project.pads[self.target_pad].root_note if self.target_pad is not None else 60
         )
@@ -587,6 +605,10 @@ class PianoRollPanel(WindowClient, QWidget):
                         min(self.duration.value(), pat.length_beats - start),
                         self.velocity.value() / 100,
                         self.target_pad,
+                        instrument=self.target_instrument,
                     )
                 )
         self.canvas.commit()
+
+    def matches(self, note):
+        return note.pad == self.target_pad and note.instrument == self.target_instrument

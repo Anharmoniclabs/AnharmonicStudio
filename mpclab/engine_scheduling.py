@@ -12,6 +12,7 @@ import numpy as np
 
 from .model import NPADS
 from .music import Note
+from .instrument_state import event_destination
 
 if TYPE_CHECKING:
     from .engine import Engine
@@ -85,7 +86,9 @@ def pattern_events(
                     # Preserve the existing five-field event protocol:
                     # -1..-128 = synth; 0..63 = drum; >=64 = sample slot/pitch.
                     destination = (
-                        -note.pitch - 1 if note.pad is None else NPADS + note.pad * 128 + note.pitch
+                        event_destination(engine.project, note)
+                        if note.pad is None
+                        else NPADS + note.pad * 128 + note.pitch
                     )
                     out.append((beat, destination, note.velocity, gate, sequence_id))
     sd_ = 1.0 / pat.div

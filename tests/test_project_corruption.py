@@ -54,3 +54,44 @@ def test_seeded_single_field_fuzz_never_leaks_internal_exception_types():
             Project.from_dict(payload)
         except Exception as exc:  # the loader contract is a user-facing ValueError
             assert isinstance(exc, ValueError), type(exc).__name__
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "message"),
+    [
+        (("bpm",), 0, "bpm must be between"),
+        (("bpm",), -120, "bpm must be between"),
+        (("master",), -5, "master must be between"),
+        (("self_choke",), "false", "self_choke must be a boolean"),
+        (("loop_enabled",), 1, "loop_enabled must be a boolean"),
+        (("pads", 0, "gain"), float("nan"), "pad gain must be a finite number"),
+        (("pads", 0, "pan"), 9, "pad pan must be between"),
+        (("pads", 0, "mode"), "corrupt", "pad mode"),
+        (("pads", 0, "reverse"), "false", "pad reverse must be a boolean"),
+        (("tracks", 0, "gain"), float("nan"), "track gain must be a finite number"),
+        (("tracks", 0, "mute"), "false", "track mute must be a boolean"),
+        (("patterns", 0, "div"), 0, "patterns\\[0\\].div"),
+        (("patterns", 0, "bars"), -2, "patterns\\[0\\].bars"),
+        (("rows", 0, "clips", 0, "length_beats"), -4, "clip length_beats must be between"),
+        (("rows", 0, "clips", 0, "kind"), "x", "clip kind"),
+        (("rows", 0, "clips", 0, "loop"), "false", "clip loop must be a boolean"),
+        (("format_version",), 5.9, "format_version must be an integer"),
+    ],
+)
+def test_project_loader_rejects_unsafe_values_at_the_persistence_boundary(path, value, message):
+    payload = Project().to_dict()
+    payload["rows"][0]["clips"] = [{}]
+    target = payload
+    for part in path[:-1]:
+        target = target[part]
+    target[path[-1]] = value
+
+    with pytest.raises(ValueError, match=message):
+        Project.from_dict(payload)
+
+
+def test_every_saved_project_uses_the_current_schema_even_without_instruments():
+    payload = Project().to_dict()
+
+    assert payload["format_version"] == 6
+    assert payload["instruments"] == []

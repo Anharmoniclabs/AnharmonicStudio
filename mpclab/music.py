@@ -13,8 +13,22 @@ class Note:
     duration: float = 1.0
     velocity: float = 0.8
     pad: int | None = None  # None = existing synth; otherwise a stable sample slot (0..63)
+    instrument: str | None = None  # Stable additional instrument ID; None preserves legacy synth.
+    channel: int = 0  # Original zero-based MIDI channel, retained for interchange.
+    release_velocity: int = 0
 
     def __post_init__(self):
+        if self.instrument is not None and (
+            not isinstance(self.instrument, str)
+            or not self.instrument
+            or len(self.instrument) > 128
+            or self.pad is not None
+        ):
+            raise ValueError("note instrument must be a stable ID, mutually exclusive with pad")
+        if type(self.channel) is not int or not 0 <= self.channel <= 15:
+            raise ValueError("note channel must be an integer from 0 to 15")
+        if type(self.release_velocity) is not int or not 0 <= self.release_velocity <= 127:
+            raise ValueError("note release velocity must be an integer from 0 to 127")
         if self.pad is not None and (type(self.pad) is not int or not 0 <= self.pad < 64):
             raise ValueError("note pad must be an integer from 0 to 63, or null for synth")
         if type(self.pitch) is not int or not 0 <= self.pitch <= 127:

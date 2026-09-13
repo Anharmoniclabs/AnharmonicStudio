@@ -30,6 +30,8 @@ class PatternActionsMixin:
 
         pat = self.project.pattern()
         self.bars_box.blockSignals(True)
+        if self.bars_box.findText(str(pat.bars)) < 0:
+            self.bars_box.addItem(str(pat.bars))
         self.bars_box.setCurrentText(str(pat.bars))
         self.bars_box.blockSignals(False)
         self.grid_box.blockSignals(True)

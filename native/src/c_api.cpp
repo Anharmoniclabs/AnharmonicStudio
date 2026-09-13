@@ -47,6 +47,9 @@ void* anh_engine_create(double sample_rate, unsigned long block_size) noexcept {
     }
 }
 
+// C API lifetime rule: callers must quiesce every concurrent call using ptr
+// before destroying it.  Destruction stops the callback but cannot make a
+// simultaneous call through an already-invalid handle safe.
 void anh_engine_destroy(void* ptr) noexcept {
     delete static_cast<Handle*>(ptr);
 }

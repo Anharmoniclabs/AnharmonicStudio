@@ -1,7 +1,8 @@
 (() => {
   'use strict';
 
-  const FORMAT_VERSION = 5;
+  // Keep desktop and browser interchange on the same explicit schema version.
+  const FORMAT_VERSION = 6;
   const PAD_COUNT = 64;
   const TRACK_COUNT = 8;
   const MAX_TRACKS = 128;
@@ -189,7 +190,7 @@
         pad: note.pad === undefined || note.pad === null ? null : number(note.pad, 0, 0, PAD_COUNT - 1, true) })), 'note')
     })), 'pattern');
     normalized.tracks = suppliedTracks.map((track, index) => {
-      if (source.format_version === FORMAT_VERSION && !track.id) throw new Error('Mixer track ID required in project format 5');
+      if (source.format_version === FORMAT_VERSION && !track.id) throw new Error('Mixer track ID required in project format 6');
       const result = numericFields({ ...base.tracks[index], ...track, id: identity(track.id, base.tracks[index].id) }, { gain: [.85, 0, 4], pan: [0, -1, 1] });
       result.name = string(track.name, base.tracks[index].name);
       for (const key of ['mute', 'solo']) result[key] = boolean(track[key]);

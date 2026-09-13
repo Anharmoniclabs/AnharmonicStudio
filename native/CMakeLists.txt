@@ -6,6 +6,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+option(ANHARMONIC_ENABLE_TSAN "Enable ThreadSanitizer for LV2 control targets and tests" OFF)
+
+function(anharmonic_enable_tsan target)
+    if(ANHARMONIC_ENABLE_TSAN)
+        if(MSVC)
+            message(FATAL_ERROR "ThreadSanitizer is not supported by this MSVC configuration")
+        endif()
+        target_compile_options(${target} PRIVATE -fsanitize=thread -fno-omit-frame-pointer -g -O1)
+        target_link_options(${target} PRIVATE -fsanitize=thread)
+    endif()
+endfunction()
+
 # Production code is identical on Windows, Linux and both macOS architectures.
 # Device APIs belong to host adapters, never the portable render target.
 set(CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../mpclab/native)
@@ -31,6 +43,16 @@ if(BUILD_TESTING)
     add_executable(native_core_test tests/core_test.cpp)
     target_link_libraries(native_core_test PRIVATE anharmonic_audio Threads::Threads)
     add_test(NAME portable_core COMMAND native_core_test)
+    add_executable(lv2_control_shadow_test tests/control_shadow_test.cpp)
+    target_include_directories(lv2_control_shadow_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(lv2_control_shadow_test PRIVATE Threads::Threads)
+    if(MSVC)
+        target_compile_options(lv2_control_shadow_test PRIVATE /W4)
+    else()
+        target_compile_options(lv2_control_shadow_test PRIVATE -Wall -Wextra -Wpedantic -Werror=return-type)
+    endif()
+    anharmonic_enable_tsan(lv2_control_shadow_test)
+    add_test(NAME lv2_control_shadow COMMAND lv2_control_shadow_test)
 endif()
 
 # The historical ALSA/LV2 prototype is explicitly opt-in. It is not used by
@@ -61,6 +83,7 @@ target_link_libraries(anharmonic_native PRIVATE
 target_compile_options(anharmonic_native PRIVATE
     -Wall -Wextra -Wpedantic -Werror=return-type
 )
+anharmonic_enable_tsan(anharmonic_native)
 
 set_target_properties(anharmonic_native PROPERTIES
     OUTPUT_NAME anharmonic_native

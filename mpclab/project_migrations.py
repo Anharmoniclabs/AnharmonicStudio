@@ -45,6 +45,7 @@ MIGRATIONS: dict[int, Migration] = {
     2: _identity,
     3: _identity,
     4: _mixer_track_ids,
+    5: _identity,  # Optional independent instruments; no legacy song is re-routed.
 }
 
 
@@ -52,10 +53,12 @@ def project_format_version(document: dict) -> int:
     """Return the declared project version using the legacy parser contract."""
     if not isinstance(document, dict):
         raise ValueError("project root must be a JSON object")
-    try:
-        version = int(document.get("format_version", 0))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("project format_version must be an integer") from exc
+    version = document.get("format_version", 0)
+    # ``int(5.9)`` and ``int(True)`` quietly turn malformed schema declarations
+    # into valid versions.  Format numbers are part of the trust boundary, so
+    # accept JSON integers only (not numeric strings or booleans).
+    if type(version) is not int:
+        raise ValueError("project format_version must be an integer")
     # Negative versions were historically treated like unversioned documents.
     # Preserve that compatibility rather than inventing a new failure mode.
     return max(0, version)

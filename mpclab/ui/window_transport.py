@@ -118,41 +118,67 @@ def release_selected_note(window, note: int):
     window.sample_workflow.note_off(note)
 
 
-def play_synth_note(window, note: int, velocity: float = 1.0):
-    if not window.project.arp.enabled:
-        window.track_capture.note_on(note, velocity)
+SELECTED_INSTRUMENT = object()
+
+
+def play_synth_note(window, note: int, velocity: float = 1.0, *, instrument_id=SELECTED_INSTRUMENT, channel=0):
+    if instrument_id is SELECTED_INSTRUMENT:
+        instrument_id = window.project.selected_instrument
+    use_arp = instrument_id is None and window.project.arp.enabled
+    key = note if instrument_id is None else (instrument_id, note)
+    if not use_arp:
+        if instrument_id is None and channel == 0:
+            window.track_capture.note_on(note, velocity)
+        else:
+            window.track_capture.note_on(note, velocity, instrument=instrument_id, channel=channel)
     if (
-        not window.project.arp.enabled
+        not use_arp
         and window.engine.recording
         and window.engine.playing
         and window.engine.mode == "pattern"
     ):
-        if note not in window._recorded_notes:
+        if key not in window._recorded_notes:
             window.snapshot()
-            window._recorded_notes[note] = (
+            window._recorded_notes[key] = (
                 window.project.pattern().id,
                 window.engine.beat,
                 velocity,
+                channel,
             )
-    window.engine.synth_note_on(note, velocity)
+    if instrument_id is None:
+        window.engine.synth_note_on(note, velocity)
+    else:
+        window.engine.synth_note_on(note, velocity, instrument_id=instrument_id)
     window.synth_panel.keyboard.set_note_active(note, True)
     if window.typing_keyboard is not None:
         window.typing_keyboard.keyboard.set_note_active(note, True)
 
 
-def release_synth_note(window, note: int):
-    window.track_capture.note_off(note)
-    recorded = window._recorded_notes.pop(note, None)
+def release_synth_note(window, note: int, *, instrument_id=SELECTED_INSTRUMENT):
+    if isinstance(note, tuple):
+        instrument_id, note = note
+    elif instrument_id is SELECTED_INSTRUMENT:
+        instrument_id = window.project.selected_instrument
+    key = note if instrument_id is None else (instrument_id, note)
+    if instrument_id is None:
+        window.track_capture.note_off(note)
+    else:
+        window.track_capture.note_off(note, instrument=instrument_id)
+    recorded = window._recorded_notes.pop(key, None)
     if recorded:
-        pattern_id, start, velocity = recorded
+        pattern_id, start, velocity, *channels = recorded
         pattern = next((p for p in window.project.patterns if p.id == pattern_id), None)
         if pattern:
             beat = start % pattern.length_beats
             duration = min(max(0.03125, window.engine.beat - start), pattern.length_beats - beat)
-            pattern.notes.append(Note(note, beat, duration, velocity))
+            pattern.notes.append(Note(note, beat, duration, velocity, instrument=instrument_id,
+                                      channel=channels[0] if channels else 0))
             window._set_dirty(True)
             window.piano_roll.canvas.refresh()
-    window.engine.synth_note_off(note)
+    if instrument_id is None:
+        window.engine.synth_note_off(note)
+    else:
+        window.engine.synth_note_off(note, instrument_id=instrument_id)
     window.synth_panel.keyboard.set_note_active(note, False)
     if window.typing_keyboard is not None:
         window.typing_keyboard.keyboard.set_note_active(note, False)
