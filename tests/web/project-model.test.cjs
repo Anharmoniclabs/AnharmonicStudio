@@ -106,6 +106,43 @@ test('nested native metadata is preserved and detached from caller ownership', (
   assert.deepEqual(JSON.parse(JSON.stringify(store.toJSON().workflow)), { routing: ['mixer:00'], extra: { enabled: true } });
 });
 
+test('desktop vocal settings round-trip through browser JSON with extensions intact', () => {
+  const native = {
+    format_version: 6,
+    vocal: {
+      enabled: false, key: 'F#', scale: 'minor', strength: .82, retune_ms: 7.5,
+      humanize: .2, mix: .9, transpose: -3, formant: .6, low_note: 40,
+      high_note: 80, gate_db: -48, highpass_hz: 70, deesser: .4,
+      compression: .5, presence_db: 2.25, output_db: -1.5,
+      desktop_extension: { algorithm: 'offline-v2', options: { preserve: true } }
+    }
+  };
+  const saved = new ProjectStore(native).toJSON();
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.vocal)), native.vocal);
+  const restored = new ProjectStore(JSON.parse(JSON.stringify(saved))).toJSON();
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.vocal)), native.vocal);
+});
+
+test('legacy vocal_settings aliases into canonical vocal while retaining its original payload', () => {
+  const legacy = { format_version: 2, vocal_settings: { key: 'A', scale: 'major', retune_ms: 0, legacy: { keep: 'me' } } };
+  const saved = new ProjectStore(legacy).toJSON();
+  assert.equal(saved.vocal.key, 'A');
+  assert.equal(saved.vocal.scale, 'major');
+  assert.equal(saved.vocal.retune_ms, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.vocal.legacy)), { keep: 'me' });
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.vocal_settings)), legacy.vocal_settings);
+});
+
+test('canonical vocal wins deterministic conflicts without dropping the legacy alias', () => {
+  const legacy = { key: 'G', scale: 'major', legacy_only: { value: 1 } };
+  const canonical = { key: 'D', scale: 'minor', canonical_only: { value: 2 } };
+  const saved = new ProjectStore({ format_version: 6, vocal: canonical, vocal_settings: legacy }).toJSON();
+  assert.equal(saved.vocal.key, 'D');
+  assert.equal(saved.vocal.scale, 'minor');
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.vocal.canonical_only)), canonical.canonical_only);
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.vocal_settings)), legacy);
+});
+
 test('invalid nested state and ambiguous identities are rejected atomically', () => {
   const store = new ProjectStore();
   store.setTempo(125);
@@ -124,6 +161,21 @@ test('invalid nested state and ambiguous identities are rejected atomically', ()
     { patterns: [{ steps: { 0: { '0.5': 1 } } }] }, { patterns: [{ steps: { 0: { 0: 2 } } }] },
   ];
   for (const invalid of cases) {
+    assert.throws(() => store.load(invalid), JSON.stringify(invalid));
+    assert.equal(JSON.stringify(store.toJSON()), before);
+    assert.equal(store.history.length, 1);
+  }
+});
+
+test('invalid vocal aliases and ranges are rejected atomically', () => {
+  const store = new ProjectStore();
+  store.setTempo(125);
+  const before = JSON.stringify(store.toJSON());
+  for (const invalid of [
+    { vocal: [] }, { vocal_settings: 'legacy' }, { vocal: { enabled: 'false' } },
+    { vocal_settings: { low_note: 61, high_note: 60 } }, { vocal: { key: 'H' } },
+    { vocal: { transpose: 1.5 } }, { vocal: { highpass_hz: 301 } }
+  ]) {
     assert.throws(() => store.load(invalid), JSON.stringify(invalid));
     assert.equal(JSON.stringify(store.toJSON()), before);
     assert.equal(store.history.length, 1);

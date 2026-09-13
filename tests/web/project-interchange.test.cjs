@@ -35,3 +35,18 @@ test('browser save/reload retains the cross-language music contract', () => {
   assertSemantics(fixture, restored);
   assert.deepEqual(JSON.parse(JSON.stringify(restored)), JSON.parse(JSON.stringify(saved)));
 });
+
+test('native vocal payload survives browser import and export without schema loss', () => {
+  const native = {
+    format_version: 6,
+    vocal: {
+      enabled: true, key: 'B', scale: 'pentatonic', strength: .73, retune_ms: 11,
+      humanize: .35, mix: .88, transpose: 4, formant: .7, low_note: 43,
+      high_note: 91, gate_db: -52, highpass_hz: 95, deesser: .3,
+      compression: .45, presence_db: 1.25, output_db: -2,
+      native_extension: { model: 'golden-vocal', settings: { preserve: true } }
+    }
+  };
+  const exported = new ProjectStore(JSON.parse(JSON.stringify(new ProjectStore(native).toJSON()))).toJSON();
+  assert.deepEqual(JSON.parse(JSON.stringify(exported.vocal)), native.vocal);
+});

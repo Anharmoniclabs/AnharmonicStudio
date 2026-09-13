@@ -194,6 +194,17 @@ def main():
                 const next = scheduled.find(event => event.beat === .5); assert(next, 'next tempo event missing'); equal(next.when, .158 + (.5 - position));
                 let stopped = 0; engine.voices.add({ when: 99, end: 100, stop() { stopped += 1; } }); engine.graph = null; engine.stop(); assert(!engine.playing && engine.timer === null && !engine.voices.size && stopped === 1, 'stop did not cancel sources');
               });
+              await test('pause preserves beat, cancels voices, resumes, and Stop rewinds', async () => {
+                const { project, engine } = factory(); const positions = [];
+                engine.onPosition = position => positions.push(position);
+                engine.context = { currentTime: 1, state: 'running' }; engine.graph = null; engine.playing = true; engine.mode = 'pattern'; engine.tempo = 120; engine.project = project; engine.anchorTime = 0; engine.anchorBeat = 0; engine.cursor = 0;
+                let stopped = 0;
+                engine.voices.add({ when: 1.5, end: 2, stop(time, immediate) { stopped += 1; assert(immediate, 'pause cancellation was not immediate'); this.end = time; } });
+                engine.retiringVoices.add({ when: .5, end: 1.5, stop(time, immediate) { stopped += 1; assert(immediate, 'retiring voice was not canceled'); this.end = time; } });
+                const pausedBeat = engine.pause(); equal(pausedBeat, 2); equal(engine.pausedBeat, 2); assert(!engine.playing && engine.paused, 'pause did not enter paused state'); assert(!engine.voices.size && !engine.retiringVoices.size && stopped === 2, 'pause left stale voices');
+                engine.context.currentTime = 2; await engine.start('pattern'); assert(engine.playing && !engine.paused, 'resume did not restart transport'); equal(engine.beatAt(engine.context.currentTime), pausedBeat); assert(engine.cursor >= pausedBeat, 'resume scheduler moved behind the pause point');
+                engine.stop(); assert(!engine.playing && !engine.paused && engine.pausedBeat === 0 && engine.cursor === 0, 'Stop did not rewind paused transport'); assert(positions.at(-1).beat === 0 && !positions.at(-1).playing, 'Stop did not publish rewind position');
+              });
               await test('song loops schedule the next cycle ahead on the same audio clock', () => {
                 const { project, engine } = factory(); project.patterns[0].steps = { 0: { 0: 1 } }; project.rows[0].clips = [{ kind: 'pattern', ref: project.patterns[0].id, start_beat: 0, length_beats: 4, gain: 1 }]; project.loop_enabled = true; project.loop_start = 0; project.loop_end = 4;
                 engine.context = { currentTime: 1.95 }; engine.graph = { trackBuses: Array(project.tracks.length), sync() {} }; engine.playing = true; engine.mode = 'song'; engine.tempo = 120; engine.project = project; engine.anchorTime = .04; engine.anchorBeat = 0; engine.cursor = 3.8;

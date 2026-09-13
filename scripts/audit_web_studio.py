@@ -80,6 +80,52 @@ def main():
                     "empty_waveform_and_meter",
                     page.locator("#master-meter").evaluate("element => element.value") == 0,
                 )
+                check(
+                    "workspace_tabs_expose_selected_state",
+                    page.locator('[role="tablist"] [role="tab"]').count() == 6
+                    and page.locator('[role="tab"][aria-selected="true"]').count() == 1
+                    and page.locator('[role="tab"][aria-selected="true"]').get_attribute(
+                        "data-workspace"
+                    )
+                    == "song",
+                )
+                check(
+                    "panel_toggles_expose_regions",
+                    page.locator('[data-toggle="browser"]').get_attribute("aria-expanded") == "true"
+                    and page.locator('[data-toggle="browser"]').get_attribute("aria-controls")
+                    == "browser-panel"
+                    and page.locator("#browser-panel").get_attribute("aria-hidden") == "false"
+                    and page.locator('[data-toggle="pads"]').get_attribute("aria-expanded")
+                    == "true"
+                    and page.locator('[data-toggle="pads"]').get_attribute("aria-controls")
+                    == "pads-panel"
+                    and page.locator("#pads-panel").get_attribute("aria-hidden") == "false",
+                )
+                check(
+                    "pads_expose_selected_state",
+                    page.locator("#pad-grid .pad").count() == 16
+                    and page.locator('#pad-grid .pad[aria-pressed="true"]').count() == 1
+                    and page.locator('.pad-bank button[aria-pressed="true"]').count() == 1,
+                )
+                check(
+                    "help_dialog_has_explicit_label",
+                    page.locator("#help-dialog").get_attribute("aria-labelledby")
+                    == "help-dialog-title"
+                    and page.locator("#help-dialog-title").count() == 1,
+                )
+                page.locator('[data-toggle="browser"]').click()
+                check(
+                    "panel_close_updates_accessible_state",
+                    page.locator('[data-toggle="browser"]').get_attribute("aria-expanded")
+                    == "false"
+                    and page.locator("#browser-panel").get_attribute("aria-hidden") == "true",
+                )
+                page.locator('[data-toggle="browser"]').click()
+                check(
+                    "panel_reopen_updates_accessible_state",
+                    page.locator('[data-toggle="browser"]').get_attribute("aria-expanded") == "true"
+                    and page.locator("#browser-panel").get_attribute("aria-hidden") == "false",
+                )
                 page.screenshot(path=str(args.output / "web-studio.png"), full_page=True)
 
                 # Record actual model mutations and pad calls without exposing state in production.
@@ -175,6 +221,46 @@ def main():
                 check(
                     "pattern_division_changes_grid",
                     page.locator('.step-line button[data-pad="16"]').count() == 64,
+                )
+                page.locator(".pattern-menu").click()
+                check(
+                    "menu_opens_with_focus_and_explicit_anchor_state",
+                    page.locator(".app-menu").count() == 1
+                    and page.locator(".pattern-menu").get_attribute("aria-haspopup") == "menu"
+                    and page.locator(".pattern-menu").get_attribute("aria-expanded") == "true"
+                    and page.evaluate(
+                        "document.activeElement?.getAttribute('role') === 'menuitem'"
+                    ),
+                )
+                page.keyboard.press("ArrowDown")
+                check(
+                    "menu_arrow_down_moves_focus",
+                    page.evaluate(
+                        "document.activeElement?.textContent.includes('New empty pattern')"
+                    ),
+                )
+                page.keyboard.press("End")
+                check(
+                    "menu_end_moves_focus",
+                    page.evaluate(
+                        "document.activeElement?.textContent.includes('Rename current pattern')"
+                    ),
+                )
+                page.keyboard.press("Home")
+                check(
+                    "menu_home_moves_focus",
+                    page.evaluate(
+                        "document.activeElement === document.querySelector('.app-menu [role=menuitem]:not(:disabled)')"
+                    ),
+                )
+                page.keyboard.press("Escape")
+                check(
+                    "menu_escape_restores_anchor_focus",
+                    page.locator(".app-menu").count() == 0
+                    and page.locator(".pattern-menu").get_attribute("aria-expanded") == "false"
+                    and page.evaluate(
+                        "document.activeElement === document.querySelector('.pattern-menu')"
+                    ),
                 )
                 page.locator(".pattern-menu").click()
                 page.get_by_role("menuitem", name="+ New empty pattern", exact=True).click()

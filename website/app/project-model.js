@@ -34,6 +34,18 @@
     return { name: 'Midnight Brass', osc1: 'saw', osc2: 'square', osc_mix: .42, osc2_octave: 0, detune: 8, sub: .18, noise: .015, attack: .025, decay: .32, sustain: .68, release: .65, cutoff: 2400, resonance: .28, drive: .18, spread: .42, lfo_rate: .32, lfo_pitch: 2, volume: .42, track: 2 };
   }
 
+  // `vocal` is the desktop project's canonical key.  `vocal_settings` was
+  // used by the first browser format and is retained as an input/output alias
+  // so an old browser document can make a lossless trip through this model.
+  function defaultVocal() {
+    return {
+      enabled: true, key: 'C', scale: 'chromatic', strength: 1, retune_ms: 25,
+      humanize: .15, mix: 1, transpose: 0, formant: .75, low_note: 36,
+      high_note: 84, gate_db: -55, highpass_hz: 80, deesser: .25,
+      compression: .35, presence_db: 1.5, output_db: 0
+    };
+  }
+
   function defaultArp() {
     return { enabled: false, rate_beats: .25, mode: 'up', octaves: 1, gate: .72 };
   }
@@ -49,7 +61,7 @@
     return {
       format_version: FORMAT_VERSION, name, bpm: 110, swing: 0, master: 0.82,
       pads: defaultPads(), patterns: [pattern], selected_pattern: 0, current_pattern: pattern.id,
-      tracks: defaultTracks(), synth: defaultSynth(), arp: defaultArp(), rows: defaultRows(), automation: [], vocal_settings: {}, vocal_record: {}, loop_start: 0, loop_end: 8,
+      tracks: defaultTracks(), synth: defaultSynth(), arp: defaultArp(), rows: defaultRows(), automation: [], vocal: defaultVocal(), vocal_record: {}, loop_start: 0, loop_end: 8,
       media: []
     };
   }
@@ -128,6 +140,27 @@
   function numericFields(target, fields) {
     for (const [key, [fallback, low, high, integer]] of Object.entries(fields)) target[key] = number(target[key], fallback, low, high, integer);
     return target;
+  }
+
+  function normalizeVocal(source) {
+    const hasCanonical = Object.hasOwn(source, 'vocal');
+    const hasLegacy = Object.hasOwn(source, 'vocal_settings');
+    // Validate both aliases when present.  Canonical data wins conflicts, but
+    // a malformed legacy field must not be silently hidden by that precedence.
+    if (hasCanonical) object(source.vocal, 'vocal');
+    if (hasLegacy) object(source.vocal_settings, 'vocal_settings');
+    const supplied = hasCanonical ? source.vocal : (hasLegacy ? source.vocal_settings : {});
+    const result = numericFields({ ...defaultVocal(), ...supplied }, {
+      strength: [1, 0, 1], humanize: [.15, 0, 1], mix: [1, 0, 1], formant: [.75, 0, 1],
+      retune_ms: [25, 0, 250], transpose: [0, -12, 12, true], low_note: [36, 0, 127, true],
+      high_note: [84, 0, 127, true], gate_db: [-55, -80, -20], highpass_hz: [80, 20, 300],
+      deesser: [.25, 0, 1], compression: [.35, 0, 1], presence_db: [1.5, -6, 9], output_db: [0, -18, 12]
+    });
+    result.enabled = boolean(result.enabled, true);
+    result.key = choice(result.key, 'C', ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']);
+    result.scale = choice(result.scale, 'chromatic', ['chromatic', 'major', 'minor', 'pentatonic']);
+    if (result.low_note > result.high_note) throw new Error('Vocal low_note must not exceed high_note');
+    return result;
   }
 
   function normalizeSteps(steps) {
@@ -215,6 +248,7 @@
     normalized.arp = numericFields({ ...base.arp, ...object(source.arp ?? {}, 'arp') }, { rate_beats: [.25, 1 / 128, 16], octaves: [1, 1, 8, true], gate: [.72, .01, 1] });
     normalized.arp.enabled = boolean(normalized.arp.enabled);
     normalized.arp.mode = choice(normalized.arp.mode, 'up', ['up', 'down', 'up/down', 'random']);
+    normalized.vocal = normalizeVocal(source);
     normalized.rows = unique(records(source.rows, 'rows', 4096).map(row => ({ ...row, id: identity(row.id, uid('row')), name: string(row.name, 'Track'),
       mute: boolean(row.mute), solo: boolean(row.solo), record_armed: boolean(row.record_armed), record_source: choice(row.record_source, 'audio', ['audio', 'notes']), record_track: number(row.record_track, 3, 0, trackCount - 1, true),
       clips: unique(records(row.clips, 'clips', 100000).map(clip => ({ ...clip, id: identity(clip.id, uid('clip')), kind: choice(clip.kind, 'pattern', ['pattern', 'audio']), ref: string(clip.ref),

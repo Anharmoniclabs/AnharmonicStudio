@@ -71,10 +71,25 @@
   function openMenu(anchor, options) {
     closeMenu?.();
     const menu = document.createElement('div');
-    menu.className = 'app-menu'; menu.setAttribute('role', 'menu');
-    const close = () => { menu.remove(); document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', keyboard); closeMenu = null; };
+    const menuId = 'app-menu-' + crypto.randomUUID();
+    menu.className = 'app-menu'; menu.id = menuId; menu.setAttribute('role', 'menu');
+    anchor.setAttribute('aria-haspopup', 'menu'); anchor.setAttribute('aria-expanded', 'true'); anchor.setAttribute('aria-controls', menuId);
+    const close = () => {
+      menu.remove(); document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', keyboard);
+      if (anchor.isConnected) { anchor.setAttribute('aria-expanded', 'false'); anchor.removeAttribute('aria-controls'); }
+      closeMenu = null;
+    };
     const outside = event => { if (!menu.contains(event.target) && !anchor.contains(event.target)) close(); };
-    const keyboard = event => { if (event.key === 'Escape') { close(); anchor.focus(); } };
+    const keyboard = event => {
+      if (event.key === 'Escape') { event.preventDefault(); close(); anchor.focus(); return; }
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+      const items = [...menu.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+      if (!items.length) return;
+      event.preventDefault();
+      const current = items.indexOf(document.activeElement);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
+      items[next].focus();
+    };
     options.forEach(option => {
       const item = document.createElement('button');
       item.type = 'button'; item.textContent = option.label; item.disabled = Boolean(option.disabled);
@@ -88,6 +103,7 @@
     menu.style.top = Math.max(8, Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 4)) + 'px';
     document.addEventListener('pointerdown', outside); document.addEventListener('keydown', keyboard);
     closeMenu = close;
+    menu.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
   }
 
   // IndexedDB retains original audio bytes. Saving never discards unreadable or older saves.
@@ -167,10 +183,17 @@
     $('#play').textContent = '▶'; $('#counter').textContent = '001 . 1 . 00';
     $$('.current').forEach(cell => cell.classList.remove('current'));
   }
+  function pausePlayback() {
+    state.engine?.pause(); state.playing = false;
+    stopArp(); state.heldSynth.forEach(note => state.engine?.releaseNote(note)); state.heldSynth.clear();
+    state.heldPads.forEach(index => releasePad(index)); state.heldPads.clear();
+    $('#play').textContent = '▶';
+    $$('.current').forEach(cell => cell.classList.remove('current'));
+  }
   async function togglePlayback() {
-    if (state.playing) { stopPlayback(); setStatus('Stopped'); return; }
     const engine = await ensureAudio();
     if (!engine) return;
+    if (state.playing || engine.playing) { pausePlayback(); setStatus('Paused'); return; }
     const mode = $('#playback-mode').value;
     await engine.start(mode);
     state.playing = true; $('#play').textContent = 'Ⅱ';
@@ -398,13 +421,13 @@
   function renderPads() {
     $('#pad-grid').innerHTML = Array.from({ length: 16 }, (_, offset) => {
       const index = state.bank * 16 + offset, record = padRecord(index);
-      return '<button class="pad ' + (index === state.selectedPad ? 'selected' : '') + '" data-pad="' + index + '" aria-label="Pad ' + padNumber(index) + ': ' + escapeHTML(record.name) + '"><b>' + padNumber(offset) + '</b><strong>' + escapeHTML(record.name) + '</strong><small>' + (record.sample_id ? '● ' : '') + (offset < 8 ? offset + 1 : '') + '</small></button>';
+      return '<button class="pad ' + (index === state.selectedPad ? 'selected' : '') + '" data-pad="' + index + '" aria-pressed="' + (index === state.selectedPad) + '" aria-label="Pad ' + padNumber(index) + ': ' + escapeHTML(record.name) + '"><b>' + padNumber(offset) + '</b><strong>' + escapeHTML(record.name) + '</strong><small>' + (record.sample_id ? '● ' : '') + (offset < 8 ? offset + 1 : '') + '</small></button>';
     }).join('');
     $$('.pad').forEach(pad => {
       pad.addEventListener('pointerdown', act(async event => {
         if (event.button !== 0) return;
         const index = Number(pad.dataset.pad); state.selectedPad = index;
-        $$('.pad').forEach(item => item.classList.toggle('selected', item === pad)); syncInspector();
+        $$('.pad').forEach(item => { const selected = item === pad; item.classList.toggle('selected', selected); item.setAttribute('aria-pressed', String(selected)); }); syncInspector();
         if (state.workspace === 'sampler') renderSampler();
         pad.setPointerCapture?.(event.pointerId);
         let released = false;
@@ -413,11 +436,19 @@
         await triggerPad(index);
         if (released && padRecord(index).mode !== 'one-shot') releasePad(index);
       }));
-      pad.addEventListener('keydown', act(event => { if (event.code === 'Enter') return triggerPad(Number(pad.dataset.pad)); }));
+      pad.addEventListener('keydown', act(event => {
+        if (event.code !== 'Enter' && event.code !== 'Space') return;
+        event.preventDefault(); const index = Number(pad.dataset.pad); state.selectedPad = index;
+        $$('.pad').forEach(item => { const selected = item === pad; item.classList.toggle('selected', selected); item.setAttribute('aria-pressed', String(selected)); });
+        syncInspector(); return triggerPad(index);
+      }));
       pad.addEventListener('dragover', event => event.preventDefault());
       pad.addEventListener('drop', act(event => { event.preventDefault(); assignMedia(event.dataTransfer.getData('application/x-anharmonic-media'), Number(pad.dataset.pad)); }));
     });
-    $$('.pad-bank button').forEach(item => item.classList.toggle('active', Number(item.dataset.bank) === state.bank));
+    $$('.pad-bank button').forEach(item => {
+      const selected = Number(item.dataset.bank) === state.bank;
+      item.classList.toggle('active', selected); item.setAttribute('aria-pressed', String(selected));
+    });
     syncInspector();
   }
   function syncInspector() {
@@ -893,7 +924,10 @@
 
   function renderWorkspace(name) {
     closeMenu?.(); state.workspace = name;
-    $$('.studio-nav [data-workspace]').forEach(tab => tab.classList.toggle('active', tab.dataset.workspace === name));
+    $$('.studio-nav [data-workspace]').forEach(tab => {
+      const selected = tab.dataset.workspace === name;
+      tab.classList.toggle('active', selected); tab.setAttribute('aria-selected', String(selected));
+    });
     ({ song: renderSong, beats: renderBeats, notes: renderNotes, sampler: renderSampler, instruments: renderInstruments, mix: renderMix }[name] || renderSong)();
   }
   function renderAll() { renderLibrary(); renderPads(); renderWorkspace(state.workspace); }
@@ -917,13 +951,20 @@
     $('.main-split').classList.toggle('hide-browser', !browser); $('.main-split').classList.toggle('hide-pads', !pads);
     $('#browser-panel').classList.toggle('open', mobile && browser); $('#pads-panel').classList.toggle('open', mobile && pads);
     $('#focus-toggle').classList.toggle('active', state.focused);
-    $$('[data-toggle]').forEach(toggle => toggle.classList.toggle('active', toggle.dataset.toggle === 'browser' ? browser : pads));
+    $('#focus-toggle').setAttribute('aria-pressed', String(state.focused));
+    $$('[data-toggle]').forEach(toggle => {
+      const visible = toggle.dataset.toggle === 'browser' ? browser : pads;
+      toggle.classList.toggle('active', visible); toggle.setAttribute('aria-expanded', String(visible));
+      toggle.setAttribute('aria-controls', toggle.dataset.toggle + '-panel');
+      $('#' + toggle.dataset.toggle + '-panel')?.setAttribute('aria-hidden', String(!visible));
+    });
   }
   $$('.studio-nav [data-workspace]').forEach(tab => tab.addEventListener('click', act(() => renderWorkspace(tab.dataset.workspace))));
   $$('.pad-bank button').forEach(bank => bank.addEventListener('click', act(() => { state.bank = Number(bank.dataset.bank); state.selectedPad = state.bank * 16; renderPads(); if (state.workspace === 'beats' || state.workspace === 'sampler') renderWorkspace(state.workspace); })));
   $$('[data-toggle],[data-close]').forEach(control => control.addEventListener('click', () => {
     const panel = control.dataset.toggle || control.dataset.close; state.focused = false;
     state[panel === 'browser' ? 'browserOpen' : 'padsOpen'] = control.dataset.close ? false : !state[panel === 'browser' ? 'browserOpen' : 'padsOpen']; updatePanels();
+    if (control.dataset.close) $('[data-toggle="' + panel + '"]')?.focus();
   }));
   on('#focus-toggle', 'click', () => { state.focused = !state.focused; updatePanels(); });
   on('#play', 'click', togglePlayback);

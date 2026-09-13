@@ -255,7 +255,7 @@
     constructor({ getProject, getBuffer, onPosition = () => {}, onError = () => {} }) {
       if (typeof getProject !== 'function' || typeof getBuffer !== 'function') throw new Error('Audio engine requires project and sample accessors.');
       this.getProject = getProject; this.getBuffer = getBuffer; this.onPosition = onPosition; this.onError = onError;
-      this.context = null; this.graph = null; this.playing = false; this.mode = 'pattern'; this.timer = null;
+      this.context = null; this.graph = null; this.playing = false; this.paused = false; this.pausedBeat = 0; this.mode = 'pattern'; this.timer = null;
       this.voices = new Set(); this.retiringVoices = new Set(); this.reverseBuffers = new WeakMap(); this.loopBuffers = new WeakMap(); this.noiseBuffers = new WeakMap(); this.metronome = false; this.rendering = false;
       this.preparedBudget = null;
       this.anchorTime = 0; this.anchorBeat = 0; this.cursor = 0; this.tempo = 110; this.project = null; this.lastPosition = -1;
@@ -296,6 +296,17 @@
 
     beatAt(time) { return this.anchorBeat + (time - this.anchorTime) * this.tempo / 60; }
     timeAt(beat) { return this.anchorTime + (beat - this.anchorBeat) * 60 / this.tempo; }
+    positionBeat(beat, project = this.project || this.getProject()) {
+      const length = lengthBeats(project, this.mode);
+      if (!(length > 0)) return 0;
+      if (this.mode === 'pattern') return beat % length;
+      if (project.loop_enabled) {
+        const loopStart = clamp(project.loop_start, 0, length, 0);
+        const loopEnd = Math.max(loopStart + .25, finite(project.loop_end, length));
+        if (beat >= loopEnd) return loopStart + (beat - loopEnd) % (loopEnd - loopStart);
+      }
+      return beat;
+    }
     setMetronome(enabled) { this.metronome = Boolean(enabled); }
     output(track, graph = this.graph) {
       const index = track ?? 0;
@@ -538,12 +549,22 @@
     }
 
     async start(mode = 'pattern') {
-      await this.resume(); this.stop(); this.mode = mode === 'song' ? 'song' : 'pattern';
+      const requestedMode = mode === 'song' ? 'song' : 'pattern';
+      const continuing = this.paused && this.mode === requestedMode;
+      await this.resume();
+      if (!continuing) this.stop();
+      this.mode = requestedMode;
       const project = this.getProject();
       if (this.mode === 'song' && !lengthBeats(project, 'song')) throw new Error('The song is empty. Add arrangement clips or select pattern playback.');
       // Validate every scheduled media reference before a transport can start.
       this.validate(project, this.mode);
-      this.playing = true; this.tempo = project.bpm; this.anchorTime = this.context.currentTime + .04; this.anchorBeat = 0; this.cursor = 0; this.project = project; this.lastPosition = -1; this.lastError = null;
+      const beat = continuing ? this.pausedBeat : 0;
+      const lead = .04;
+      this.playing = true; this.paused = false; this.tempo = project.bpm; this.anchorTime = this.context.currentTime + lead;
+      // Keep beatAt(context.currentTime) exactly at the pause point while
+      // retaining the small scheduling lead used by a fresh transport start.
+      this.anchorBeat = continuing ? beat + lead * this.tempo / 60 : 0;
+      this.cursor = beat; this.project = project; this.lastPosition = -1; this.lastError = null;
       this.tick(); if (this.lastError) throw this.lastError;
       if (this.playing) this.timer = window.setInterval(() => this.tick(), 25);
     }
@@ -634,10 +655,31 @@
       this.registerVoice(voice); source.onended = () => { this.voices.delete(voice); this.retiringVoices.delete(voice); source.disconnect(); gain.disconnect(); }; source.start(when); source.stop(voice.end);
     }
 
+    cancelVoices(time = this.context?.currentTime || 0) {
+      for (const voice of [...this.voices, ...this.retiringVoices]) voice.stop(time, true);
+      this.voices.clear(); this.retiringVoices.clear();
+    }
+
+    pause() {
+      if (!this.playing) return this.paused ? this.pausedBeat : 0;
+      const now = this.context?.currentTime || 0;
+      const beat = Math.max(0, this.beatAt(now));
+      window.clearInterval(this.timer); this.timer = null; this.playing = false;
+      // Cancel both future scheduled nodes and currently audible nodes. A
+      // pause must leave no old voice capable of sounding after resume.
+      this.cancelVoices(now);
+      this.paused = true; this.pausedBeat = beat; this.cursor = beat; this.lastPosition = -1;
+      if (this.context && this.graph) { this.graph.disconnect(); this.graph = makeGraph(this.context, this.getProject()); }
+      const local = this.positionBeat(beat);
+      const pattern = selectedPattern(this.project || this.getProject()); const division = finite(pattern?.div, 4);
+      const step = Math.floor(local * division + EPSILON);
+      this.onPosition({ beat: local, step, bar: Math.floor(local / 4), mode: this.mode, playing: false, paused: true });
+      return beat;
+    }
+
     stop() {
       window.clearInterval(this.timer); this.timer = null; this.playing = false;
-      for (const voice of [...this.voices, ...this.retiringVoices]) voice.stop(this.context?.currentTime || 0, true);
-      this.voices.clear(); this.retiringVoices.clear(); this.cursor = 0; this.lastPosition = -1;
+      this.cancelVoices(); this.paused = false; this.pausedBeat = 0; this.cursor = 0; this.lastPosition = -1;
       // Disconnect delay/reverb tails as well as source nodes. Rebuild the
       // graph to keep stopped playback silent without closing the context.
       if (this.context && this.graph) { this.graph.disconnect(); this.graph = makeGraph(this.context, this.getProject()); }
