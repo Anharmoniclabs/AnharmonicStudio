@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt, SIGNAL
+from PySide6.QtCore import Qt, SIGNAL, QPoint
 from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton
@@ -409,6 +409,79 @@ class StepGridTests(_WindowCase):
         grid._clear_lane(3)
         self.assertNotIn(3, pattern.steps)
 
+    def test_paste_lane_preserves_beats_across_grid_resolutions(self):
+        grid = self.window.step_grid
+        pattern = self.window.project.pattern()
+        pattern.div = 4
+        pattern.steps[0] = {0: 1.0, 4: 0.7, 8: 0.5}
+        grid._copy(0)
+        pattern.div = 8
+        grid._paste(3)
+        self.assertEqual(pattern.steps[3], {0: 1.0, 8: 0.7, 16: 0.5})
+
+    def test_paste_into_shorter_pattern_does_not_leave_hidden_steps(self):
+        grid = self.window.step_grid
+        pattern = self.window.project.pattern()
+        pattern.bars = 8
+        pattern.steps[0] = {0: 1.0, 15: 0.5, 64: 0.9}
+        grid._copy(0)
+        pattern.bars = 1
+        grid._paste(3)
+        self.assertEqual(pattern.steps[3], {0: 1.0, 15: 0.5})
+
+    def test_changing_grid_preserves_beat_positions_and_can_be_undone(self):
+        pattern = self.window.project.pattern()
+        pattern.steps[0] = {0: 1.0, 4: 0.7, 8: 0.5}
+        self.window.grid_box.setCurrentIndex(self.window.grid_box.findData(8))
+        self.assertEqual(pattern.div, 8)
+        self.assertEqual(pattern.steps[0], {0: 1.0, 8: 0.7, 16: 0.5})
+        self.window.undo()
+        restored = self.window.project.pattern()
+        self.assertEqual(restored.div, 4)
+        self.assertEqual(restored.steps[0], {0: 1.0, 4: 0.7, 8: 0.5})
+
+    def test_shortening_pattern_trims_drum_hits_and_undo_restores_them(self):
+        pattern = self.window.project.pattern()
+        pattern.steps[0] = {0: 1.0, 15: 0.5, 31: 0.8}
+        self.window.bars_box.setCurrentText("1")
+        self.assertEqual(pattern.steps[0], {0: 1.0, 15: 0.5})
+        self.window.undo()
+        self.assertEqual(self.window.project.pattern().steps[0], {0: 1.0, 15: 0.5, 31: 0.8})
+
+    def test_coarser_grid_keeps_strongest_colliding_hit_inside_pattern(self):
+        pattern = self.window.project.pattern()
+        pattern.bars = 1
+        pattern.div = 8
+        pattern.steps[0] = {0: 0.3, 1: 0.9, 2: 0.4, 31: 0.8}
+        self.window._sync_pattern_controls()
+        self.window.grid_box.setCurrentIndex(self.window.grid_box.findData(2))
+        self.assertEqual(pattern.steps[0], {0: 0.9, 1: 0.4})
+
+    def test_keyboard_navigation_keeps_target_visible_without_follow(self):
+        from mpclab.ui.sequencer import LABEL_W, CELL_W, GAP, RULER_H, ROW_H
+
+        window = self.window
+        grid = window.step_grid
+        window.project.pattern().bars = 8
+        grid.set_only_loaded(False)
+        grid.follow = False
+        window.show_tab(window.TAB_SEQ)
+        window.resize(900, 600)
+        self.app.processEvents()
+        grid.setFocus()
+        QTest.keyClick(grid, Qt.Key_End)
+        for _ in range(4):
+            QTest.keyClick(grid, Qt.Key_PageDown)
+        self.app.processEvents()
+        gi, step = grid._keyboard_cell
+        row = grid.lanes().index(gi)
+        center = QPoint(
+            LABEL_W + step * (CELL_W + GAP) + CELL_W // 2,
+            RULER_H + row * (ROW_H + GAP) + ROW_H // 2,
+        )
+        viewport = window.seq_scroll.viewport()
+        self.assertTrue(viewport.rect().contains(grid.mapTo(viewport, center)))
+
     def test_doubling_repeats_the_pattern_into_the_new_half(self):
         pattern = self.window.project.pattern()
         pattern.steps[0] = {0: 1.0, 4: 0.8}
@@ -467,6 +540,21 @@ class StepGridTests(_WindowCase):
 
         self.assertEqual(opened, [5, 5])
         self.assertIn("Menu/Shift+F10", grid.toolTip())
+
+    def test_keyboard_lane_menu_opens_at_a_visible_step_in_a_long_pattern(self):
+        grid = self.window.step_grid
+        self.window.project.pattern().bars = 8
+        self.window.show_tab(self.window.TAB_SEQ)
+        grid.refresh()
+        self.window.resize(900, 600)
+        self.app.processEvents()
+        grid._keyboard_cell = (15, 127)
+        opened = []
+        grid._open_lane_menu = lambda _pad, pos: opened.append(pos)
+        QTest.keyClick(grid, Qt.Key_Menu)
+        viewport = self.window.seq_scroll.viewport()
+        self.assertEqual(len(opened), 1)
+        self.assertTrue(viewport.rect().contains(viewport.mapFromGlobal(opened[0])))
 
 
 class SampleZoomTests(_WindowCase):

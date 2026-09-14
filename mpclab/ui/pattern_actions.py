@@ -6,7 +6,7 @@ from dataclasses import replace
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QInputDialog
 
-from ..model import Pattern, Clip, Row, uid
+from ..model import Pattern, Clip, Row, uid, remap_step_lane
 from ..workflow import pattern_arrangement_target
 from .playlist import ROW_H, RULER_H
 
@@ -134,11 +134,27 @@ class PatternActionsMixin:
             for n in self.project.pattern().notes
             if n.start < length
         ]
+        pat = self.project.pattern()
+        lanes = {
+            pad: remap_step_lane(steps, pat.div, pat.div, pat.total_steps)
+            for pad, steps in pat.steps.items()
+        }
+        pat.steps = {pad: steps for pad, steps in lanes.items() if steps}
         self._sync_pattern_controls()
 
     def _div_changed(self, idx):
+        division = self.grid_box.itemData(idx)
+        pat = self.project.pattern()
+        if not isinstance(division, int) or division <= 0 or division == pat.div:
+            return
         self.snapshot()
-        self.project.pattern().div = self.grid_box.itemData(idx)
+        total = pat.bars * 4 * division
+        lanes = {
+            pad: remap_step_lane(steps, pat.div, division, total)
+            for pad, steps in pat.steps.items()
+        }
+        pat.steps = {pad: steps for pad, steps in lanes.items() if steps}
+        pat.div = division
         self.step_grid.refresh()
 
     # ── playlist ─────────────────────────────────────────────

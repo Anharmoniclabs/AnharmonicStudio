@@ -186,6 +186,20 @@ class Instrument:
         validate_patch(self.patch)
 
 
+def remap_step_lane(steps, source_div: int, target_div: int, total_steps: int):
+    """Keep beat positions on the destination grid and discard out-of-range hits.
+
+    A coarser grid snaps to its nearest step. If hits coincide, retain the
+    strongest velocity rather than making the result depend on dict order.
+    """
+    result = {}
+    for step, velocity in steps.items():
+        target = int(math.floor(step * target_div / source_div + 0.5))
+        if 0 <= target < total_steps:
+            result[target] = max(result.get(target, 0.0), velocity)
+    return result
+
+
 @dataclass
 class Pattern:
     id: str = field(default_factory=uid)
