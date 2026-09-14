@@ -202,9 +202,11 @@ def play_synth_note(
                 channel,
             )
     if instrument_id is None:
-        window.engine.synth_note_on(note, velocity)
+        token = window.engine.synth_note_on(note, velocity)
     else:
-        window.engine.synth_note_on(note, velocity, instrument_id=instrument_id)
+        token = window.engine.synth_note_on(note, velocity, instrument_id=instrument_id)
+    if key in window._recorded_notes:
+        window._recorded_notes[key] = (*window._recorded_notes[key][:4], token)
     window.synth_panel.keyboard.set_note_active(note, True)
     if window.typing_keyboard is not None:
         window.typing_keyboard.keyboard.set_note_active(note, True)
@@ -227,15 +229,17 @@ def release_synth_note(window, note: int, *, instrument_id=SELECTED_INSTRUMENT):
         if pattern:
             beat = start % pattern.length_beats
             duration = min(max(0.03125, window.engine.beat - start), pattern.length_beats - beat)
-            pattern.notes.append(
-                Note(
-                    note,
-                    beat,
-                    duration,
-                    velocity,
-                    instrument=instrument_id,
-                    channel=channels[0] if channels else 0,
-                )
+            captured = Note(
+                note,
+                beat,
+                duration,
+                velocity,
+                instrument=instrument_id,
+                channel=channels[0] if channels else 0,
+            )
+            pattern.notes.append(captured)
+            window.engine.bind_recorded_note(
+                pattern, captured, channels[1] if len(channels) > 1 else None
             )
             window._set_dirty(True)
             window.piano_roll.canvas.refresh()

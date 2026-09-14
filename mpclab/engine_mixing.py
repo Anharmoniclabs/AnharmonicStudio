@@ -12,6 +12,7 @@ import numpy as np
 
 from .engine_constants import AUDITION, METRONOME, SEND_TAIL, TRACK_DSP_TAIL
 from .model import NPADS
+from .event_source import release_deleted_events
 from .music import automation_values
 from .instrument_state import decode_destination, voice_patch
 from .sample_voice import _balance_gains
@@ -77,7 +78,9 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         b0 = engine.beat
         b1 = b0 + frames * bps
         notes, audio = engine._collect(b0, b1, reuse=True)
-        for beat, pad_idx, vel, _gate, sequence_id in notes:
+        for event in notes:
+            beat, pad_idx, vel, _gate, sequence_id = event
+            source = getattr(event, "source", None)
             off = int(max(0.0, (beat - b0) / bps))
             if pad_idx < 0:
                 instrument_id, pitch = decode_destination(proj, pad_idx)
@@ -88,6 +91,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
                     max(1, int(_gate / bps)),
                     live_trigger=False,
                     instrument_id=instrument_id,
+                    event_source=source,
                 )
             elif pad_idx >= NPADS:
                 index, pitch = divmod(pad_idx - NPADS, 128)
@@ -99,6 +103,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
                     max(1, int(_gate / bps)),
                     live_trigger=False,
                     sequence_id=sequence_id,
+                    event_source=source,
                     note=pitch,
                 )
             elif 0 <= pad_idx < len(proj.pads):
@@ -109,6 +114,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
                     min(off, frames - 1),
                     live_trigger=False,
                     sequence_id=sequence_id,
+                    event_source=source,
                 )
         for clip in audio:
             off = int(max(0.0, (clip.start_beat - b0) / bps))
@@ -123,6 +129,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         engine.beat = b1
     # 3 ─ voices
     engine._schedule_arp(frames, start_beat)
+    release_deleted_events(engine)
     preview = None
     for v in engine.voices:
         destination = preview_bus if v.pad_index in (AUDITION, METRONOME) else tbuf[v.track]

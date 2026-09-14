@@ -501,10 +501,18 @@ class Engine:
     def release_pad(self, index: int) -> None:
         self.cmds.put(("off", index))
 
-    def sample_note_on(self, index: int, note: int, velocity: float = 1.0) -> None:
+    def sample_note_on(self, index: int, note: int, velocity: float = 1.0):
         if not 0 <= index < NPADS or not 0 <= note <= 127:
             raise ValueError("invalid sample note destination or pitch")
-        self.cmds.put(("sampleon", index, note, velocity))
+        token = object()
+        self.cmds.put(("sampleon", index, note, velocity, token))
+        return token
+
+    def bind_recorded_note(self, pattern, note, trigger_id):
+        from .event_source import EventSource
+
+        if trigger_id is not None:
+            self.cmds.put(("bindevent", trigger_id, EventSource(pattern, note=note)))
 
     def sample_note_off(self, index: int, note: int) -> None:
         self.cmds.put(("sampleoff", index, note))
@@ -512,10 +520,11 @@ class Engine:
     def sample_panic(self) -> None:
         self.cmds.put(("samplepanic",))
 
-    def synth_note_on(self, note: int, velocity: float = 1.0, *, instrument_id=None) -> None:
+    def synth_note_on(self, note: int, velocity: float = 1.0, *, instrument_id=None):
         prepare_patch(self.project.instrument_patch(instrument_id))
-        command = ("synthon", max(0, min(127, int(note))), velocity)
-        self.cmds.put(command if instrument_id is None else (*command, instrument_id))
+        token = object()
+        self.cmds.put(("synthon", max(0, min(127, int(note))), velocity, instrument_id, token))
+        return token
 
     def synth_note_off(self, note: int, *, instrument_id=None) -> None:
         command = ("synthoff", max(0, min(127, int(note))))
@@ -634,6 +643,8 @@ class Engine:
         live_trigger: bool = True,
         sequence_id: str | None = None,
         note: int | None = None,
+        event_source=None,
+        trigger_id=None,
     ) -> None:
         v = self._voice_for_pad(pad, velocity, note)
         if v is None:
@@ -641,6 +652,8 @@ class Engine:
         v.pad_index = index
         v.live_trigger = live_trigger
         v.sequence_id = sequence_id
+        v.event_source = event_source
+        v.trigger_id = trigger_id
         v.start_offset = max(0, offset)
         if gate_frames is not None and pad.mode != "one-shot":
             v.length = min(
@@ -715,6 +728,8 @@ class Engine:
         voices=None,
         live_trigger: bool = True,
         instrument_id: str | None = None,
+        event_source=None,
+        trigger_id=None,
     ) -> None:
         voices = self.synth_voices if voices is None else voices
         if (
@@ -722,7 +737,15 @@ class Engine:
             and voices is self.synth_voices
             and self.external.instrument is not None
         ):
-            self.external.note_on(note, velocity, offset, gate_frames, live_trigger)
+            self.external.note_on(
+                note,
+                velocity,
+                offset,
+                gate_frames,
+                live_trigger,
+                event_source=event_source,
+                trigger_id=trigger_id,
+            )
             return
         patch = self.project.instrument_patch(instrument_id)
         # Retrigger within the same performance source. Playing along must not
@@ -770,6 +793,8 @@ class Engine:
                 live_trigger=live_trigger,
                 instrument_id=instrument_id,
                 patch_ref=patch if instrument_id is not None else None,
+                event_source=event_source,
+                trigger_id=trigger_id,
             )
         )
 
@@ -989,9 +1014,8 @@ class Engine:
                     self.external.events.append((cmd[1], 0))
             elif kind == "pad":
                 idx, vel = cmd[1], cmd[2]
-                self._spawn(proj.pads[idx], idx, vel, 0)
-                if self.recording and self.playing:
-                    self._record(idx, vel)
+                source = self._record(idx, vel) if self.recording and self.playing else None
+                self._spawn(proj.pads[idx], idx, vel, 0, event_source=source)
             elif kind == "off":
                 for v in self.voices:
                     if v.pad_index == cmd[1] and v.note is None and v.live_trigger and not v.dead:
@@ -999,8 +1023,18 @@ class Engine:
                         if pad.mode != "one-shot":
                             v.release_now(v.release)
             elif kind == "sampleon":
-                _, index, note, velocity = cmd
-                self._spawn(proj.pads[index], index, velocity, note=note)
+                _, index, note, velocity, *tokens = cmd
+                self._spawn(
+                    proj.pads[index],
+                    index,
+                    velocity,
+                    note=note,
+                    trigger_id=tokens[0] if tokens else None,
+                )
+            elif kind == "bindevent":
+                for voice in (*self.voices, *self.synth_voices, *self.external.voices):
+                    if voice.trigger_id is cmd[1]:
+                        voice.event_source = cmd[2]
             elif kind == "sampleoff":
                 _, index, note = cmd
                 for v in self.voices:
@@ -1013,9 +1047,10 @@ class Engine:
             elif kind == "synthon":
                 note, vel = cmd[1], cmd[2]
                 instrument_id = cmd[3] if len(cmd) > 3 else None
+                token = cmd[4] if len(cmd) > 4 else None
                 if instrument_id is not None:
                     if any(instance.id == instrument_id for instance in proj.instruments):
-                        self._spawn_synth(note, vel, instrument_id=instrument_id)
+                        self._spawn_synth(note, vel, instrument_id=instrument_id, trigger_id=token)
                     continue
                 was_empty = not self.arp_state.held
                 self.arp_state.press(note)
@@ -1024,7 +1059,7 @@ class Engine:
                         self.arp_state.reset()
                         self._arp_samples_until = 0.0
                 else:
-                    self._spawn_synth(note, vel)
+                    self._spawn_synth(note, vel, trigger_id=token)
             elif kind == "synthoff":
                 note = cmd[1]
                 instrument_id = cmd[2] if len(cmd) > 2 else None

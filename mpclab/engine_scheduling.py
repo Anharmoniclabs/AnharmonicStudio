@@ -12,6 +12,7 @@ import numpy as np
 
 from .model import NPADS
 from .music import Note
+from .event_source import EventSource, ScheduledNote
 from .instrument_state import event_destination
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ def schedule_arp(engine: Engine, frames: int, start_beat: float) -> None:
         note = min(127, max(0, note))
         gate = max(1, int(step * min(1.0, max(0.05, settings.gate))))
         offset = int(max(0.0, pos))
-        engine._spawn_synth(note, 0.92, offset, gate)
+        source = None
         if engine.playing:
             bps = engine.project.bpm / 60.0 / engine.sr
             beat = start_beat + offset * bps
@@ -46,8 +47,11 @@ def schedule_arp(engine: Engine, frames: int, start_beat: float) -> None:
             elif engine.recording and engine.mode == "pattern":
                 pattern = engine.project.pattern()
                 local = beat % pattern.length_beats
-                pattern.notes.append(Note(note, local, duration, 0.92))
+                captured = Note(note, local, duration, 0.92)
+                pattern.notes.append(captured)
+                source = EventSource(pattern, note=captured, note_index=len(pattern.notes) - 1)
                 engine.pattern_dirty = True
+        engine._spawn_synth(note, 0.92, offset, gate, event_source=source)
         pos += step
     engine._arp_samples_until = pos - frames
 
@@ -79,7 +83,7 @@ def pattern_events(
         last = max(first, int((min(b1, limit) - origin) // length))
         for cycle in range(first, last + 1):
             base = origin + cycle * length
-            for note in pat.notes:
+            for note_index, note in enumerate(pat.notes):
                 beat = base + note.start
                 if note.start < length and b0 - 1e-10 <= beat < min(b1, limit) - 1e-10:
                     gate = min(note.duration, length - note.start, limit - beat)
@@ -90,7 +94,12 @@ def pattern_events(
                         if note.pad is None
                         else NPADS + note.pad * 128 + note.pitch
                     )
-                    out.append((beat, destination, note.velocity, gate, sequence_id))
+                    out.append(
+                        ScheduledNote(
+                            (beat, destination, note.velocity, gate, sequence_id),
+                            EventSource(pat, note=note, note_index=note_index),
+                        )
+                    )
     sd_ = 1.0 / pat.div
     total = pat.total_steps
     if total <= 0:
@@ -107,7 +116,12 @@ def pattern_events(
                 for pad_idx, row in pat.steps.items():
                     vel = row.get(step)
                     if vel:
-                        out.append((beat, int(pad_idx), float(vel), None, sequence_id))
+                        out.append(
+                            ScheduledNote(
+                                (beat, int(pad_idx), float(vel), None, sequence_id),
+                                EventSource(pat, pad=int(pad_idx), step=step),
+                            )
+                        )
         k += 1
 
 
@@ -168,10 +182,11 @@ def audio_overlaps(engine: Engine, beat: float):
                 yield clip, beat - clip.start_beat
 
 
-def record(engine: Engine, pad_index: int, velocity: float) -> None:
+def record(engine: Engine, pad_index: int, velocity: float) -> EventSource:
     pat = engine.project.pattern()
     length = pat.length_beats
     local = engine.beat % length if length else 0.0
     step = int(round(local * pat.div)) % pat.total_steps
     pat.set(pad_index, step, round(velocity, 3))
     engine.pattern_dirty = True
+    return EventSource(pat, pad=pad_index, step=step)

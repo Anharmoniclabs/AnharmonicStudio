@@ -536,6 +536,8 @@ class SynthVoice:
     ic2_r: float = 0.0
     dead: bool = False
     live_trigger: bool = True  # keyboard/arp ownership, independent of gate length
+    event_source: object = None
+    trigger_id: object = None
     instrument_id: str | None = None
     patch_ref: SynthPatch | None = None
 
