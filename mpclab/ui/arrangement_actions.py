@@ -46,6 +46,7 @@ def set_playlist_focus(window, on: bool):
         window.main_splitter.setSizes(window._normal_split_sizes or [304, 1066, 300])
     for widget in window.transport_focus_hidden:
         widget.setVisible(not on)
+    window._sync_responsive_panels()
     window._sync_compact_playlist_ui()
     window.btn_playlist_focus.setText("⛶ EXIT" if on else "⛶ FOCUS")
     if hasattr(window, "btn_workspace_focus"):

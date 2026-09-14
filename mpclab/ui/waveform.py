@@ -118,6 +118,7 @@ class WaveformView(QWidget):
     selectionChanged = Signal(float, float)
     selectionFinished = Signal(float, float)
     viewChanged = Signal()
+    cutCursorChanged = Signal(float)
     playRequested = Signal()  # Enter / double-click on the ruler
     sendRangeRequested = Signal()  # Ctrl+Enter while the waveform owns focus
     mapRangeRequested = Signal()  # Ctrl+Shift+Enter while the waveform owns focus
@@ -153,6 +154,8 @@ class WaveformView(QWidget):
         self._hover_x: float | None = None
         self._drag_marker = -1
         self.cut_mode = False
+        self.cut_cursor = 0.0
+        self._bypass_cut_snap = False
         self._drag_selection: str | None = None
         self._panning: float | None = None
         self._scrubbing = False
@@ -171,6 +174,8 @@ class WaveformView(QWidget):
         self.bpm = bpm
         self.clip_id = clip_id
         self.selected = -1
+        self.cut_cursor = 0.0
+        self.cutCursorChanged.emit(0.0)
         self.slice_kinds = {}
         self.slice_ends = {}
         self.regions = []
@@ -454,7 +459,8 @@ class WaveformView(QWidget):
             return
 
         if mods & Qt.ShiftModifier or self.cut_mode:
-            self.add_marker(t)
+            self.set_cut_cursor(t, snap=not bool(mods & Qt.AltModifier))
+            self.add_marker(self.cut_cursor, snap=False)
             return
 
         near = self._marker_near(x)
@@ -509,6 +515,9 @@ class WaveformView(QWidget):
     def mouseMoveEvent(self, ev):
         self._hover_x = ev.position().x()
         y = ev.position().y()
+        self._bypass_cut_snap = bool(ev.modifiers() & Qt.AltModifier)
+        if self.cut_mode and self.duration > 0:
+            self.set_cut_cursor(self.x_to_time(self._hover_x), snap=not self._bypass_cut_snap)
         if self._panning is not None:
             delta = (self._panning - self._hover_x) / max(1, self.width())
             self.pan_by(delta)
@@ -594,9 +603,16 @@ class WaveformView(QWidget):
             return
         self.add_marker(self.x_to_time(ev.position().x()))
 
-    def add_marker(self, t: float) -> None:
-        t = min(max(0.0, self._snap_time(t)), self.duration)
-        t = round(t, 5)
+    def set_cut_cursor(self, seconds: float, *, snap: bool = False) -> None:
+        self.cut_cursor = min(
+            max(0.0, self._snap_time(seconds) if snap else seconds), self.duration
+        )
+        self.cutCursorChanged.emit(self.cut_cursor)
+        self.update()
+
+    def add_marker(self, t: float, *, snap: bool = True) -> None:
+        t = min(max(0.0, self._snap_time(t) if snap else t), self.duration)
+        t = round(t, 8)
         if self.duration <= 0 or t >= self.duration or t in self.markers:
             return
         self.markersAboutToChange.emit()
@@ -636,6 +652,16 @@ class WaveformView(QWidget):
             step = (60.0 / self.bpm) / 4
         start, end = self.selection()
 
+        if self.cut_mode and key in (Qt.Key_Left, Qt.Key_Right):
+            # A sample at a time with Alt; milliseconds normally, larger moves with Shift.
+            if mods & Qt.AltModifier and self.audio is not None and len(self.audio):
+                step = self.duration / len(self.audio)
+            self.set_cut_cursor(self.cut_cursor + (-step if key == Qt.Key_Left else step))
+            self.centre_on(self.cut_cursor)
+            return
+        if self.cut_mode and key == Qt.Key_M:
+            self.add_marker(self.cut_cursor, snap=False)
+            return
         if key in (Qt.Key_Left, Qt.Key_Right):
             sign = -1.0 if key == Qt.Key_Left else 1.0
             if mods & Qt.AltModifier:  # move the whole range
@@ -745,13 +771,16 @@ class WaveformView(QWidget):
             p.setPen(QPen(q("ok"), 1.5))
             p.drawLine(int(x), int(RULER_H), int(x), int(full.height()))
 
-        if self._hover_x is not None:
+        if self._hover_x is not None or self.cut_mode:
             p.setPen(QPen(q("fg", 70)))
-            p.drawLine(int(self._hover_x), int(RULER_H), int(self._hover_x), int(full.height()))
+            cursor_x = self.time_to_x(self.cut_cursor) if self.cut_mode else self._hover_x
+            p.drawLine(int(cursor_x), int(RULER_H), int(cursor_x), int(full.height()))
             p.setPen(q("dim"))
             p.drawText(
-                QPointF(min(self._hover_x + 5, self.width() - 62), self.height() - BAND_H - 4),
-                format_time(self.x_to_time(self._hover_x)),
+                QPointF(min(cursor_x + 5, self.width() - 100), self.height() - BAND_H - 4),
+                f"{self.cut_cursor:.5f} s"
+                if self.cut_mode
+                else format_time(self.x_to_time(self._hover_x)),
             )
 
     def _prepare_traces(self, rect: QRectF) -> None:

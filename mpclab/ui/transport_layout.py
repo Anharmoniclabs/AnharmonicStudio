@@ -245,8 +245,6 @@ def _build_transport(window) -> QWidget:
         window.btn_cut_self,
         window.master_title,
         window.master_slider,
-        window.project_action_buttons["load"],
-        window.project_action_buttons["export"],
         window.btn_typing,
         window.audio_buffer,
         window.btn_audio_retry,

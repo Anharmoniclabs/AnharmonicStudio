@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QScrollArea,
     QCheckBox,
+    QMenu,
 )
 
 from ..music import Note
@@ -179,6 +180,10 @@ class PianoCanvas(WindowClient, QWidget):
         self.drag = None
 
     def wheelEvent(self, event):
+        if event.modifiers() & Qt.ControlModifier:
+            self.panel.zoom_time(4 / 3 if event.angleDelta().y() > 0 else 0.75)
+            event.accept()
+            return
         i = self.hit(event.position())
         if i is None:
             event.ignore()
@@ -293,10 +298,22 @@ class PianoCanvas(WindowClient, QWidget):
             painter.setPen(q("line"))
             painter.drawLine(KEY_W, y + ROW_H - 1, self.width(), y + ROW_H - 1)
         step = self.panel.snap.currentData()
-        for tick in range(int(self.pattern().length_beats / step) + 1):
+        first_tick = max(0, int((event.rect().left() - KEY_W) / self.px_per_beat / step))
+        last_tick = min(
+            int(self.pattern().length_beats / step),
+            int((event.rect().right() - KEY_W) / self.px_per_beat / step) + 1,
+        )
+        for tick in range(first_tick, last_tick + 1):
             beat = tick * step
             x = int(KEY_W + beat * self.px_per_beat)
-            painter.setPen(q("cell_bar") if beat % 4 == 0 else q("line"))
+            is_bar = abs(beat / 4 - round(beat / 4)) < 1e-6
+            is_beat = abs(beat - round(beat)) < 1e-6
+            painter.setPen(
+                QPen(
+                    q("cell_bar" if is_bar else "hover_line" if is_beat else "line"),
+                    2 if is_bar else 1,
+                )
+            )
             painter.drawLine(x, event.rect().top(), x, event.rect().bottom())
         painter.setRenderHint(QPainter.Antialiasing)
         for i, note in enumerate(self.pattern().notes):
@@ -328,6 +345,15 @@ class PianoCanvas(WindowClient, QWidget):
         painter.setPen(q("fg"))
         for bar in range(self.pattern().bars):
             painter.drawText(int(KEY_W + bar * 4 * self.px_per_beat + 6), top + 19, str(bar + 1))
+        if self.px_per_beat >= 32:
+            for beat in range(int(self.pattern().length_beats)):
+                if beat % 4:
+                    painter.setPen(q("dim"))
+                    painter.drawText(
+                        int(KEY_W + beat * self.px_per_beat + 4),
+                        top + 19,
+                        f"{beat // 4 + 1}.{beat % 4 + 1}",
+                    )
         painter.end()
 
 
@@ -378,15 +404,27 @@ class PianoRollPanel(WindowClient, QWidget):
         self.arrange_button.clicked.connect(lambda: self.app.append_pattern_to_arrangement())
         tools.addWidget(self.arrange_button)
         self.snap = QComboBox()
-        for label, beats in (("1/4", 1.0), ("1/8", 0.5), ("1/16", 0.25), ("1/32", 0.125)):
+        for label, beats in (
+            ("1/4", 1.0),
+            ("1/8", 0.5),
+            ("1/16", 0.25),
+            ("1/32", 0.125),
+            ("1/64", 0.0625),
+            ("1/8 triplet", 1 / 3),
+            ("1/16 triplet", 1 / 6),
+        ):
             self.snap.addItem(label, beats)
         self.snap.setCurrentIndex(2)
         tools.addWidget(QLabel("Snap"))
         tools.addWidget(self.snap)
-        quantize = QPushButton("Quantize")
-        quantize.clicked.connect(self.quantize)
-        tools.addWidget(quantize)
-        self.chord = QComboBox()
+        note_actions = QPushButton("Note tools")
+        note_menu = QMenu(note_actions)
+        note_menu.addAction("Quantize", self.quantize)
+        chord_menu = note_menu.addMenu("Add chord")
+        note_actions.setMenu(note_menu)
+        tools.addWidget(note_actions)
+        self.chord = QComboBox(self)
+        self.chord.hide()
         for title, intervals in (
             ("Major", (0, 4, 7)),
             ("Minor", (0, 3, 7)),
@@ -394,13 +432,24 @@ class PianoRollPanel(WindowClient, QWidget):
             ("Minor 7", (0, 3, 7, 10)),
         ):
             self.chord.addItem(title, intervals)
-        tools.addWidget(self.chord)
-        add_chord = QPushButton("Add chord")
-        add_chord.clicked.connect(self.add_chord)
-        tools.addWidget(add_chord)
+        for index in range(self.chord.count()):
+
+            def insert_chord(checked=False, index=index):
+                self.chord.setCurrentIndex(index)
+                self.add_chord()
+
+            chord_menu.addAction(self.chord.itemText(index), insert_chord)
         fit = QPushButton("Fit pattern")
         fit.clicked.connect(self.fit_pattern)
         tools.addWidget(fit)
+        for label, factor in (("−", 0.75), ("+", 4 / 3)):
+            zoom = QPushButton(label)
+            zoom.setAccessibleName("Zoom out notes" if factor < 1 else "Zoom in notes")
+            zoom.clicked.connect(lambda checked=False, factor=factor: self.zoom_time(factor))
+            tools.addWidget(zoom)
+        focus = QPushButton("Find notes")
+        focus.clicked.connect(self.focus_sound)
+        tools.addWidget(focus)
         tools.addStretch()
         layout.addWidget(editor_bar(tools))
         self.canvas = PianoCanvas(self)
@@ -417,15 +466,20 @@ class PianoRollPanel(WindowClient, QWidget):
         self.pitch = QSpinBox()
         self.pitch.setRange(0, 127)
         self.pitch.setValue(60)
+        self.start = QDoubleSpinBox()
+        self.start.setRange(0, 1024)
+        self.start.setDecimals(5)
+        self.start.setSingleStep(0.0625)
         self.duration = QDoubleSpinBox()
         self.duration.setRange(0.03125, 32)
-        self.duration.setDecimals(3)
+        self.duration.setDecimals(5)
         self.duration.setSingleStep(0.25)
         self.duration.setValue(1)
         self.velocity = QSpinBox()
         self.velocity.setRange(1, 100)
         self.velocity.setValue(80)
         for name, control in (
+            ("Start (beats)", self.start),
             ("Pitch (MIDI)", self.pitch),
             ("Length (beats)", self.duration),
             ("Velocity %", self.velocity),
@@ -572,6 +626,17 @@ class PianoRollPanel(WindowClient, QWidget):
         else:
             self.app.show_tab(0)
 
+    def zoom_time(self, factor):
+        bar = self.scroll.horizontalScrollBar()
+        centre = (
+            bar.value() + self.scroll.viewport().width() / 2 - KEY_W
+        ) / self.canvas.px_per_beat
+        self.canvas.px_per_beat = min(512, max(12, self.canvas.px_per_beat * factor))
+        self.canvas.refresh()
+        bar.setValue(
+            round(KEY_W + centre * self.canvas.px_per_beat - self.scroll.viewport().width() / 2)
+        )
+
     def fit_pattern(self):
         self.canvas.px_per_beat = max(
             12, (self.scroll.viewport().width() - KEY_W - 24) / self.canvas.pattern().length_beats
@@ -590,6 +655,7 @@ class PianoRollPanel(WindowClient, QWidget):
             return
         note = self.canvas.pattern().notes[next(iter(self.canvas.selected))]
         for control, value in (
+            (self.start, note.start),
             (self.pitch, note.pitch),
             (self.duration, note.duration),
             (self.velocity, round(note.velocity * 100)),
@@ -605,7 +671,11 @@ class PianoRollPanel(WindowClient, QWidget):
         sender = self.sender()
         for i in self.canvas.selected:
             note = self.canvas.pattern().notes[i]
-            if sender == self.pitch:
+            if sender == self.start:
+                length = self.canvas.pattern().length_beats
+                note.duration = min(note.duration, length)
+                note.start = max(0, min(self.start.value(), length - note.duration))
+            elif sender == self.pitch:
                 note.pitch = self.pitch.value()
             elif sender == self.duration:
                 note.duration = min(

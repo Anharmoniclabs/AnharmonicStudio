@@ -468,7 +468,7 @@ def test_color_control_remains_visible_in_narrow_focus_mode(window):
     window.resize(760, 700)
     window.set_playlist_focus(True)
     QApplication.processEvents()
-    color = window.btn_color
+    color = window.appearance_button
     assert color.isVisible()
     top_left = color.mapTo(window, QPoint(0, 0))
     assert 0 <= top_left.x() < window.width() - color.width()

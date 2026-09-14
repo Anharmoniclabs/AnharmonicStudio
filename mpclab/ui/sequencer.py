@@ -504,6 +504,19 @@ class StepGrid(WindowClient, QWidget):
                 f"{(step // div) % 4 + 1}",
             )
 
+        # Continuous bar/beat guides connect the ruler with every sound lane.
+        for step in range(total + 1):
+            x = LABEL_W + step * (CELL_W + GAP) - 1
+            bar_start = step % steps_per_bar == 0
+            beat_start = step % div == 0
+            p.setPen(
+                QPen(
+                    q("cell_bar" if bar_start else "hover_line" if beat_start else "line"),
+                    2 if bar_start else 1,
+                )
+            )
+            p.drawLine(x, RULER_H, x, RULER_H + grid_h)
+
         fm = QFontMetrics(tiny)
         p.setFont(tiny)
         for row, gi in enumerate(lanes):

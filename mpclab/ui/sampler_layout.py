@@ -224,6 +224,36 @@ def _build_chop(window) -> QWidget:
         lambda mode: setattr(window.wave, "snap_mode", mode)
     )
     sl.addWidget(window.selection_snap)
+    window.cut_cursor_time = QDoubleSpinBox()
+    window.cut_cursor_time.setRange(0, 86400)
+    window.cut_cursor_time.setDecimals(6)
+    window.cut_cursor_time.setSingleStep(0.001)
+    window.cut_cursor_time.setSuffix(" s")
+    window.cut_cursor_time.setAccessibleName("Exact cut position in seconds")
+    window.cut_cursor_time.setToolTip(
+        "Exact cut position; in Cut mode use arrows for 1 ms, Alt+arrows for one sample, M to cut"
+    )
+
+    def sync_cut_cursor(seconds):
+        window.cut_cursor_time.blockSignals(True)
+        window.cut_cursor_time.setValue(seconds)
+        window.cut_cursor_time.blockSignals(False)
+
+    window.wave.cutCursorChanged.connect(sync_cut_cursor)
+    window.cut_cursor_time.valueChanged.connect(window.wave.set_cut_cursor)
+    precision_tools = QWidget()
+    precision_row = QHBoxLayout(precision_tools)
+    precision_row.setContentsMargins(10, 2, 10, 2)
+    precision_row.addWidget(small("CUT AT"))
+    precision_row.addWidget(window.cut_cursor_time)
+    window.cut_at_cursor_button = QPushButton("Split here")
+    window.cut_at_cursor_button.setToolTip("Split at the exact typed position without snapping")
+    window.cut_at_cursor_button.clicked.connect(
+        lambda: window.wave.add_marker(window.wave.cut_cursor, snap=False)
+    )
+    precision_row.addWidget(window.cut_at_cursor_button)
+    precision_row.addWidget(small("Cut mode: ← → 1 ms · Alt: one sample · M: split"))
+    precision_row.addStretch()
 
     window.btn_loop_range = QPushButton("⟳ LOOP")
     window.btn_loop_range.setObjectName("mini")
@@ -281,6 +311,7 @@ def _build_chop(window) -> QWidget:
     destination_row.addStretch()
     window.map_selection_button.setMinimumHeight(36)
     lay.addWidget(scrolling_bar(selection_tools))
+    lay.addWidget(scrolling_bar(precision_tools))
     lay.addWidget(scrolling_bar(destination))
     lay.addWidget(window._build_view_bar())
 

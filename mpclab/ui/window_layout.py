@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QApplication,
     QSizePolicy,
+    QMenu,
 )
 from ..model import (
     BANKS,
@@ -63,16 +64,37 @@ def _build(window):
         project_layout.addWidget(widget)
         if widget is window.logo:
             project_layout.addStretch()
-    window.proj_name.setFixedWidth(200)
+    # Keep frequent Save direct; group file actions and appearance controls.
+    window.project_menu_button = QPushButton("Project")
+    project_menu = QMenu(window.project_menu_button)
+    for label, callback in (
+        ("New", window.new_project),
+        ("Open…", window.load_project),
+        ("Save as…", window.save_project_as),
+        ("Export audio…", window.export_dialog),
+    ):
+        project_menu.addAction(label, callback)
+    window.project_menu_button.setMenu(project_menu)
+    for name in ("load", "export"):
+        button = window.project_action_buttons[name]
+        project_layout.removeWidget(button)
+        button.hide()
+    project_layout.addWidget(window.project_menu_button)
+    window.proj_name.setFixedWidth(180)
     header = QWidget()
     header_layout = QHBoxLayout(header)
     header_layout.setContentsMargins(0, 0, 8, 0)
     header_layout.addWidget(scrolling_bar(project_bar), 1)
     header_layout.addWidget(window.transport_meters)
-    # Appearance stays reachable at the top right even in a narrow window.
+    window.appearance_button = QPushButton("Appearance")
+    appearance = QMenu(window.appearance_button)
+    appearance.addAction("Color wheel…", window.pick_accent_color)
+    appearance.addAction("Light / dark theme", window.toggle_theme)
+    window.appearance_button.setMenu(appearance)
     for widget in (window.btn_theme, window.btn_color, window.btn_help):
         project_layout.removeWidget(widget)
-        header_layout.addWidget(widget)
+        widget.hide()
+    header_layout.addWidget(window.appearance_button)
     outer.addWidget(header)
     outer.addWidget(scrolling_bar(transport))
 
@@ -189,6 +211,7 @@ def _build_menus(window):
                 ("Toggle pads\tShift+F8", window.toggle_pads),
                 ("Musical typing\tCtrl+T", window.toggle_typing_keyboard),
                 ("Light / dark theme\tCtrl+Shift+T", window.toggle_theme),
+                ("Color wheel…", window.pick_accent_color),
             ),
         ),
         (

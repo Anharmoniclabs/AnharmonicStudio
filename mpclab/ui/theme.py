@@ -83,15 +83,15 @@ def label_font(point_size: float = 8.0, bold: bool = False) -> "QFont":
     return font
 
 
-# Graphite studio surfaces with a warm amber default accent. Distinct track
+# Warm grey studio surfaces with a muted blush default accent. Distinct track
 # hues carry musical structure; transport red and signal green retain their
 # established meanings. Projects may still choose their own accent.
 
 LIGHT = {
     # surfaces
-    "bg": "#e6e7e9",  # window
-    "bg2": "#f1f2f3",  # panels
-    "bg3": "#dfe1e5",  # headers, buttons
+    "bg": "#e8e3e5",  # window
+    "bg2": "#f4f0f2",  # panels
+    "bg3": "#e3dcdf",  # headers, buttons
     "line": "#c6c9cf",
     "canvas": "#fafafb",  # waveform / timeline background
     "input_bg": "#fafafb",
@@ -124,10 +124,10 @@ LIGHT = {
     "hover": "#d9dce2",
     "hover_line": "#8d939e",
     "press": "#c9cdd4",
-    "disabled_bg": "#e6e7e9",
+    "disabled_bg": "#e8e3e5",
     "item_hover": "#e3e5e9",
     "item_sel": "#e5dccb",
-    "scroll_track": "#e6e7e9",
+    "scroll_track": "#e8e3e5",
     "scroll_thumb": "#b6bac3",
     "scroll_thumb_hi": "#8d939e",
     "tip_bg": "#fafafb",
@@ -163,26 +163,26 @@ LIGHT = {
 }
 
 DARK = {
-    "bg": "#080e15",
-    "bg2": "#0d1721",
-    "bg3": "#152331",
-    "line": "#283e50",
-    "canvas": "#070f17",
-    "input_bg": "#09131d",
-    "surface_hi": "#152331",
-    "surface_lo": "#152331",
-    "surface_hi2": "#213447",  # hover
-    "surface_lo2": "#213447",
-    "edge": "#283e50",
-    "sunken": "#09131d",
+    "bg": "#201e22",
+    "bg2": "#29262b",
+    "bg3": "#343037",
+    "line": "#49434b",
+    "canvas": "#1c1a1e",
+    "input_bg": "#242126",
+    "surface_hi": "#343037",
+    "surface_lo": "#343037",
+    "surface_hi2": "#433c45",  # hover
+    "surface_lo2": "#433c45",
+    "edge": "#49434b",
+    "sunken": "#242126",
     "glow": "#8e754f",
     "accent_deep": "#6a512d",
     "fg": "#e8e9ed",
     "dim": "#b0b4be",
     "dim2": "#858b98",
-    "accent": "#d6ab65",
-    "accent_hi": "#ebc58b",
-    "accent2": "#ebc58b",
+    "accent": "#c692a4",
+    "accent_hi": "#e0b2c1",
+    "accent2": "#e0b2c1",
     "accent_ink": "#f1d5ad",
     "rec": "#df7c85",
     "ok": "#73bca3",
@@ -190,18 +190,18 @@ DARK = {
     "on_accent2": "#191a1d",
     "on_ok": "#14211c",
     "on_rec": "#251417",
-    "hover": "#213447",
+    "hover": "#433c45",
     "hover_line": "#747b89",
-    "press": "#101d29",
-    "disabled_bg": "#0d1721",
-    "item_hover": "#172938",
-    "item_sel": "#423a2e",
-    "scroll_track": "#080e15",
-    "scroll_thumb": "#304658",
+    "press": "#302b32",
+    "disabled_bg": "#29262b",
+    "item_hover": "#363037",
+    "item_sel": "#463640",
+    "scroll_track": "#201e22",
+    "scroll_thumb": "#5b515c",
     "scroll_thumb_hi": "#727a89",
-    "tip_bg": "#152331",
-    "prog_track": "#09131d",
-    "wave": "#dfb979",
+    "tip_bg": "#343037",
+    "prog_track": "#242126",
+    "wave": "#dba8ba",
     "wavedim": "#705b3c",
     "pad": "#33363d",
     "pad_empty": "#27292f",
@@ -214,7 +214,7 @@ DARK = {
     "cell_beat": "#383d47",
     "cell_bar": "#666e7c",
     "cell_line": "#464c57",
-    "cell_on_line": "#ebc58b",
+    "cell_on_line": "#e0b2c1",
     "clip_pat": "#655338",
     "clip_pat_line": "#c8a66f",
     "clip_pat_ink": "#f1dfc5",
@@ -223,7 +223,7 @@ DARK = {
     "clip_aud_ink": "#d8e8ee",
     "clip_muted": "#343841",
     "clip_title_ink": "#e8e9ed",
-    "meter_mid": "#d6ab65",
+    "meter_mid": "#c692a4",
 }
 
 # Track colors distinguish drums, bass, chords, melody and vocal lanes.
@@ -238,7 +238,7 @@ TRACK_COLORS_LIGHT = [
     "#656d7b",
 ]
 TRACK_COLORS_DARK = [
-    "#d6ab65",
+    "#c692a4",
     "#64b8aa",
     "#c5b465",
     "#a487b6",
@@ -254,7 +254,7 @@ PALETTES = {"light": LIGHT, "dark": DARK}
 # in place rather than rebound. Starts dark — black is half the scheme.
 # Detected-sample colors use the same studio family as arrangement lanes.
 HIT_COLORS_DARK = {
-    "kick": "#d6ab65",
+    "kick": "#c692a4",
     "snare": "#64b8aa",
     "clap": "#d38999",
     "hat": "#c5b465",

@@ -502,3 +502,42 @@ def test_cancel_count_in_never_starts_recording(window, monkeypatch, cancel):
     assert not window.btn_rec.isChecked()
     assert window.record_count_label.isHidden()
     assert not window._record_count_timer.isActive()
+
+
+def test_narrow_workspace_preserves_editor_and_restores_sidebars(window):
+    from PySide6.QtWidgets import QApplication
+
+    window.resize(1440, 900)
+    window.show()
+    window.browser_frame.show()
+    window.pad_side.show()
+    QApplication.processEvents()
+    window.resize(760, 700)
+    QApplication.processEvents()
+    assert window.browser_frame.isHidden()
+    assert window.pad_side.isHidden()
+    assert window.tabs.width() > 700
+    assert window.appearance_button.isVisible()
+    window.toggle_browser()
+    assert window.browser_frame.isVisible()
+    window.toggle_pads()
+    assert window.pad_side.isVisible()
+    assert window.browser_frame.isHidden()
+    window.resize(1440, 900)
+    QApplication.processEvents()
+    assert window.browser_frame.isVisible()
+    assert window.pad_side.isVisible()
+
+
+def test_precision_split_button_remains_reachable_in_sampler(window):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QApplication
+
+    window.resize(760, 900)
+    window.show()
+    window.studio.select(0)
+    QApplication.processEvents()
+    button = window.cut_at_cursor_button
+    point = button.mapTo(window, QPoint(0, 0))
+    assert button.isVisible()
+    assert 0 <= point.x() < window.width() - button.width()

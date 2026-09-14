@@ -1193,6 +1193,9 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.studio.pages[self.studio.selected].setFocus()
 
     def _toggle_panel(self, panel):
+        if getattr(self, "_compact_panels", None) is not None and panel.isHidden():
+            other = self.pad_side if panel is self.browser_frame else self.browser_frame
+            other.hide()
         self._save_panel_layout()
         panel.setVisible(panel.isHidden())
         self._save_panel_layout()
@@ -1202,6 +1205,8 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     def search_samples(self):
         """Bring sound search into reach without moving away from the editor."""
+        if getattr(self, "_compact_panels", None) is not None:
+            self.pad_side.hide()
         self.browser_frame.show()
         self.browser.search.setFocus(Qt.ShortcutFocusReason)
         self.browser.search.selectAll()
@@ -1211,7 +1216,10 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self._toggle_panel(self.pad_side)
 
     def _save_panel_layout(self):
-        if getattr(self, "_playlist_focus", False):
+        if (
+            getattr(self, "_playlist_focus", False)
+            or getattr(self, "_compact_panels", None) is not None
+        ):
             return
         sizes = self.main_splitter.sizes()
         for index, size in enumerate(sizes):
@@ -1760,8 +1768,32 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             )
         )
 
+    def _sync_responsive_panels(self):
+        if not hasattr(self, "pad_side"):
+            return
+        self.logo.setVisible(self.width() >= 1000 and not getattr(self, "_playlist_focus", False))
+        self.project_bar.setMinimumWidth(self.project_bar.sizeHint().width())
+        self.transport_meters.setVisible(self.width() >= 1100)
+        if getattr(self, "_playlist_focus", False):
+            return
+        compact = getattr(self, "_compact_panels", None)
+        if self.width() < 1100 and compact is None:
+            self._compact_panels = (
+                not self.browser_frame.isHidden(),
+                not self.pad_side.isHidden(),
+                self.main_splitter.sizes(),
+            )
+            self.browser_frame.hide()
+            self.pad_side.hide()
+        elif self.width() >= 1200 and compact is not None:
+            self._compact_panels = None
+            self.browser_frame.setVisible(compact[0])
+            self.pad_side.setVisible(compact[1])
+            self.main_splitter.setSizes(compact[2])
+
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
+        self._sync_responsive_panels()
         self._sync_compact_playlist_ui()
 
     def closeEvent(self, ev):
