@@ -225,6 +225,27 @@ class WindowKeyTests(_WindowCase):
         self.assertTrue(self.window.btn_rec.isChecked())
         QTest.keyRelease(keyboard.keyboard, Qt.Key_R)
 
+    def test_forwarded_typing_keys_never_toggle_record(self):
+        notes, released = [], []
+        self.window.play_selected_note = lambda note, velocity: notes.append(note)
+        self.window.release_selected_note = released.append
+        self.window.toggle_typing_keyboard()
+        self.window.setFocus()
+        base = self.window.synth_panel.base_note
+
+        # A forwarded event can enter the window handler directly, bypassing
+        # the floating keyboard's application filter.
+        for armed in (False, True):
+            self.window.btn_rec.setChecked(armed)
+            for key, offset in ((Qt.Key_K, 18), (Qt.Key_R, 17)):
+                self.window.keyPressEvent(QKeyEvent(QKeyEvent.KeyPress, key, Qt.NoModifier))
+                self.assertEqual(self.window.btn_rec.isChecked(), armed)
+                self.assertEqual(notes[-1], base + offset)
+                self.window.keyReleaseEvent(QKeyEvent(QKeyEvent.KeyRelease, key, Qt.NoModifier))
+                self.assertEqual(released[-1], base + offset)
+        self.assertEqual(notes, released)
+        self.assertFalse(self.window.typing_keyboard._held_keys)
+
     def test_popout_octave_and_sustain_release_the_captured_note(self):
         released = []
         self.window.engine.synth_note_off = released.append

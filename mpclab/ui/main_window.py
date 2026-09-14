@@ -1097,6 +1097,14 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             self.pads.update()
             return
 
+        # Forwarded key events can bypass the application's typing filter.
+        # Keep musical typing ahead of workspace and recording shortcuts here
+        # too, so K/R cannot arm or disarm a take while playing notes.
+        typing = self.typing_keyboard
+        if typing is not None and typing.isVisible() and typing._handle_press(ev):
+            ev.accept()
+            return
+
         # Playlist tool letters only bite while the Playlist is on screen, so
         # T stays tap tempo and D stays free everywhere else.
         if (
@@ -1162,6 +1170,10 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     def keyReleaseEvent(self, ev):
         if ev.isAutoRepeat():
+            return
+        typing = self.typing_keyboard
+        if typing is not None and typing._handle_release(ev):
+            ev.accept()
             return
         local = _pad_for_key(ev)
         if local is not None:
