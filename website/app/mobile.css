@@ -1,0 +1,117 @@
+/* Mobile-only hardening loaded after studio.css. Keep desktop layout untouched. */
+@media (max-width: 760px) {
+  html,
+  body {
+    min-height: 100dvh;
+    overscroll-behavior-y: none;
+  }
+
+  .project-bar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+  }
+
+  .project-bar::-webkit-scrollbar,
+  .transport-bar::-webkit-scrollbar,
+  .studio-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .logo,
+  .project-name,
+  .project-actions,
+  .project-actions > * {
+    flex: 0 0 auto;
+  }
+
+  .project-name {
+    width: 128px;
+    min-width: 128px;
+  }
+
+  .project-actions {
+    min-width: max-content;
+  }
+
+  .project-actions button,
+  .transport,
+  .small-button,
+  .panel-toggle,
+  .studio-nav > button,
+  .panel-header button,
+  .browser-actions button,
+  .pad-bank button {
+    min-height: 40px;
+  }
+
+  .transport-bar,
+  .studio-nav {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+  }
+
+  .main-split,
+  .main-split.hide-browser,
+  .main-split.hide-pads,
+  .main-split.hide-browser.hide-pads {
+    height: calc(100dvh - 176px - env(safe-area-inset-bottom));
+    min-height: 0;
+  }
+
+  .browser-panel.open,
+  .pads-panel.open {
+    max-height: min(55dvh, 460px);
+    overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .stage {
+    min-height: 0;
+    overscroll-behavior: contain;
+  }
+
+  .pad,
+  .step-line button,
+  .synth-keyboard button,
+  .sound,
+  .clip {
+    touch-action: manipulation;
+  }
+
+  .sampler-canvas canvas,
+  .note-grid,
+  .track-lane {
+    touch-action: pan-x pan-y;
+  }
+
+  .status-bar {
+    padding-left: max(11px, env(safe-area-inset-left));
+    padding-right: max(11px, env(safe-area-inset-right));
+    padding-bottom: max(5px, env(safe-area-inset-bottom));
+  }
+
+  dialog {
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    overflow: auto;
+  }
+}
+
+@media (max-width: 760px) and (orientation: landscape) and (max-height: 520px) {
+  .browser-panel.open,
+  .pads-panel.open {
+    max-height: 45dvh;
+  }
+
+  .stage {
+    min-height: 240px;
+  }
+}

@@ -1,0 +1,3 @@
+Generated with the built-in image_gen tool.
+
+Use case: logo-brand. Asset type: high-resolution Linux application icon and master emblem for Anharmonic Studios, an audio production workstation. Create one simple iconic emblem: a bold geometric A fused with a single asymmetric audio waveform cut through its middle as negative space. Exceptionally clear silhouette and thick confident shapes, legible at 32 pixels. Flat vector-like graphic, monochrome light emblem on a solid very dark square background, centered with generous safety margins. No words, no letters apart from the abstract A shape, no mockup, no gradients, no shadows, no ornament, no watermark. Deliver a crisp 2048 by 2048 square master.

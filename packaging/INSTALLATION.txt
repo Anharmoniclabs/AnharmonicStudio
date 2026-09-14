@@ -1,0 +1,80 @@
+ANHARMONIC STUDIO — UNSIGNED DOWNLOAD INSTALLATION
+
+Official packages intentionally have no verified Windows publisher signature
+or Apple Developer ID/notarization. Payment does not remove OS security warnings
+or guarantee installation on managed computers. No signing purchase is required
+by our release policy. An unsigned download is not a security certification.
+
+BEFORE INSTALLING
+
+Use the official checkout confirmation page, not third-party download links.
+Choose Windows x86_64, Linux x86_64, Apple Silicon Mac, or Intel Mac to match your
+computer. Keep a backup of important projects before updating.
+
+Compare the complete SHA-256 hash of the downloaded installer with the checksum
+on your official download page. Replace the quoted example filename below with
+the exact file you downloaded:
+
+  Windows PowerShell: Get-FileHash -Algorithm SHA256 -LiteralPath "installer.exe"
+  macOS Terminal:     shasum -a 256 "installer.dmg"
+  Linux Terminal:     sha256sum "installer.tar.gz"
+
+A matching hash confirms matching bytes, not that software is safe. If it does
+not match, do not run the file; download again or contact support.
+
+WINDOWS
+
+Open the setup EXE. If an unrecognized-app SmartScreen warning appears, review
+the download source and checksum. If you trust the file and your device allows
+it, More info may offer Run anyway. Unknown publisher is expected. Install for
+your current user; the installer provides a Start menu shortcut and uninstaller.
+Smart App Control or an organization policy can block unsigned apps entirely.
+If approval is unavailable, contact your device administrator or support. Do not
+disable security protections to force installation.
+
+MAC — APPLE SILICON OR INTEL
+
+Open the matching DMG and copy AnharmonicStudio.app to Applications. Try opening
+the copied app once. If macOS reports an unidentified developer and you trust
+the download, open System Settings > Privacy & Security and look for Open Anyway.
+Review the follow-up prompt. This per-app option may not be available on managed
+computers. The app is not notarized by Apple. Do not use terminal commands to
+disable Gatekeeper, remove quarantine recursively, or bypass malware alerts.
+
+LINUX
+
+Extract the whole tar.gz into a new folder. Keep AnharmonicStudio with all its
+bundled files; do not move the executable alone. From its extracted folder run:
+
+  ./AnharmonicStudio
+
+For the per-user launcher/install integration, from that same folder run:
+
+  ./AnharmonicStudio --install
+
+No sudo is required. Compatible system libraries and graphics/audio drivers are
+still needed. The Ubuntu 22.04 release runner supplies the portable baseline;
+a local development-machine build may require a newer glibc.
+
+AFTER INSTALLING
+
+Select your audio input/output in the app's device settings. Grant microphone
+access only if recording is wanted. Start with low speaker/headphone volume,
+test playback and recording using disposable audio, and check save/reopen/export
+before using a valuable session. Software test results do not guarantee every
+physical audio interface or driver combination.
+
+STOP IF YOU SEE A MALWARE, TAMPERING, OR DAMAGED-FILE ALERT
+
+These are not ordinary unidentified-publisher warnings. Do not bypass them or
+disable antivirus/system-wide protections. Contact anharmoniclabs@gmail.com with
+your OS, app version, and warning text. Do not post private payment references,
+recordings, or credentials in public issues.
+
+Official OS guidance:
+https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation
+https://support.apple.com/en-us/102445
+
+Current installation guidance and support:
+https://anharmoniclabs.github.io/AnharmonicStudio/#installation-guidance
+https://github.com/Anharmoniclabs/AnharmonicStudio/blob/main/SUPPORT.md

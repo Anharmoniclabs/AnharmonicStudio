@@ -1,0 +1,131 @@
+name: Source checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate website and browser project regressions
+        run: |
+          python scripts/check_website.py
+          node --test tests/web/*.test.cjs
+      - name: Install isolated browser test tools
+        run: |
+          python -m pip install -r requirements-browser.txt
+          python -m playwright install chromium
+      - name: Exercise browser workspaces and synth patch
+        run: python scripts/audit_web_studio.py --output /tmp/anharmonic-web-checks
+      - name: Measure actual browser audio and transport behavior
+        run: python tests/web/audio-engine.browser.py --output /tmp/anharmonic-web-checks/audio-report.json
+      - name: Preserve browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-checks-${{ github.run_id }}
+          path: /tmp/anharmonic-web-checks/
+          retention-days: 7
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      QT_QPA_PLATFORM: offscreen
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
+      - name: Install system dependencies
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential cmake pkg-config ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libsndfile1 libportaudio2 portaudio19-dev libasound2-dev liblilv-dev
+      - name: Install Python dependencies
+        run: uv sync --locked --group dev
+      - name: Build native helpers
+        run: |
+          uv run --no-sync python scripts/build_native.py
+          uv run --no-sync python scripts/build_rubberband.py
+          bash scripts/build-native.sh
+      - name: Check source syntax
+        run: uv run --no-sync python -m compileall -q mpclab scripts tests
+      - name: Lint and formatting
+        run: |
+          uv run --no-sync ruff check mpclab tests scripts
+          uv run --no-sync ruff format --check mpclab tests scripts
+      - name: Check application startup and export offscreen
+        run: uv run --no-sync python -m mpclab --self-check
+      - name: Run tests with a memory limit
+        run: >-
+          uv run --no-sync python scripts/run_tests.py --report /tmp/anharmonic-ci/memory.json
+          -- -q -o faulthandler_timeout=30 --junitxml=/tmp/anharmonic-ci/tests.xml
+      - name: Preserve test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: /tmp/anharmonic-ci/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Python DSP fallback
+        run: >-
+          MPC_NATIVE_DSP=0 uv run --no-sync python scripts/run_tests.py -- -q
+          -o faulthandler_timeout=30 tests/test_sample_instruments.py tests/test_synth.py
+          tests/test_engine_synth.py tests/test_engine_fx.py tests/test_convolution_scratch.py
+          tests/test_scalable_tracks.py
+      - name: Callback benchmarks
+        run: |
+          uv run --no-sync python scripts/bench_callback.py --seconds 0.5 --blocks 512 256
+          uv run --no-sync python scripts/soak_callback.py --seconds 2 --blocksize 512 --voices 8 --max-late-fraction 0.2
+          uv run --no-sync python scripts/bench_production.py --seconds 0.5 --rates 48000 --frames 512 --workloads piano mixed --max-p99-load 1.0 --max-late-fraction 0.05
+
+  linux-bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
+      - name: Install build dependencies
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential cmake ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libsndfile1 libportaudio2 libasound2-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxext-dev libxinerama-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev
+          uv sync --locked
+          uv pip install --python .venv/bin/python -r requirements-build.txt
+      - name: Build and check the installed application
+        run: |
+          uv run --no-sync python scripts/build_prism.py dist/prism-linux-ci
+          uv run --no-sync python scripts/build_linux_bundle.py dist/linux-ci
+      # Validate locally in CI; official installers are distributed separately.

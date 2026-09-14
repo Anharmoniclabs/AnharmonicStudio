@@ -1,0 +1,34 @@
+name: Prism plugin pack
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'feature/instrument-plugin-*']
+    paths: ['plugins/prism/**', 'scripts/build_prism.py', 'mpclab/native/synth.cpp', 'mpclab/prism_arps.json', '.github/workflows/prism-plugin.yml']
+  pull_request:
+    paths: ['plugins/prism/**', 'scripts/build_prism.py', 'mpclab/native/synth.cpp', 'mpclab/prism_arps.json', '.github/workflows/prism-plugin.yml']
+permissions:
+  contents: read
+jobs:
+  plugin:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxext-dev libxinerama-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev
+      - name: Build and test release pack
+        run: python scripts/build_prism.py "${{ runner.temp }}/Prism-${{ runner.os }}-${{ runner.arch }}" --jobs 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Prism-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            ${{ runner.temp }}/Prism-*.zip
+            ${{ runner.temp }}/Prism-*.zip.sha256
+          if-no-files-found: error

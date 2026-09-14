@@ -1,0 +1,307 @@
+[
+  {
+    "category": "Bass",
+    "name": "Carbon Pulse",
+    "source": "Neon Sub",
+    "changes": {
+      "osc1": "square",
+      "pulse_width": 0.22,
+      "cutoff": 780,
+      "filter_env": 0.65,
+      "drive": 0.38,
+      "decay": 0.19,
+      "sustain": 0.22
+    }
+  },
+  {
+    "category": "Bass",
+    "name": "Rubber Circuit",
+    "source": "Acid Orchard",
+    "changes": {
+      "osc2": "sine",
+      "resonance": 0.72,
+      "filter_env": 0.82,
+      "cutoff": 430,
+      "release": 0.12
+    }
+  },
+  {
+    "category": "Bass",
+    "name": "Undertow",
+    "source": "Neon Sub",
+    "changes": {
+      "osc1": "sine",
+      "osc2": "triangle",
+      "sub": 0.65,
+      "detune": 0,
+      "cutoff": 950,
+      "attack": 0.008
+    }
+  },
+  {
+    "category": "Bass",
+    "name": "Voltage Bite",
+    "source": "Acid Orchard",
+    "changes": {
+      "osc1": "saw",
+      "osc2_octave": -1,
+      "drive": 0.65,
+      "cutoff": 1600,
+      "decay": 0.12,
+      "sustain": 0.16
+    }
+  },
+  {
+    "category": "Pads",
+    "name": "Opal Horizon",
+    "source": "Velvet Poly",
+    "changes": {
+      "detune": 21,
+      "attack": 1.8,
+      "release": 3.8,
+      "lfo_rate": 0.12,
+      "lfo_filter": 0.22,
+      "cutoff": 1450
+    }
+  },
+  {
+    "category": "Pads",
+    "name": "Polar Bloom",
+    "source": "Solar Strings",
+    "changes": {
+      "osc2": "triangle",
+      "attack": 2.2,
+      "release": 4.5,
+      "noise": 0.06,
+      "cutoff": 2100
+    }
+  },
+  {
+    "category": "Pads",
+    "name": "Mercury Veil",
+    "source": "Dust Choir",
+    "changes": {
+      "osc1": "triangle",
+      "osc2": "square",
+      "pulse_width": 0.18,
+      "lfo_filter": 0.35,
+      "lfo_rate": 0.09
+    }
+  },
+  {
+    "category": "Pads",
+    "name": "Violet Orbit",
+    "source": "Velvet Poly",
+    "changes": {
+      "osc2_octave": 1,
+      "osc_mix": 0.21,
+      "attack": 0.65,
+      "release": 2.8,
+      "cutoff": 3200
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Porcelain Rain",
+    "source": "Copper Pluck",
+    "changes": {
+      "osc1": "sine",
+      "osc2": "triangle",
+      "osc2_octave": 1,
+      "decay": 0.48,
+      "release": 0.65,
+      "cutoff": 6800
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Amber Tines",
+    "source": "Ghost Keys",
+    "changes": {
+      "osc_mix": 0.18,
+      "attack": 0.001,
+      "decay": 1.2,
+      "sustain": 0.04,
+      "release": 0.4,
+      "filter_env": 0.45
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Circuit Marimba",
+    "source": "Copper Pluck",
+    "changes": {
+      "osc1": "triangle",
+      "osc2": "sine",
+      "osc2_octave": 1,
+      "decay": 0.13,
+      "release": 0.12,
+      "cutoff": 2800
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Prism Droplets",
+    "source": "Glass Current",
+    "changes": {
+      "osc2_octave": 1,
+      "decay": 0.24,
+      "sustain": 0.03,
+      "release": 0.6,
+      "detune": 2
+    }
+  },
+  {
+    "category": "Leads",
+    "name": "Laser Ribbon",
+    "source": "Midnight Brass",
+    "changes": {
+      "osc1": "saw",
+      "osc2": "saw",
+      "detune": 19,
+      "cutoff": 7200,
+      "attack": 0.005,
+      "release": 0.2,
+      "lfo_pitch": 4
+    }
+  },
+  {
+    "category": "Leads",
+    "name": "Arc Light",
+    "source": "Broken Carousel",
+    "changes": {
+      "osc1": "square",
+      "pulse_width": 0.14,
+      "noise": 0,
+      "detune": 1,
+      "cutoff": 9800,
+      "release": 0.09
+    }
+  },
+  {
+    "category": "Leads",
+    "name": "Silk Voltage",
+    "source": "Ghost Keys",
+    "changes": {
+      "osc1": "triangle",
+      "osc2": "sine",
+      "sustain": 0.8,
+      "lfo_rate": 5.2,
+      "lfo_pitch": 11,
+      "cutoff": 5200
+    }
+  },
+  {
+    "category": "Leads",
+    "name": "Cobalt Reed",
+    "source": "Midnight Brass",
+    "changes": {
+      "osc1": "square",
+      "osc2": "triangle",
+      "pulse_width": 0.3,
+      "filter_env": 0.18,
+      "cutoff": 1800,
+      "detune": 4
+    }
+  },
+  {
+    "category": "Motion",
+    "name": "Satellite Morse",
+    "source": "Broken Carousel",
+    "changes": {
+      "lfo_rate": 8,
+      "lfo_filter": 0.68,
+      "attack": 0.004,
+      "release": 0.2,
+      "cutoff": 1400
+    }
+  },
+  {
+    "category": "Motion",
+    "name": "Tidal Glass",
+    "source": "Glass Current",
+    "changes": {
+      "lfo_rate": 0.18,
+      "lfo_filter": 0.7,
+      "attack": 0.9,
+      "release": 3,
+      "cutoff": 1250
+    }
+  },
+  {
+    "category": "Motion",
+    "name": "Clockwork Fern",
+    "source": "Copper Pluck",
+    "changes": {
+      "lfo_rate": 3,
+      "lfo_filter": 0.48,
+      "resonance": 0.62,
+      "decay": 0.7,
+      "sustain": 0.3
+    }
+  },
+  {
+    "category": "Motion",
+    "name": "Ion Spiral",
+    "source": "Solar Strings",
+    "changes": {
+      "lfo_rate": 1.4,
+      "lfo_pitch": 24,
+      "lfo_filter": 0.55,
+      "cutoff": 1800,
+      "release": 1.6
+    }
+  },
+  {
+    "category": "Textures",
+    "name": "Static Halo",
+    "source": "Dust Choir",
+    "changes": {
+      "noise": 0.28,
+      "sub": 0.05,
+      "attack": 1.4,
+      "release": 3.2,
+      "cutoff": 4200,
+      "resonance": 0.42
+    }
+  },
+  {
+    "category": "Textures",
+    "name": "Glacial Wire",
+    "source": "Glass Current",
+    "changes": {
+      "osc2_octave": 2,
+      "osc_mix": 0.2,
+      "detune": 24,
+      "attack": 0.6,
+      "lfo_pitch": 18,
+      "release": 2.4
+    }
+  },
+  {
+    "category": "Textures",
+    "name": "Ember Cloud",
+    "source": "Velvet Poly",
+    "changes": {
+      "noise": 0.12,
+      "drive": 0.48,
+      "cutoff": 700,
+      "attack": 1.3,
+      "release": 3.5,
+      "lfo_filter": 0.3
+    }
+  },
+  {
+    "category": "Textures",
+    "name": "Digital Pollen",
+    "source": "Broken Carousel",
+    "changes": {
+      "osc2_octave": 2,
+      "pulse_width": 0.12,
+      "decay": 0.08,
+      "sustain": 0.05,
+      "noise": 0.08,
+      "release": 0.18
+    }
+  }
+]

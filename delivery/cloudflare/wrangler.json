@@ -1,0 +1,44 @@
+{
+  "name": "anharmonic-downloads",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-09",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false
+  },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "anharmonic-installers-live"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "PURCHASES",
+      "database_name": "anharmonic-purchases-live",
+      "database_id": "7208d953-a217-43c4-bd50-445473d2c8a1"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "LIMITER",
+      "namespace_id": "193701",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
+    }
+  ],
+  "vars": {
+    "PAYMENT_MODE": "live",
+    "DELIVERY_OPEN": "true",
+    "STRIPE_PAYMENT_LINK_ID": "plink_1UDnDBBHRcYoLTMScisq5mkE",
+    "CATALOG": "{\"release\":\"0.1.0-rc.1\",\"source_commit\":\"9adf246506f5648b46ff871783d4bb7fb9d9a3c8\",\"artifacts\":{\"windows\":{\"key\":\"0.1.0-rc.1/windows/AnharmonicStudio-0.1.0-rc.1-windows-x86_64-setup.exe\",\"filename\":\"AnharmonicStudio-0.1.0-rc.1-windows-x86_64-setup.exe\",\"size\":171862361,\"sha256\":\"9dfb9f6d6936b681e14655bb672db056d4ec06b5ed15bf4bb5932a32439e21da\",\"materials_url\":\"https://github.com/Anharmoniclabs/AnharmonicStudio/releases/download/v0.1.0-rc.1-source/windows-source-and-notices.zip\"},\"mac-arm\":{\"key\":\"0.1.0-rc.1/mac-arm/AnharmonicStudio-0.1.0-rc.1-macos-arm64.dmg\",\"filename\":\"AnharmonicStudio-0.1.0-rc.1-macos-arm64.dmg\",\"size\":143517010,\"sha256\":\"7c275de074877f6ab30ca9c0615393fbf1511b684099ba1f3204024ab41c47ea\",\"materials_url\":\"https://github.com/Anharmoniclabs/AnharmonicStudio/releases/download/v0.1.0-rc.1-source/mac-arm-source-and-notices.zip\"},\"mac-intel\":{\"key\":\"0.1.0-rc.1/mac-intel/AnharmonicStudio-0.1.0-rc.1-macos-x86_64.dmg\",\"filename\":\"AnharmonicStudio-0.1.0-rc.1-macos-x86_64.dmg\",\"size\":151809546,\"sha256\":\"0bd6986db8a417fda5ed0fe2613180af78f9471efdf8677bf1a992212847591b\",\"materials_url\":\"https://github.com/Anharmoniclabs/AnharmonicStudio/releases/download/v0.1.0-rc.1-source/mac-intel-source-and-notices.zip\"},\"linux\":{\"key\":\"0.1.0-rc.1/linux/AnharmonicStudio-0.1.0-rc.1-linux-x86_64.tar.gz\",\"filename\":\"AnharmonicStudio-0.1.0-rc.1-linux-x86_64.tar.gz\",\"size\":251659160,\"sha256\":\"987bd660ccf3aebb3b9ba7ca234fa96c24a50e9b8a1b22050554b1a8a63ccd19\",\"materials_url\":\"https://github.com/Anharmoniclabs/AnharmonicStudio/releases/download/v0.1.0-rc.1-source/linux-source-and-notices.zip\"}}}"
+  }
+}

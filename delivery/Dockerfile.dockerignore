@@ -1,0 +1,8 @@
+**
+!delivery/
+!delivery/server.py
+!delivery/requirements.txt
+!delivery/templates/
+!delivery/templates/**
+!delivery/assets/
+!delivery/assets/**

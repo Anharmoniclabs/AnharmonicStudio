@@ -1,0 +1,316 @@
+"""Exercise an installed application's resources, UI and export without hardware."""
+
+import gc
+import json
+import os
+import sys
+from pathlib import Path
+import tempfile
+from unittest.mock import patch
+import weakref
+
+
+PRODUCTION_COMMANDS = (
+    "plugins.insert_chains",
+    "plugins.reload_chains",
+    "recording.settings",
+    "recording.take_comp",
+    "automation.mode.latch",
+    "mixer.track_add",
+    "markers.add",
+    "markers.cue",
+    "markers.region",
+    "markers.previous",
+    "markers.next",
+    "markers.manage",
+    "markers.export",
+    "audio.analyze_file",
+    "midi.file_import",
+    "midi.file_export",
+    "midi.pattern_export",
+    "audio.loudness",
+    "audio.normalize",
+    "instruments.manage",
+    "automation.copy_lane",
+    "automation.paste_lane",
+    "automation.paste_at_playhead",
+    "track.folder_create",
+    "track.folder_add",
+    "track.folder_toggle",
+    "project.template_save",
+    "project.template_load",
+    "project.import_dawproject",
+    "project.export_dawproject",
+)
+
+
+def validate_production_features(window, controller):
+    """Require installed controls without executing dialogs or opening devices."""
+    from shiboken6 import isValid
+
+    for command_id in PRODUCTION_COMMANDS:
+        try:
+            callback = controller.registry.get(command_id).callback
+        except KeyError as exc:
+            raise RuntimeError(f"Production command is not attached: {command_id}") from exc
+        if not callable(callback):
+            raise RuntimeError(f"Production command is not attached: {command_id}")
+    automation = getattr(window, "automation_mode_controller", None)
+    if automation is None or automation.mode_combo is None:
+        raise RuntimeError("Production automation controls are not attached")
+    mixer = getattr(window, "mixer", None)
+    add_track = getattr(mixer, "add_track_button", None)
+    if (
+        not getattr(window, "_track_management_attached", False)
+        or add_track is None
+        or not isValid(add_track)
+        or not add_track.isEnabled()
+    ):
+        raise RuntimeError("Production add-track controls are not attached")
+    markers = getattr(window, "timeline_marker_controller", None)
+    if (
+        markers is None
+        or markers.strip is None
+        or not isValid(markers.strip)
+        or markers.strip.parentWidget() is not markers.panel
+        or markers.strip.objectName() != "timelineMarkerStrip"
+        or markers.panel.objectName() != "timelineMarkerTracks"
+    ):
+        raise RuntimeError("Production timeline marker tracks are not attached")
+    for command_id in PRODUCTION_COMMANDS:
+        if command_id.startswith("markers."):
+            button = markers.buttons.get(command_id)
+            if button is None or not isValid(button) or not button.isEnabled():
+                raise RuntimeError(f"Production marker control is not attached: {command_id}")
+    analyzer = getattr(window, "audio_analysis_controller", None)
+    if (
+        analyzer is None
+        or not isValid(analyzer.file_menu)
+        or not isValid(analyzer.file_menu_action)
+        or not isValid(analyzer.action)
+        or not analyzer.action.isEnabled()
+    ):
+        raise RuntimeError("Production audio-analysis menu is not attached")
+    return list(PRODUCTION_COMMANDS)
+
+
+def plugin_runtime_probe(connection, specification, sample_rate):
+    """Exercise the shipped host libraries and spawned audio pipe without hardware."""
+    import numpy as np
+    import pedalboard_native
+    import rtmidi
+    from .plugin_host import receive_packet, send_packet
+
+    try:
+        gain = pedalboard_native.Gain(gain_db=-6.020599913)
+        send_packet(connection, {"effect": True, "midi_apis": rtmidi.get_compiled_api()})
+        request, raw = receive_packet(connection)
+        audio = np.frombuffer(raw, dtype="<f4").reshape(request["frames"], 2)
+        output = gain.process(audio.T.copy(), sample_rate)
+        send_packet(connection, {"frames": len(audio)}, output.T)
+    finally:
+        connection.close()
+
+
+def _require_callable_command(registry, command_id):
+    command = registry.get(command_id)
+    if command is None or not callable(getattr(command, "callback", None)):
+        raise RuntimeError(f"Production command is not attached: {command_id}")
+
+
+def main(report=None):
+    # This command creates only offscreen Qt objects in its own process.
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    # The Windows offscreen plugin uses FreeType, not the native font database.
+    if sys.platform == "win32":
+        os.environ.setdefault(
+            "QT_QPA_FONTDIR", os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts")
+        )
+    import numpy as np
+    import soundfile as sf
+    from PySide6.QtCore import QCoreApplication, QEvent, QSettings
+    from PySide6.QtWidgets import QApplication
+    from shiboken6 import isValid
+
+    from .dsp import probe, to_wav
+    from .engine import Engine
+    from .export import ExportJob
+    from .model import Project
+    from .native_dsp import NATIVE, STATUS
+    from .runtime_paths import RESOURCE_ROOT
+    from .plugin_host import IsolatedPlugin
+    from .ui import main_window
+    from .application_features import attach_application_features, install_application_runtime
+    from .audio_analysis import analyze_audio_file, save_analysis_report
+
+    install_application_runtime()
+
+    class IsolatedSettings:
+        IniFormat = QSettings.IniFormat
+        UserScope = QSettings.UserScope
+
+        def __init__(self, *args):
+            self.values = {"audio/setup_complete": True}
+
+        def value(self, name, default=None):
+            return self.values.get(name, default)
+
+        def setValue(self, name, value):
+            self.values[name] = value
+
+    if NATIVE is None:
+        raise RuntimeError(f"Native audio helper did not load: {STATUS}")
+    from .native_output import OutputQueue
+
+    queue = OutputQueue(NATIVE.lib, 128)
+    try:
+        incoming = np.full((128, 2), 0.25, dtype=np.float32)
+        outgoing = np.zeros_like(incoming)
+        if not queue.write(incoming):
+            raise RuntimeError("Native output queue rejected the release probe")
+        code = NATIVE.lib.anh_output_callback(
+            None, outgoing.ctypes.data, 128, None, 0, queue.handle
+        )
+        if code or not np.array_equal(incoming, outgoing):
+            raise RuntimeError("Packaged C++ output callback failed its audio probe")
+    finally:
+        queue.close()
+    for asset in (
+        "branding/anharmonic-studios.svg",
+        "branding/owner-mark.png",
+        "branding/anharmonic-header.svg",
+        "orchestra/manifest.json",
+        "ui/check-dark.svg",
+    ):
+        if not (RESOURCE_ROOT / "assets" / asset).is_file():
+            raise RuntimeError(f"Missing bundled resource: {asset}")
+
+    app = QApplication.instance() or QApplication([])
+    result = {"native_dsp": STATUS, "qt_platform": app.platformName(), "audio_devices_opened": 0}
+    from .autotune.shifter import shift
+
+    sample = np.arange(48000, dtype=np.float32) / 48000
+    tone = np.repeat((0.1 * np.sin(2 * np.pi * 220 * sample))[:, None], 2, axis=1)
+    tuned = shift(tone, np.array([2 ** (2 / 12)]), np.array([0.0]), 48000, 1.0)
+    spectrum = abs(np.fft.rfft(tuned[12000:36000, 0] * np.hanning(24000)))
+    frequency = np.argmax(spectrum) * 2
+    if tuned.shape != tone.shape or not 244 <= frequency <= 250:
+        raise RuntimeError("Installed V2 pitch engine failed its measured output check")
+    result["autotune_v2"] = {
+        "backend": "rubberband-r3",
+        "frames": len(tuned),
+        "measured_hz": float(frequency),
+    }
+    from .companion import server as companion_server
+
+    if not (Path(companion_server.__file__).parent / "client.js").is_file():
+        raise RuntimeError("Browser companion assets missing")
+    result["browser_companion_assets"] = True
+    from .prism import bundled_plugin
+
+    prism = bundled_plugin()
+    result["prism_bundled"] = prism is not None
+    if prism is not None:
+        instrument = IsolatedPlugin({"path": str(prism)})
+        try:
+            audio = instrument.render(None, 1024, [([0x90, 60, 100], 0)])
+            if (
+                not instrument.info["instrument"]
+                or not np.isfinite(audio).all()
+                or np.max(np.abs(audio)) < 0.0001
+            ):
+                raise RuntimeError("Bundled Prism instrument failed its native audio check")
+            result["prism_audio"] = True
+            result["prism_parameters"] = len(instrument.info["parameters"])
+        finally:
+            instrument.close()
+    result["native_output_callback"] = True
+    result["native_core_abi"] = int(NATIVE.lib.anh_core_abi())
+    host = IsolatedPlugin({}, worker=plugin_runtime_probe)
+    try:
+        output = host.render(np.ones((128, 2), np.float32), 128)
+        if not np.allclose(output, 0.5, atol=1e-5):
+            raise RuntimeError("Isolated plugin runtime produced invalid audio")
+        result["isolated_plugin_runtime"] = True
+        result["midi_apis"] = host.info["midi_apis"]
+    finally:
+        host.close()
+    with tempfile.TemporaryDirectory(prefix="anharmonic-self-check-") as directory:
+        root = Path(directory)
+        with (
+            patch.object(Engine, "start", lambda self: None),
+            patch.object(main_window, "QSettings", IsolatedSettings),
+        ):
+            window = main_window.MainWindow(root, restore_session=False)
+            controller = attach_application_features(window)
+            result["production_commands"] = validate_production_features(window, controller)
+            result["production_feature_controls"] = True
+            engine_ref = weakref.ref(window.engine)
+            wave = (np.sin(np.arange(4800) * 0.08) * 0.2).astype(np.float32)
+            clip = window.library.add_audio(np.column_stack((wave, wave)), "Release check")
+            window.project.pads[0].sample_id = clip.id
+            window.project.pads[0].end = clip.duration
+            window.project.pattern().steps[0] = {0: 1.0, 8: 0.7}
+            saved = root / "projects/check.json"
+            window.project.save(saved)
+            project = Project.load(saved)
+            if project.pads[0].sample_id != clip.id:
+                raise RuntimeError("Project save/load lost its sample")
+            destination = root / "exports/check.wav"
+            job = ExportJob(project, window.library, destination, mode="pattern", tail=0)
+            failures, successes = [], []
+            job.failed.connect(failures.append)
+            job.succeeded.connect(lambda *args: successes.append(args))
+            job._run()  # Real export subprocess, including the frozen executable path.
+            if failures or not successes:
+                raise RuntimeError(f"Export failed: {failures}")
+            audio, rate = sf.read(destination)
+            if rate != 48000 or not np.isfinite(audio).all() or np.max(np.abs(audio)) < 0.01:
+                raise RuntimeError("Exported audio is silent, invalid or at the wrong rate")
+            analysis = analyze_audio_file(destination, block_frames=257)
+            if (
+                analysis.frames != len(audio)
+                or analysis.sample_rate != rate
+                or not np.isclose(
+                    analysis.sample_peak_dbfs, 20 * np.log10(np.max(np.abs(audio))), atol=1e-8
+                )
+                or any(channel.nonfinite_samples for channel in analysis.channels)
+            ):
+                raise RuntimeError("Installed audio analysis disagrees with the actual export")
+            analysis_path = save_analysis_report(analysis, root / "exports/check.analysis.json")
+            if json.loads(analysis_path.read_text(encoding="utf-8"))["frames"] != len(audio):
+                raise RuntimeError("Installed audio analysis report was not saved correctly")
+            result["audio_analysis"] = True
+            converted = root / "converted.wav"
+            to_wav(destination, converted, sr=44100)
+            if probe(converted)["sample_rate"] != 44100:
+                raise RuntimeError("FFmpeg import/resampling failed")
+            window.resize(1280, 800)
+            window.show()
+            app.processEvents()
+            if window.grab().isNull():
+                raise RuntimeError("Qt failed to render the workstation")
+            window._dirty = False
+            if not window.close():
+                raise RuntimeError("Disposable workstation refused to close")
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            app.processEvents()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            if isValid(window):
+                raise RuntimeError("Closed Qt window was retained")
+            del controller, window
+            gc.collect()
+            if engine_ref() is not None:
+                raise RuntimeError("Closed workstation retained its audio engine")
+            result.update(
+                project_roundtrip=True, subprocess_export=True, ffmpeg=True, ui_lifetime=True
+            )
+    rendered = json.dumps(result, indent=2) + "\n"
+    if report is not None:
+        Path(report).write_text(rendered, encoding="utf-8")
+    print(rendered)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
