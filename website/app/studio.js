@@ -14,7 +14,7 @@
     selectedPad: 0, bank: 0, workspace: 'song', playing: false, step: -1, beat: 0,
     engine: null, media: new Map(), buffers: new Map(), selectedMedia: null, selections: new Map(),
     generation: 0, revision: 0, loading: false, saving: false, dirty: false, corruptSaved: null, recording: null, recordPending: false,
-    arrangeTool: 'select', arrangeSnap: 1, loadedOnly: false, follow: false,
+    songZoom: 45, songHeight: 58, sampleAmplitude: 1, sampleHeight: 220, arrangeTool: 'select', arrangeSnap: 1, loadedOnly: false, follow: false,
     beatPage: 0, notePad: null, noteRoot: 60, noteMono: false, sampleSnap: 0, sampleView: null, sampleEdge: 'start', noteDivision: 4, noteZoom: 70, noteScroll: null, selectedNote: null,
     noOverlap: window.matchMedia('(max-width:760px), (pointer:coarse)').matches,
     heldPads: new Map(), heldSynth: new Set(), arpTimer: null, arpIndex: 0,
@@ -149,7 +149,7 @@
           $$('.step-line button[data-step="' + position.step + '"]').forEach(cell => cell.classList.add('current'));
           if (state.follow) $('.step-line button.current')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         }
-        const playhead = $('#song-playhead'); if (playhead) playhead.style.left = (190 + position.beat * 45) + 'px';
+        const playhead = $('#song-playhead'); if (playhead) playhead.style.left = (190 + position.beat * state.songZoom) + 'px';
       },
       onError: report,
       onLiveTrigger: () => { state.previewSource?.stop(); state.previewSource = null; }
@@ -425,7 +425,8 @@
     context.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent-ink').trim() || state.accent; context.beginPath();
     const view = canvas.id === 'waveform' ? sampleWindow(buffer) : { start: 0, end: buffer?.duration || 0 };
     if (buffer) {
-      const key = [width, height, view.start, view.end, context.strokeStyle].join(':');
+      const amplitude = canvas.id === 'waveform' ? state.sampleAmplitude : 1;
+      const key = [width, height, view.start, view.end, amplitude, context.strokeStyle].join(':');
       let cached = waveformCache.get(buffer);
       if (!cached || cached.key !== key) {
         const raster = document.createElement('canvas'); raster.width = width; raster.height = height;
@@ -436,7 +437,7 @@
           let min = 0, max = 0;
           const from = first + Math.floor(x / width * length), to = Math.min(data.length, first + Math.max(Math.floor((x + 1) / width * length), Math.floor(x / width * length) + 1));
           for (let index = from; index < to; index++) { min = Math.min(min, data[index]); max = Math.max(max, data[index]); }
-          pen.moveTo(x, height / 2 + min * height * .46); pen.lineTo(x, height / 2 + max * height * .46);
+          pen.moveTo(x, height / 2 + min * height * .46 * amplitude); pen.lineTo(x, height / 2 + max * height * .46 * amplitude);
         }
         pen.stroke(); cached = { key, raster }; waveformCache.set(buffer, cached);
       }
@@ -511,26 +512,49 @@
     renderSong(); setStatus((media ? media.name : projectStore.pattern.name) + ' added to song.');
   }
   function renderSong() {
+    const oldTimeline = $('.timeline'), oldScroll = oldTimeline ? { left: oldTimeline.scrollLeft, top: oldTimeline.scrollTop } : { left: 0, top: 0 };
+    const zoom = state.songZoom;
     const rows = projectStore.project.rows;
     const end = rows.reduce((maximum, row) => row.clips.reduce((value, clip) => Math.max(value, clip.start_beat + clip.length_beats + 4), maximum), 32);
     if (rows.length > 128 || rows.reduce((sum, row) => sum + row.clips.length, 0) > 4096 || end > 2048) {
       shell('Song', '', '<p class="sampler-help">This arrangement exceeds the browser editor limit (128 rows, 4096 clips, or 2048 beats). Its data is preserved. Use the desktop editor to shorten or divide the arrangement. Browser playback and export remain available within the audio engine limits.</p>'); return;
     }
-    const width = Math.ceil(end / 4) * 4 * 45;
-    const ruler = Array.from({ length: Math.ceil(end / 4) * 4 }, (_, index) => '<span class="' + (index % 4 === 0 ? 'bar-line' : '') + '" style="width:45px">' + (Math.floor(index / 4) + 1) + '.' + (index % 4 + 1) + '</span>').join('');
+    const width = Math.ceil(end / 4) * 4 * zoom;
+    const ruler = Array.from({ length: Math.ceil(end / 4) * 4 }, (_, index) => '<span class="' + (index % 4 === 0 ? 'bar-line' : '') + '" style="width:' + zoom + 'px">' + (Math.floor(index / 4) + 1) + '.' + (index % 4 + 1) + '</span>').join('');
     const toolsHtml = '<span class="tool-group" role="group" aria-label="Arrangement tools">' +
       ['select', 'draw', 'slice', 'mute', 'erase'].map(tool =>
         '<button type="button" class="song-tool tool-' + tool + (state.arrangeTool === tool ? ' active' : '') + '" data-tool="' + tool + '" aria-pressed="' + String(state.arrangeTool === tool) + '">' + tool.toUpperCase() + '</button>'
       ).join('') + '</span>';
     shell('Song', button('+ ADD TRACK', 'add-track') + toolsHtml + button('SNAP: ' + ({ 4: 'BAR', 1: 'BEAT', .25: '1/16', 0: 'OFF' }[state.arrangeSnap]) + ' ▾', 'song-snap') + button('PATTERN: ' + projectStore.pattern.name + ' ▾', 'pattern-menu'),
-      '<div class="timeline"><div class="ruler" style="width:' + (190 + width) + 'px"><span style="width:190px">BAR / BEAT</span>' + ruler + '</div><div id="song-playhead" aria-hidden="true"></div>' +
+      '<div class="zoom-controls" role="group" aria-label="Song view controls"><label>TIME % <input id="song-time-zoom" type="number" min="25" max="1600" step="25" value="' + Math.round(zoom / 45 * 100) + '"></label>' + button('−', 'song-zoom-out') + button('+', 'song-zoom-in') + '<label>TRACK HEIGHT <input id="song-track-height" type="range" min="42" max="180" step="2" value="' + state.songHeight + '"></label>' + button('RESET VIEW', 'song-view-reset') + '<span>Pinch / Ctrl+wheel: time · Alt+wheel: track height · horizontal scroll: pan</span></div><div class="timeline" style="--song-beat:' + zoom + 'px;--song-height:' + state.songHeight + 'px"><div class="ruler" style="width:' + (190 + width) + 'px"><span style="width:190px">BAR / BEAT</span>' + ruler + '</div><div id="song-playhead" aria-hidden="true"></div>' +
       rows.map((row, rowIndex) => '<div class="track-row" data-row-index="' + rowIndex + '" style="min-width:' + (190 + width) + 'px"><div class="track-head"><strong>' + escapeHTML(row.name) + '</strong><span>' +
         '<button class="row-record ' + (row.record_armed ? 'active' : '') + '" data-row-index="' + rowIndex + '" aria-label="Arm ' + escapeHTML(row.name) + ' for microphone recording">R</button> ' +
         '<button class="row-mute ' + (row.mute ? 'active' : '') + '" data-row-index="' + rowIndex + '" aria-label="Mute ' + escapeHTML(row.name) + '">M</button> ' +
         '<button class="row-solo ' + (row.solo ? 'active' : '') + '" data-row-index="' + rowIndex + '" aria-label="Solo ' + escapeHTML(row.name) + '">S</button> ' +
-        '<button class="row-options" data-row-index="' + rowIndex + '" aria-label="Options for ' + escapeHTML(row.name) + '">⋮</button></span></div><div class="track-lane" data-row-index="' + rowIndex + '" style="--grid-unit:' + (45 * (state.arrangeSnap || .25)) + 'px;min-width:' + width + 'px">' +
-        row.clips.map(clip => '<button class="clip ' + (clip.kind === 'audio' ? 'audio ' : '') + (clip.mute ? 'muted' : '') + '" data-clip="' + escapeHTML(clip.id) + '" data-row-index="' + rowIndex + '" style="left:' + clip.start_beat * 45 + 'px;width:' + Math.max(8, clip.length_beats * 45) + 'px" title="' + escapeHTML(clipName(clip)) + '">' + escapeHTML(clipName(clip)) + '<i></i></button>').join('') + '</div></div>').join('') +
+        '<button class="row-options" data-row-index="' + rowIndex + '" aria-label="Options for ' + escapeHTML(row.name) + '">⋮</button></span></div><div class="track-lane" data-row-index="' + rowIndex + '" style="--grid-unit:' + (zoom * (state.arrangeSnap || .25)) + 'px;min-width:' + width + 'px">' +
+        row.clips.map(clip => '<button class="clip ' + (clip.kind === 'audio' ? 'audio ' : '') + (clip.mute ? 'muted' : '') + '" data-clip="' + escapeHTML(clip.id) + '" data-row-index="' + rowIndex + '" style="left:' + clip.start_beat * zoom + 'px;width:' + Math.max(8, clip.length_beats * zoom) + 'px" title="' + escapeHTML(clipName(clip)) + '">' + escapeHTML(clipName(clip)) + '<i></i></button>').join('') + '</div></div>').join('') +
       '<p class="empty-timeline">Draw places the selected pattern. Drop library audio onto a row. Select moves clips; the right edge resizes. Right-click opens clip options. Arm a row, then Record to capture a microphone take.</p></div>');
+    const timeline = $('.timeline'); timeline.scrollLeft = oldScroll.left; timeline.scrollTop = oldScroll.top;
+    const zoomSong = (value, clientX = timeline.getBoundingClientRect().left + timeline.clientWidth / 2) => {
+      const origin = ($('.track-lane')?.getBoundingClientRect().left ?? timeline.getBoundingClientRect().left + 202) - timeline.getBoundingClientRect().left + timeline.scrollLeft;
+      const x = clientX - timeline.getBoundingClientRect().left, beat = Math.max(0, (timeline.scrollLeft + x - origin) / state.songZoom);
+      state.songZoom = clamp(value, 11.25, 720); renderSong(); $('.timeline').scrollLeft = beat * state.songZoom - x + origin;
+    };
+    on('#song-time-zoom', 'change', event => zoomSong(Number(event.target.value) / 100 * 45));
+    on('.song-zoom-in', 'click', () => zoomSong(state.songZoom * 1.5));
+    on('.song-zoom-out', 'click', () => zoomSong(state.songZoom / 1.5));
+    const resizeTracks = value => { state.songHeight = clamp(value, 42, 180); timeline.style.setProperty('--song-height', state.songHeight + 'px'); $('#song-track-height').value = state.songHeight; };
+    on('#song-track-height', 'input', event => resizeTracks(event.target.value));
+    on('.song-view-reset', 'click', () => { state.songHeight = 58; state.songZoom = 45; renderSong(); $('.timeline').scrollLeft = 0; });
+    let wheelFrame = null, pendingWheel = null;
+    timeline.addEventListener('wheel', event => {
+      if (!event.ctrlKey && !event.altKey) return;
+      event.preventDefault();
+      const kind = event.altKey ? 'height' : 'time', unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? timeline.clientHeight : 1;
+      pendingWheel = { kind, delta: event.deltaY * unit + (pendingWheel?.kind === kind ? pendingWheel.delta : 0), x: event.clientX };
+      if (wheelFrame !== null) return;
+      wheelFrame = requestAnimationFrame(() => { wheelFrame = null; const change = pendingWheel; pendingWheel = null; if (!timeline.isConnected) return; if (change.kind === 'height') resizeTracks(state.songHeight * Math.exp(-change.delta * .003)); else zoomSong(state.songZoom * Math.exp(-change.delta * .003), change.x); });
+    }, { passive: false });
     on('.add-track', 'click', () => { projectStore.transact('add arrangement row', project => project.rows.push({ id: uid('row'), name: 'Track ' + (project.rows.length + 1), mute: false, solo: false, record_armed: false, record_source: 'audio', record_track: Math.min(project.tracks.length - 1, project.rows.length), clips: [] })); renderSong(); });
     $$('.song-tool').forEach(control => control.addEventListener('click', act(() => { state.arrangeTool = control.dataset.tool; renderSong(); })));
     on('.song-snap', 'click', event => openMenu(event.currentTarget, [['BAR', 4], ['BEAT', 1], ['1/16', .25], ['OFF', 0]].map(([label, value]) => ({ label, action: () => { state.arrangeSnap = value; renderSong(); } }))));
@@ -554,19 +578,19 @@
     $$('.track-lane').forEach(lane => {
       lane.addEventListener('click', act(event => {
         if (event.target.closest('.clip')) return;
-        if (state.arrangeTool === 'draw') addClip(Number(lane.dataset.rowIndex), (event.clientX - lane.getBoundingClientRect().left) / 45);
+        if (state.arrangeTool === 'draw') addClip(Number(lane.dataset.rowIndex), (event.clientX - lane.getBoundingClientRect().left) / zoom);
       }));
       lane.addEventListener('pointermove', event => {
         if (state.arrangeTool !== 'slice') return;
         let guide = lane.querySelector('.cut-guide');
         if (!guide) { guide = document.createElement('span'); guide.className = 'cut-guide'; guide.setAttribute('aria-hidden','true'); lane.append(guide); }
-        const clip = event.target.closest('.clip'), origin = clip ? Number(clip.style.left.replace('px','')) / 45 : 0;
-        const beat = origin + snapBeat((event.clientX - (clip || lane).getBoundingClientRect().left) / 45);
-        guide.style.left = beat * 45 + 'px'; guide.textContent = (Math.floor(beat / 4) + 1) + '.' + (Math.floor(beat % 4) + 1) + ' · ' + beat.toFixed(2) + ' beats';
+        const clip = event.target.closest('.clip'), origin = clip ? Number(clip.style.left.replace('px','')) / zoom : 0;
+        const beat = origin + snapBeat((event.clientX - (clip || lane).getBoundingClientRect().left) / zoom);
+        guide.style.left = beat * zoom + 'px'; guide.textContent = (Math.floor(beat / 4) + 1) + '.' + (Math.floor(beat % 4) + 1) + ' · ' + beat.toFixed(2) + ' beats';
       });
       lane.addEventListener('pointerleave', () => lane.querySelector('.cut-guide')?.remove());
       lane.addEventListener('dragover', event => event.preventDefault());
-      lane.addEventListener('drop', act(event => { event.preventDefault(); addClip(Number(lane.dataset.rowIndex), (event.clientX - lane.getBoundingClientRect().left) / 45, event.dataTransfer.getData('application/x-anharmonic-media')); }));
+      lane.addEventListener('drop', act(event => { event.preventDefault(); addClip(Number(lane.dataset.rowIndex), (event.clientX - lane.getBoundingClientRect().left) / zoom, event.dataTransfer.getData('application/x-anharmonic-media')); }));
     });
     $$('.clip').forEach(element => {
       const rowIndex = Number(element.dataset.rowIndex), id = element.dataset.clip;
@@ -585,7 +609,7 @@
         if (state.arrangeTool === 'erase') return edit('erase clip', (row, _clip, index) => row.clips.splice(index, 1));
         if (state.arrangeTool === 'mute') return edit('mute clip', (_row, clip) => clip.mute = !clip.mute);
         if (state.arrangeTool === 'slice') {
-          const split = snapBeat((event.clientX - element.getBoundingClientRect().left) / 45);
+          const split = snapBeat((event.clientX - element.getBoundingClientRect().left) / zoom);
           if (split <= 0 || split >= original.length_beats) return;
           if (original.kind === 'pattern') {
             const length = projectStore.project.patterns.find(pattern => pattern.id === original.ref)?.bars * 4;
@@ -611,14 +635,14 @@
         const startX = event.clientX;
         element.setPointerCapture?.(event.pointerId);
         const move = current => {
-          const delta = (current.clientX - startX) / 45;
-          if (resize) element.style.width = Math.max(8, snapBeat(original.length_beats + delta) * 45) + 'px';
-          else element.style.left = snapBeat(original.start_beat + delta) * 45 + 'px';
+          const delta = (current.clientX - startX) / zoom;
+          if (resize) element.style.width = Math.max(8, snapBeat(original.length_beats + delta) * zoom) + 'px';
+          else element.style.left = snapBeat(original.start_beat + delta) * zoom + 'px';
         };
         const cleanup = () => { element.removeEventListener('pointermove', move); element.removeEventListener('pointerup', finish); element.removeEventListener('pointercancel', cancel); };
         const cancel = () => { cleanup(); renderSong(); };
         const finish = act(current => {
-          cleanup(); const delta = (current.clientX - startX) / 45;
+          cleanup(); const delta = (current.clientX - startX) / zoom;
           if (Math.abs(current.clientX - startX) < 2) return;
           edit(resize ? 'resize clip' : 'move clip', (_row, clip) => { if (resize) clip.length_beats = Math.max(.01, snapBeat(original.length_beats + delta)); else clip.start_beat = snapBeat(original.start_beat + delta); });
         });
@@ -683,17 +707,49 @@
     }, { passive: false });
   }
 
+  function setSampleWindow(start, length) {
+    const buffer = padBuffer(); if (!buffer) return;
+    length = clamp(length, Math.min(buffer.duration, 1 / buffer.sampleRate), buffer.duration);
+    start = clamp(start, 0, buffer.duration - length);
+    state.sampleView = { key: selectionKey(), start, end: start + length };
+    refreshSampleView();
+  }
+  function zoomSample(factor, fraction = .5) {
+    const buffer = padBuffer(); if (!buffer) return;
+    const view = sampleWindow(buffer), oldLength = view.end - view.start;
+    const length = clamp(oldLength / factor, Math.min(buffer.duration, 1 / buffer.sampleRate), buffer.duration);
+    setSampleWindow(view.start + oldLength * fraction - length * fraction, length);
+  }
+  function refreshSampleView() {
+    const buffer = padBuffer(), canvas = $('#waveform'); if (!canvas) return;
+    const view = sampleWindow(buffer), length = view.end - view.start;
+    canvas.parentElement.style.height = state.sampleHeight + 'px';
+    $('#sample-time-zoom').max = buffer?.length || 1;
+    $('#sample-time-zoom').value = buffer ? Math.round(buffer.duration / length * 100) / 100 : 1;
+    $('#sample-amplitude').value = state.sampleAmplitude;
+    $('#sample-height').value = state.sampleHeight;
+    $('#sample-pan').disabled = !buffer || length >= buffer.duration;
+    $('#sample-pan').value = buffer && length < buffer.duration ? view.start / (buffer.duration - length) * 1000 : 0;
+    $('#sample-view-range').textContent = view.start.toFixed(6) + ' – ' + view.end.toFixed(6) + ' s';
+    drawWaveform(canvas, buffer, currentSelection());
+  }
   function renderSampler() {
     const buffer = padBuffer(), selection = currentSelection(), duration = buffer?.duration || 0;
-    shell('Sampler · Pad ' + padNumber(state.selectedPad), button('IMPORT', 'import-sampler') + button('PREVIEW', 'preview-pad', !buffer) + button('MAP SLICES ▾', 'chop-tools', !buffer) + button('REVERSE ' + (padRecord().reverse ? '✓' : ''), 'reverse-sample', !buffer) + button('ZOOM TO RANGE', 'sample-zoom', !buffer) + button('FIT', 'sample-fit', !buffer),
-      '<div class="sampler-editor"><div class="sampler-canvas"><canvas id="waveform" aria-label="Audio waveform; drag selection markers"></canvas></div><div class="sampler-actions"><label>START <input id="sample-start" type="number" min="0" max="' + duration + '" step="0.000001" value="' + selection.start.toFixed(6) + '"' + (!buffer ? ' disabled' : '') + '> s</label><label>END <input id="sample-end" type="number" min="0" max="' + duration + '" step="0.000001" value="' + selection.end.toFixed(6) + '"' + (!buffer ? ' disabled' : '') + '> s</label>' + button('SNAP: ' + ({ 0: 'OFF', 1: 'BEAT', .5: '1/8', .25: '1/16' }[state.sampleSnap]) + ' ▾', 'sample-snap') + button('APPLY RANGE', 'assign-sample', !buffer) + '<label>EDGE <select id="sample-edge"><option value="start">Start</option><option value="end">End</option></select></label>' + button('− 1 SAMPLE', 'sample-back', !buffer) + button('+ 1 SAMPLE', 'sample-forward', !buffer) + '<output id="sample-cursor" aria-live="off"></output></div><p class="sampler-help">' + (buffer ? escapeHTML(padRecord().name) + ' · ' + duration.toFixed(3) + ' seconds · ' + buffer.sampleRate + ' Hz. Choose Start or End, then drag its marker. Shift-drag gives 10× finer control. Zoom to Range magnifies your selection; Fit shows the source. Apply Range saves the trim.' : 'Import or assign a real audio file to edit its waveform.') + '</p></div>');
-    drawWaveform($('#waveform'), buffer, selection);
+    shell('Sampler · Pad ' + padNumber(state.selectedPad), button('IMPORT', 'import-sampler') + button('PREVIEW', 'preview-pad', !buffer) + button('MAP SLICES ▾', 'chop-tools', !buffer) + button('REVERSE ' + (padRecord().reverse ? '✓' : ''), 'reverse-sample', !buffer) + button('ZOOM TO RANGE', 'sample-zoom', !buffer) + button('RESET VIEW', 'sample-fit', !buffer),
+      '<div class="sampler-editor"><div class="zoom-controls" role="group" aria-label="Waveform view controls"><label>TIME × <input id="sample-time-zoom" type="number" min="1" max="1000000" step=".25" value="1"></label>' + button('−', 'sample-zoom-out', !buffer) + button('+', 'sample-zoom-in', !buffer) + '<label>AMPLITUDE × <input id="sample-amplitude" type="number" min=".25" max="16" step=".25" value="1" title="Display scale only; audio gain is unchanged"></label><label>HEIGHT <input id="sample-height" type="range" min="120" max="600" step="10" value="220"></label><label>PAN <input id="sample-pan" type="range" min="0" max="1000" step="1" value="0"></label><output id="sample-view-range"></output></div><div class="sampler-canvas"><canvas id="waveform" aria-label="Audio waveform; drag selection markers"></canvas></div><div class="sampler-actions"><label>START <input id="sample-start" type="number" min="0" max="' + duration + '" step="0.000001" value="' + selection.start.toFixed(6) + '"' + (!buffer ? ' disabled' : '') + '> s</label><label>END <input id="sample-end" type="number" min="0" max="' + duration + '" step="0.000001" value="' + selection.end.toFixed(6) + '"' + (!buffer ? ' disabled' : '') + '> s</label>' + button('SNAP: ' + ({ 0: 'OFF', 1: 'BEAT', .5: '1/8', .25: '1/16' }[state.sampleSnap]) + ' ▾', 'sample-snap') + button('APPLY RANGE', 'assign-sample', !buffer) + '<label>EDGE <select id="sample-edge"><option value="start">Start</option><option value="end">End</option></select></label>' + button('− 1 SAMPLE', 'sample-back', !buffer) + button('+ 1 SAMPLE', 'sample-forward', !buffer) + '<output id="sample-cursor" aria-live="off"></output></div><p class="sampler-help">' + (buffer ? escapeHTML(padRecord().name) + ' · ' + duration.toFixed(3) + ' seconds · ' + buffer.sampleRate + ' Hz. Choose Start or End, then drag its marker. Shift-drag gives 10× finer control. Wheel or pinch zooms time at the cursor; horizontal scroll pans. Alt+wheel scales the waveform height without changing audio. Reset View restores the full source. Apply Range saves the trim.' : 'Import or assign a real audio file to edit its waveform.') + '</p></div>');
+    refreshSampleView();
+    on('#sample-time-zoom', 'change', event => { if (buffer) zoomSample(clamp(event.target.value, 1, buffer.length) / (buffer.duration / (sampleWindow(buffer).end - sampleWindow(buffer).start))); });
+    on('.sample-zoom-in', 'click', () => zoomSample(1.5));
+    on('.sample-zoom-out', 'click', () => zoomSample(1 / 1.5));
+    on('#sample-amplitude', 'change', event => { state.sampleAmplitude = clamp(event.target.value, .25, 16); refreshSampleView(); });
+    on('#sample-height', 'input', event => { state.sampleHeight = Number(event.target.value); refreshSampleView(); });
+    on('#sample-pan', 'input', event => { if (!buffer) return; const view = sampleWindow(buffer), length = view.end - view.start; setSampleWindow(Number(event.target.value) / 1000 * (buffer.duration - length), length); });
     $('#sample-edge').value = state.sampleEdge;
     on('#sample-edge', 'change', event => state.sampleEdge = event.target.value);
     on('.sample-back', 'click', () => updateSelection(state.sampleEdge, currentSelection()[state.sampleEdge] - 1 / buffer.sampleRate, true, true));
     on('.sample-forward', 'click', () => updateSelection(state.sampleEdge, currentSelection()[state.sampleEdge] + 1 / buffer.sampleRate, true, true));
     on('.sample-zoom', 'click', () => { const current = currentSelection(), margin = Math.max(2 / buffer.sampleRate, (current.end - current.start) * .08); state.sampleView = { key: selectionKey(), start: Math.max(0, current.start - margin), end: Math.min(duration, current.end + margin) }; renderSampler(); });
-    on('.sample-fit', 'click', () => { state.sampleView = null; renderSampler(); });
+    on('.sample-fit', 'click', () => { state.sampleView = null; state.sampleAmplitude = 1; state.sampleHeight = 220; refreshSampleView(); });
     on('.import-sampler', 'click', () => $('#audio-file').click());
     on('.preview-pad', 'click', () => triggerPad(state.selectedPad, { start: selection.start, end: selection.end, duration: selection.end - selection.start }));
     on('#sample-start', 'change', event => updateSelection('start', event.target.value, true, true));
@@ -712,7 +768,7 @@
         if (targets.slice(1).some(pad => pad.sample_id) && !confirm('Replace samples on the next ' + (slices - 1) + ' pads? Undo will restore them.')) return;
         projectStore.transact('map sample slices', project => {
           for (let offset = 0; offset < slices; offset++) project.pads[state.selectedPad + offset] = {
-            ...project.pads[state.selectedPad + offset], sample_id: padRecord().sample_id,
+            ...project.pads[state.selectedPad + offset], sample_id: padRecord().sample_id, mode: 'one-shot', reverse: padRecord().reverse, sync_beats: 0,
             name: padRecord().name + ' · ' + (offset + 1), start: selection.start + (selection.end - selection.start) * offset / count,
             end: selection.start + (selection.end - selection.start) * (offset + 1) / count
           };
@@ -721,12 +777,28 @@
     })));
     });
     if (buffer) {
-      const canvas = $('#waveform'), view = sampleWindow(buffer); let drag = null;
-      const point = event => view.start + (event.clientX - canvas.getBoundingClientRect().left) / canvas.getBoundingClientRect().width * (view.end - view.start);
+      const canvas = $('#waveform'); let drag = null;
+      const point = event => { const view = sampleWindow(buffer); return view.start + (event.clientX - canvas.getBoundingClientRect().left) / canvas.getBoundingClientRect().width * (view.end - view.start); };
+      let wheelFrame = null, pendingWheel = null;
+      canvas.addEventListener('wheel', event => {
+        event.preventDefault();
+        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientWidth : 1;
+        const kind = event.altKey ? 'amplitude' : !event.ctrlKey && (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) ? 'pan' : 'time';
+        const delta = (kind === 'pan' ? (event.deltaX || event.deltaY) : event.deltaY) * unit;
+        pendingWheel = { kind, delta: delta + (pendingWheel?.kind === kind ? pendingWheel.delta : 0), fraction: clamp((event.clientX - canvas.getBoundingClientRect().left) / canvas.clientWidth, 0, 1) };
+        if (wheelFrame !== null) return;
+        wheelFrame = requestAnimationFrame(() => {
+          wheelFrame = null; const change = pendingWheel; pendingWheel = null; if (!canvas.isConnected) return;
+          const view = sampleWindow(buffer), length = view.end - view.start;
+          if (change.kind === 'pan') setSampleWindow(view.start + change.delta / canvas.clientWidth * length, length);
+          else if (change.kind === 'amplitude') { state.sampleAmplitude = clamp(state.sampleAmplitude * Math.exp(-change.delta * .003), .25, 16); refreshSampleView(); }
+          else zoomSample(Math.exp(-change.delta * .003), change.fraction);
+        });
+      }, { passive: false });
       canvas.addEventListener('pointerdown', event => {
         if (event.button !== 0) return;
         event.preventDefault(); canvas.setPointerCapture(event.pointerId);
-        const current = currentSelection(), value = point(event), tolerance = (view.end - view.start) * 14 / canvas.getBoundingClientRect().width;
+        const current = currentSelection(), value = point(event), view = sampleWindow(buffer), tolerance = (view.end - view.start) * 14 / canvas.getBoundingClientRect().width;
         const nearest = Math.abs(value - current.start) <= Math.abs(value - current.end) ? 'start' : 'end';
         const edge = Math.abs(value - current[nearest]) <= tolerance ? nearest : state.sampleEdge;
         state.sampleEdge = edge; $('#sample-edge').value = edge;
@@ -1147,6 +1219,7 @@
     KeyZ: 48, KeyS: 49, KeyX: 50, KeyD: 51, KeyC: 52, KeyV: 53, KeyG: 54, KeyB: 55, KeyH: 56, KeyN: 57, KeyJ: 58, KeyM: 59, Comma: 60, KeyL: 61, Period: 62, Semicolon: 63, Slash: 64, Quote: 65,
     KeyQ: 60, Digit2: 61, KeyW: 62, Digit3: 63, KeyE: 64, KeyR: 65, Digit5: 66, KeyT: 67, Digit6: 68, KeyY: 69, Digit7: 70, KeyU: 71, KeyI: 72, Digit9: 73, KeyO: 74, Digit0: 75, KeyP: 76, BracketLeft: 77, Equal: 78, BracketRight: 79
   };
+  let lastSpaceTap = -Infinity, spaceTransport = Promise.resolve();
   window.addEventListener('keydown', act(async event => {
     if (state.loading) return;
     if (typing(event.target) || event.altKey) return;
@@ -1154,7 +1227,7 @@
     if (modifier && event.key.toLowerCase() === 's') { event.preventDefault(); await saveProject(); return; }
     if (modifier && event.key.toLowerCase() === 'z') { event.preventDefault(); event.shiftKey ? projectStore.redo() : projectStore.undo(); syncControls(); renderAll(); return; }
     if (modifier || event.repeat) return;
-    if (event.code === 'Space') { event.preventDefault(); await togglePlayback(); return; }
+    if (event.code === 'Space') { event.preventDefault(); const now = performance.now(), restart = now - lastSpaceTap <= 350; lastSpaceTap = restart ? -Infinity : now; spaceTransport = spaceTransport.catch(() => {}).then(async () => { if (restart) stopPlayback(); await togglePlayback(); }); await spaceTransport; return; }
     if (state.workspace === 'instruments' || state.workspace === 'notes') {
       const pitch = musicalTypingMap[event.code];
       if (pitch !== undefined) {
@@ -1200,7 +1273,7 @@
       if (!state.heldSynth.size) stopArp();
     }
   });
-  window.addEventListener('blur', () => { state.heldPads.forEach(value => typeof value === 'string' && value.startsWith('note:') ? state.engine?.releaseNote(Number(value.slice(5))) : releasePad(value)); state.heldPads.clear(); state.heldSynth.forEach(note => state.engine?.releaseNote(note)); state.heldSynth.clear(); stopArp(); });
+  window.addEventListener('blur', () => { lastSpaceTap = -Infinity; state.heldPads.forEach(value => typeof value === 'string' && value.startsWith('note:') ? state.engine?.releaseNote(Number(value.slice(5))) : releasePad(value)); state.heldPads.clear(); state.heldSynth.forEach(note => state.engine?.releaseNote(note)); state.heldSynth.clear(); stopArp(); });
   window.addEventListener('beforeunload', event => { if (state.dirty || state.recording || state.recordPending || state.loading || state.recoveryRecording) { event.preventDefault(); event.returnValue = ''; } });
   window.addEventListener('resize', () => { updatePanels(); syncInspector(); if (state.workspace === 'sampler') drawWaveform($('#waveform'), padBuffer(), currentSelection()); });
   setInterval(() => {
