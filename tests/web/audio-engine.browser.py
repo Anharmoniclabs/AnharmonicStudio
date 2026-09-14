@@ -230,6 +230,20 @@ def main():
                 assert(all.filter(voice => voice.end > .1).length === LIMITS.voices, 'too many voices survive at scheduled start');
                 engine.stop(); assert(all.every(voice => voice.end === 0), 'pending cancellations escaped Stop'); assert(!engine.retiringVoices.size, 'retired voices retained after Stop');
               });
+              await test('releasing a played note or pad does not cancel matching arranged voices', async () => {
+                const { project, engine, context } = factory();
+                const graph = { trackBuses: project.tracks.map(() => ({ input: context.destination })), sync() {} };
+                engine.context = context; engine.graph = graph;
+                project.pads[0].mode = 'gate'; project.synth.release = .01;
+                const arrangedNote = engine.synthVoice(60, { when: 0, duration: .7, sequence: 'song' }, context, graph, engine.voices);
+                const arrangedPad = engine.padVoice(0, { when: 0, duration: .7, sequence: 'song' }, context, graph, engine.voices);
+                const liveNote = engine.triggerNote(60, { duration: .7 });
+                const livePad = engine.triggerPad(0, { duration: .7 });
+                engine.releaseNote(60); engine.releasePad(0);
+                assert(liveNote.end <= .011 && livePad.end <= .021, 'manual release did not work');
+                assert(arrangedNote.end >= .7 && arrangedPad.end >= .7, 'manual release cut arrangement');
+                await context.startRendering();
+              });
               await test('no-overlap replaces pads and piano with a bounded fade while song voices survive', async () => {
                 const { project, engine, context } = factory();
                 const graph = { trackBuses: project.tracks.map(() => ({ input: context.destination })), sync() {} };

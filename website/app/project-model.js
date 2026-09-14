@@ -317,6 +317,28 @@
       const entry = this.future.pop(); if (!entry) return false;
       this.history.push(entry); this.document = clone(entry.after); this.notify(); return true;
     }
+    setPatternGrid({ bars = this.pattern.bars, div = this.pattern.div } = {}) {
+      bars = number(bars, this.pattern.bars, 1, 256, true);
+      div = number(div, this.pattern.div, 1, 32, true);
+      this.transact('change pattern grid', document => {
+        const pattern = document.patterns[document.selected_pattern];
+        const total = bars * 4 * div;
+        const lanes = {};
+        for (const [pad, steps] of Object.entries(pattern.steps)) {
+          const lane = {};
+          for (const [step, velocity] of Object.entries(steps)) {
+            const target = Math.round(Number(step) * div / pattern.div);
+            if (target < total) lane[target] = Math.max(lane[target] || 0, velocity);
+          }
+          if (Object.keys(lane).length) lanes[pad] = lane;
+        }
+        pattern.steps = lanes;
+        pattern.notes = pattern.notes.filter(note => note.start < bars * 4).map(note => ({
+          ...note, duration: Math.min(note.duration, bars * 4 - note.start)
+        }));
+        pattern.bars = bars; pattern.div = div;
+      });
+    }
     toggleStep(pad, step, velocity = 1) {
       number(pad, 0, 0, PAD_COUNT - 1, true);
       number(step, 0, 0, 32767, true);

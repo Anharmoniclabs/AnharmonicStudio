@@ -230,3 +230,32 @@ test('document complexity and history memory have hard bounds', () => {
   store.setTempo(139);
   assert.equal(store.history.length, count, 'no-op edits must not consume history');
 });
+
+test('grid changes retain beat timing and strongest coincident hit with undo', () => {
+  const store = new ProjectStore();
+  store.setStep(0, 0, .3); store.setStep(0, 1, .9); store.setStep(0, 4, .6);
+  const before = JSON.stringify(store.toJSON());
+  store.setPatternGrid({ div: 8 });
+  assert.deepEqual(JSON.parse(JSON.stringify(store.pattern.steps[0])), { 0: .3, 2: .9, 8: .6 });
+  store.undo(); assert.equal(JSON.stringify(store.toJSON()), before);
+  store.redo(); store.setPatternGrid({ div: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(store.pattern.steps[0])), { 0: .9, 1: .6 });
+});
+
+test('shortening pattern trims notes and steps; undo restores the entire phrase', () => {
+  const store = new ProjectStore(); store.setPatternGrid({ bars: 4 });
+  store.setStep(0, 0, .5); store.setStep(0, 32, .8);
+  store.transact('notes', p => { p.patterns[0].notes = [
+    { id: 'crossing', pitch: 127, start: 3, duration: 3, velocity: .8, pad: null },
+    { id: 'outside', pitch: 0, start: 9, duration: 2, velocity: .5, pad: null }
+  ]; });
+  const before = JSON.stringify(store.toJSON());
+  store.setPatternGrid({ bars: 1 });
+  assert.deepEqual(Object.keys(store.pattern.steps[0]), ['0']);
+  assert.equal(store.pattern.notes.length, 1); assert.equal(store.pattern.notes[0].duration, 1);
+  store.undo(); assert.equal(JSON.stringify(store.toJSON()), before);
+  for (const grid of [{ div: 0 }, { div: 2.5 }, { bars: 0 }, { bars: Infinity }]) {
+    assert.throws(() => store.setPatternGrid(grid));
+    assert.equal(JSON.stringify(store.toJSON()), before);
+  }
+});

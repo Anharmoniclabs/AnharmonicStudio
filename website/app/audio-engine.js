@@ -483,7 +483,7 @@
         if (voice.live) voice.stop(time, false, .005);
       }
     }
-    releasePad(index) { for (const voice of [...this.voices, ...this.retiringVoices]) if (voice.pad === index && voice.gate) voice.stop(); }
+    releasePad(index) { for (const voice of [...this.voices, ...this.retiringVoices]) if (voice.live && voice.pad === index && voice.gate) voice.stop(); }
 
     synthVoice(pitch, opts, context, graph, pool, offline = false) {
       const project = opts.project || this.getProject(); const patch = project.synth || {};
@@ -556,7 +556,7 @@
       if (voice) voice.live = true;
       return voice;
     }
-    releaseNote(pitch) { for (const voice of [...this.voices, ...this.retiringVoices]) if (voice.pitch === pitch) voice.stop(); }
+    releaseNote(pitch) { for (const voice of [...this.voices, ...this.retiringVoices]) if (voice.live && voice.pitch === pitch) voice.stop(); }
 
     schedule(event, when, project, context, graph, pool, offline = false) {
       const spb = secondsPerBeat(project);
