@@ -294,6 +294,7 @@ class LivePlugin:
         self.results: queue.Queue = queue.Queue(maxsize=4)
         self.error = ""
         self.misses = 0
+        self._consecutive_misses = 0
         self._position = 0
         self._pending = {}
         self._parameter_lock = threading.Lock()
@@ -371,8 +372,18 @@ class LivePlugin:
                 del self._pending[number]
         if covered < max(0, end - max(0, wanted)):
             self.misses += 1
-            self.error = "Plugin missed its audio deadline; reload it or increase the buffer"
-            return None
+            self._consecutive_misses += 1
+            # A brief worker stall drops only the unavailable samples. Keep
+            # advancing the timeline and forwarding MIDI (especially note-off)
+            # so a healthy plugin can catch up without replaying late audio.
+            # Persistent lag still fails closed, as do queue and worker errors.
+            if self._consecutive_misses >= 8:
+                self.error = (
+                    "Plugin repeatedly missed its audio deadline; reload it or increase the buffer"
+                )
+                return None
+        else:
+            self._consecutive_misses = 0
         return result
 
     def close(self):

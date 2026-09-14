@@ -106,6 +106,7 @@ def live_fixture():
     bridge.results = queue.Queue(maxsize=4)
     bridge.error = ""
     bridge.misses = 0
+    bridge._consecutive_misses = 0
     bridge._position = 0
     bridge._pending = {}
     return bridge
@@ -128,13 +129,51 @@ def test_live_pipeline_preserves_samples_across_loop_split_blocks():
     assert np.array_equal(combined[32:], source[: len(combined) - 32])
 
 
-def test_live_timeout_fails_without_waiting_or_replaying_old_audio():
+def test_live_timeout_recovers_without_waiting_or_replaying_old_audio():
     bridge = live_fixture()
     audio = np.ones((16, 2), np.float32)
     assert bridge.render(audio, 16) is not None
     assert bridge.render(audio, 16) is not None
-    assert bridge.render(audio, 16) is None
-    assert bridge.misses == 1 and "deadline" in bridge.error
+    note_off = [([0x80, 60, 0], 0)]
+    assert np.array_equal(bridge.render(audio, 16, note_off, reset=True), np.zeros((16, 2)))
+    assert bridge.misses == 1 and not bridge.error
+    # The first result arrives late. It must never be played in a later window.
+    bridge.results.put((0, np.full((16, 2), 99, np.float32)))
+    bridge.results.put((16, np.full((16, 2), 2, np.float32)))
+    result = bridge.render(audio, 16)
+    assert np.array_equal(result, np.full((16, 2), 2, np.float32))
+    assert not bridge.error and bridge._consecutive_misses == 0
+    assert 0 not in bridge._pending
+    queued = [bridge.requests.get_nowait() for _ in range(4)]
+    assert queued[2][3:] == (note_off, True)
+
+
+def test_live_sustained_deadline_misses_still_fail_closed():
+    bridge = live_fixture()
+    for _ in range(10):
+        result = bridge.render(None, 16)
+        # Simulate a worker accepting requests but always returning too late.
+        bridge.requests.get_nowait()
+    assert result is None
+    assert bridge.misses == 8 and "deadline" in bridge.error
+
+
+def test_live_partial_deadline_miss_retains_only_timely_samples():
+    bridge = live_fixture()
+    bridge.render(None, 16)
+    bridge.render(None, 16)
+    bridge.results.put((0, np.full((8, 2), 3, np.float32)))
+    result = bridge.render(None, 16)
+    assert np.array_equal(result[:8], np.full((8, 2), 3, np.float32))
+    assert np.array_equal(result[8:], np.zeros((8, 2)))
+    assert bridge.misses == 1 and not bridge.error
+
+
+def test_live_request_overflow_remains_a_fatal_error():
+    bridge = live_fixture()
+    for _ in range(5):
+        result = bridge.render(None, 16)
+    assert result is None and "could not keep up" in bridge.error
 
 
 def test_plugin_state_roundtrip_and_legacy_projects(tmp_path):
