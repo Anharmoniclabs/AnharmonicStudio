@@ -7,9 +7,7 @@ project state stay with that coordinator. This module owns only its named domain
 from __future__ import annotations
 import threading
 from collections import Counter
-from PySide6.QtWidgets import (
-    QApplication,
-)
+from PySide6.QtWidgets import QPushButton
 from ..model import (
     PADS_PER_BANK,
     BANKS,
@@ -28,16 +26,12 @@ def do_chop(window):
         window.status.showMessage("select a sample first", 2500)
         return
     clip = window.library.clips[window.current_clip]
+    if window.chop_mode.currentIndex() == 0:
+        return auto_chop(window)
     window.snapshot()
     mode = window.chop_mode.currentIndex()
 
-    if mode == 0:
-        window.status.showMessage("finding transients…")
-        QApplication.processEvents()
-        res = window.library.analyze(window.current_clip, window.sens.value() / 100.0)
-        markers = list(res["onsets"])
-        window.status.showMessage(f"{len(markers)} slices · {res['bpm']} BPM detected", 4000)
-    elif mode == 1:
+    if mode == 1:
         n = window.pieces.value()
         step = clip.duration / n
         markers = [round(i * step, 5) for i in range(n)]
@@ -63,7 +57,7 @@ def do_chop(window):
     window._rebuild_chips()
 
 
-def auto_chop(window, *, then_map: bool = False):
+def auto_chop(window, *, then_map: bool = False, set_tempo: bool = False):
     """Scan the loaded song for hits, loops and drops, off the GUI thread."""
     if not window.current_clip:
         window.status.showMessage("select a sample first", 2500)
@@ -72,14 +66,14 @@ def auto_chop(window, *, then_map: bool = False):
         window.status.showMessage("already scanning…", 2000)
         return
     clip_id = window.current_clip
-    audio = window.library.audio(clip_id)
-    if audio is None or not len(audio):
-        window.status.showMessage("nothing to scan", 2500)
-        return
+    library = window.library
+    sample_rate = library.sr
+    source_kind = library.clips[clip_id].stem
 
     window._scanning = True
     window._scan_project = window.project
     window._scan_then_map = then_map
+    window._scan_set_tempo = set_tempo
     window.btn_scan.setEnabled(False)
     window.btn_auto_map.setEnabled(False)
     window.status.showMessage(f"scanning {window.library.clips[clip_id].name}…")
@@ -90,8 +84,13 @@ def auto_chop(window, *, then_map: bool = False):
         # A four-minute song takes a few seconds; the GUI and the audio
         # thread both keep running while it does.
         try:
+            # Cache misses may decode or resample a whole song. Keep that work
+            # off the GUI thread too, not just the spectral analysis.
+            audio = library.audio(clip_id)
+            if audio is None or not len(audio):
+                raise ValueError("nothing to scan")
             mono = detect.analysis_mono(audio)
-            result = detect.scan(mono, window.engine.sr, sensitivity=sens)
+            result = detect.scan(mono, sample_rate, sensitivity=sens, source_kind=source_kind)
         except Exception as exc:  # keep the app alive
             emit_if_alive(window, "scanFailed", clip_id, str(exc))
             return
@@ -103,12 +102,15 @@ def auto_chop(window, *, then_map: bool = False):
 def _scan_failed(window, clip_id: str, message: str):
     window._scanning = False
     window._scan_then_map = False
+    window._scan_set_tempo = False
     window.btn_scan.setEnabled(True)
     window.btn_auto_map.setEnabled(True)
     window.status.showMessage(f"scan failed: {message[:80]}", 6000)
 
 
 def _scan_finished(window, clip_id: str, result: dict):
+    set_tempo = getattr(window, "_scan_set_tempo", False)
+    window._scan_set_tempo = False
     window._scanning = False
     window.btn_scan.setEnabled(True)
     window.btn_auto_map.setEnabled(True)
@@ -127,6 +129,16 @@ def _scan_finished(window, clip_id: str, result: dict):
         window.library.update(clip)
 
     hits = window.hits_for(clip_id)
+    if set_tempo:
+        if clip_id == window.current_clip:
+            window.snapshot()
+            window.project.bpm = result["bpm"]
+            window.bpm_box.setValue(result["bpm"])
+            window.phrase_bpm.setValue(result["bpm"])
+            window.wave.bpm = result["bpm"]
+            window.wave.update()
+            window.status.showMessage(f"detected {result['bpm']:.2f} BPM", 4000)
+        return
     if clip_id == window.current_clip:
         window.snapshot()
         markers = list(result.get("onsets", [c.start for c in hits]))
@@ -244,23 +256,16 @@ def _place_candidate(window, gi: int, cand, clip_name: str) -> None:
     map_sample_range(pad, window.current_clip, cand.start, cand.end, f"{cand.kind} {clip_name[:8]}")
     pad.name = f"{cand.kind} {clip_name[:8]}"
     pad.mode = "one-shot"
+    if cand.kind == "loop" and cand.detail.get("bars"):
+        pad.sync_beats = float(cand.detail["bars"] * 4)
+        pad.name = f"{cand.detail['bars']}bar {cand.detail.get('content', 'loop')}"
     # Hats choke each other the way they do on a kit, so a closed hat
     # cuts an open one instead of ringing through it.
     pad.choke = 1 if cand.kind == "hat" else 0
 
 
 def detect_bpm(window):
-    if not window.current_clip:
-        return
-    window.status.showMessage("analysing…")
-    QApplication.processEvents()
-    res = window.library.analyze(window.current_clip)
-    window.project.bpm = res["bpm"]
-    window.bpm_box.setValue(res["bpm"])
-    window.wave.bpm = res["bpm"]
-    window.wave.update()
-    window.load_clip_into_editor(window.current_clip)
-    window.status.showMessage(f"detected {res['bpm']} BPM", 4000)
+    return auto_chop(window, set_tempo=True)
 
 
 def clear_slices(window):
@@ -297,17 +302,21 @@ def _slice_selected(window, index: int):
 
 def _highlight_chip(window, index: int):
     """Selection must not destroy and relayout hundreds of chop buttons."""
-    buttons = getattr(window, "_slice_buttons", [])
+    buttons = getattr(window, "_slice_button_map", {})
+    if index >= 0 and index not in buttons:
+        _rebuild_chips(window, page=index // 64)
+        buttons = window._slice_button_map
     previous = getattr(window, "_highlighted_chip", -1)
-    if 0 <= previous < len(buttons):
+    if previous in buttons:
         buttons[previous].setChecked(False)
-    if 0 <= index < len(buttons):
+    if index in buttons:
         buttons[index].setChecked(True)
     window._highlighted_chip = index
 
 
-def _rebuild_chips(window):
+def _rebuild_chips(window, page=None):
     window._slice_buttons = []
+    window._slice_button_map = {}
     window._highlighted_chip = window.wave.selected
     while window.chips.count():
         item = window.chips.takeAt(0)
@@ -321,7 +330,21 @@ def _rebuild_chips(window):
         return
     window.slice_chips_area.show()
     kinds = window.wave.slice_kinds
-    for i, (s, e) in enumerate(window.wave.all_slices()):
+    slices = window.wave.all_slices()
+    pages = max(1, (len(slices) + 63) // 64)
+    page = max(0, min(pages - 1, max(0, window.wave.selected) // 64 if page is None else page))
+    if pages > 1:
+        for label, target in (("← Previous", page - 1), ("Next →", page + 1)):
+            button = QPushButton(label)
+            button.setObjectName("mini")
+            button.setEnabled(0 <= target < pages)
+            button.clicked.connect(lambda _=False, p=target: _rebuild_chips(window, page=p))
+            window.chips.addWidget(button)
+        window.chips.addWidget(
+            small(f"Slices {page * 64 + 1}–{min(len(slices), (page + 1) * 64)} / {len(slices)}")
+        )
+    for i in range(page * 64, min(len(slices), (page + 1) * 64)):
+        s, e = slices[i]
         kind = kinds.get(i)
         btn = SampleDragButton(
             f"{i + 1}  {kind or ''}  {e - s:.2f}s".replace("  ", " "),
@@ -341,16 +364,22 @@ def _rebuild_chips(window):
         btn.pressed.connect(lambda idx=i: window._chip_clicked(idx))
         btn.clicked.connect(lambda _=False, idx=i: window._highlight_chip(idx))
         window._slice_buttons.append(btn)
+        window._slice_button_map[i] = btn
         window.chips.addWidget(btn)
     for n, (s, e, kind) in enumerate(window.wave.regions):
-        btn = SampleDragButton(
-            f"{kind} {n + 1}  {e - s:.2f}s", lambda: window.wave._start_range_drag()
-        )
+        candidates = window._scans.get(window.current_clip, {}).get("loops", [])
+        candidate = next((c for c in candidates if c.start == s and c.end == e), None)
+        label = f"{kind} {n + 1}"
+        if candidate:
+            label = (
+                f"{candidate.detail.get('bars', '?')} bar {candidate.detail.get('content', kind)}"
+            )
+        btn = SampleDragButton(f"{label}  {e - s:.2f}s", lambda: window.wave._start_range_drag())
         btn.setObjectName("mini")
         colour = hit_color(kind)
         btn.setStyleSheet(f"QPushButton {{ border: 1px solid {colour}; }}")
         btn.setToolTip(
-            f"{kind} · {s:.2f}s → {e:.2f}s\nClick to audition and trim · drag onto Arrange or a pad"
+            f"{label} · {s:.2f}s → {e:.2f}s\nClick to audition and trim · drag onto Arrange or a pad"
         )
         btn.pressed.connect(lambda a=s, b=e: window._region_clicked(a, b))
         window.chips.addWidget(btn)

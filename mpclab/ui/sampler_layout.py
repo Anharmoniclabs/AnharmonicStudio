@@ -45,7 +45,8 @@ def _build_chop(window) -> QWidget:
     window.btn_scan = QPushButton("Find slices")
     window.btn_scan.setObjectName("go")
     window.btn_scan.setToolTip(
-        "Detect cuts throughout the sample, including quiet attacks. Adjust sensitivity and scan again."
+        "Find precise attacks, instrument hits and repeated 1/2/4-bar loops. "
+        "Adjust sensitivity and scan again; audio keeps playing during analysis."
     )
     window.btn_scan.clicked.connect(
         lambda: window.auto_chop() if window.chop_mode.currentIndex() == 0 else window.do_chop()
@@ -89,6 +90,10 @@ def _build_chop(window) -> QWidget:
     chop_menu = QMenu(chop_options)
     window.btn_auto_map = chop_menu.addAction(
         "Detect and map hits, loops and drops", window.auto_map
+    )
+    window.btn_auto_map.setToolTip(
+        "Build a kit in this bank, with tempo-synced loops in the next bank. "
+        "Replaces pads in those banks; Undo restores them."
     )
     chop_menu.addAction("Detect source tempo", window.detect_bpm)
     chop_menu.addSeparator()
