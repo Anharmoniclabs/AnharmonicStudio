@@ -21,7 +21,7 @@ from ..model import (
 )
 from ..synth import render_patch
 from ..workflow import four_bar_phrase, pattern_arrangement_target
-from .playlist import ROW_H, RULER_H
+from .playlist import RULER_H
 
 
 def set_bank(window, bank: int):
@@ -255,9 +255,9 @@ def append_sample_to_arrangement(window, ref, start, end):
     window._arrange_drop_filter.reveal()
     window.song_scroll.ensureVisible(
         int(window.playlist.beat_to_x(clip.start_beat) + 20),
-        int(RULER_H + (row_index + 0.5) * ROW_H),
+        int(RULER_H + (row_index + 0.5) * window.playlist.row_height),
         40,
-        ROW_H,
+        int(window.playlist.row_height),
     )
     return clip
 
@@ -301,12 +301,13 @@ def edit_sample(window, clip_id: str):
 
 
 def _span_to_slider(window, span: float) -> int:
-    span = min(1.0, max(window.ZOOM_MIN_SPAN, span))
-    return int(round(1000 * np.log(span) / np.log(window.ZOOM_MIN_SPAN)))
+    minimum = min(0.999999, window.wave.minimum_span())
+    span = min(1.0, max(minimum, span))
+    return int(round(1000 * np.log(span) / np.log(minimum)))
 
 
 def _slider_to_span(window, ticks: int) -> float:
-    return float(window.ZOOM_MIN_SPAN ** (ticks / 1000.0))
+    return float(window.wave.minimum_span() ** (ticks / 1000.0))
 
 
 def _wave_zoom_slider(window, ticks: int):
@@ -318,7 +319,7 @@ def _wave_zoom_slider(window, ticks: int):
     # the chop on screen instead of drifting off the edge.
     start, end = window.wave.selection()
     focus = (start + end) / 2 / window.wave.duration if end > start else None
-    window.wave.zoom_by(want / max(1e-9, span), focus)
+    window.wave.zoom_by(want / max(1e-15, span), focus)
 
 
 def _wave_view_changed(window):
@@ -330,7 +331,7 @@ def _wave_view_changed(window):
     if window.wave.duration <= 0:
         window.zoom_readout.setText("—")
     elif seconds < 1.0:
-        window.zoom_readout.setText(f"{seconds * 1000:.0f} ms visible")
+        window.zoom_readout.setText(f"{seconds * 1000:.3f} ms visible")
     else:
         window.zoom_readout.setText(f"{seconds:.2f} s visible")
     window.nav.update()
@@ -592,9 +593,9 @@ def arrange_four_bar_phrase(window):
         window.show_tab(window.TAB_PLAYLIST)
     window.song_scroll.ensureVisible(
         int(window.playlist.beat_to_x(start) + 20),
-        int(RULER_H + (row_index + 0.5) * ROW_H),
+        int(RULER_H + (row_index + 0.5) * window.playlist.row_height),
         40,
-        ROW_H,
+        int(window.playlist.row_height),
     )
     window.status.showMessage(
         f"{len(plan.pads)} chops · bank {chr(65 + plan.bank)} · 4 bars at song tempo "

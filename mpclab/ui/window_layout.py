@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QSizePolicy,
     QMenu,
+    QDoubleSpinBox,
 )
 from ..model import (
     BANKS,
@@ -387,6 +388,27 @@ def _build_view_bar(window) -> QWidget:
     fit.setToolTip("Show the whole sample  (0)")
     fit.clicked.connect(window.wave.fit)
     lay.addWidget(fit)
+    lay.addWidget(small("HEIGHT"))
+    window.wave_height = QDoubleSpinBox()
+    window.wave_height.setRange(0.25, 24)
+    window.wave_height.setValue(1)
+    window.wave_height.setSingleStep(0.25)
+    window.wave_height.setSuffix("×")
+    window.wave_height.setAccessibleName("Waveform display height")
+    window.wave_height.setToolTip("Visual amplitude only; does not change audio volume · Alt+wheel")
+    window.wave_height.valueChanged.connect(window.wave.set_amplitude)
+
+    def sync_amplitude(value):
+        window.wave_height.blockSignals(True)
+        window.wave_height.setValue(value)
+        window.wave_height.blockSignals(False)
+
+    window.wave.amplitudeChanged.connect(sync_amplitude)
+    lay.addWidget(window.wave_height)
+    reset = QPushButton("Reset")
+    reset.clicked.connect(window.wave.reset_view)
+    reset.setToolTip("Reset time zoom and waveform height")
+    lay.addWidget(reset)
 
     window.zoom_readout = QLabel("—")
     window.zoom_readout.setObjectName("readout")

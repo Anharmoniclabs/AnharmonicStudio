@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QButtonGroup,
     QSizePolicy,
+    QMenu,
 )
 from .playlist import PlaylistView
 from .layout_helpers import scrolling_bar, small, yielding
@@ -142,11 +143,27 @@ def _build_song(window) -> QWidget:
     window.playlist_zoom_label = small("ZOOM")
     tl.addWidget(window.playlist_zoom_label)
     window.zoom = QSlider(Qt.Horizontal)
-    window.zoom.setRange(6, 90)
+    window.zoom.setRange(2, 512)
     window.zoom.setValue(26)
     window.zoom.setFixedWidth(110)
-    window.zoom.valueChanged.connect(window._zoom_changed)
+    window.zoom.valueChanged.connect(
+        lambda value: window.playlist.zoom_time(value / window.playlist.px_per_beat)
+    )
     tl.addWidget(window.zoom)
+    window.track_zoom_button = QPushButton("Zoom")
+    window.track_zoom_button.setToolTip("Ctrl+wheel or pinch: time · Alt+wheel: track height")
+    zoom_menu = QMenu(window.track_zoom_button)
+    for text, callback in (
+        ("Time zoom in", lambda: window.playlist.zoom_time(1.25)),
+        ("Time zoom out", lambda: window.playlist.zoom_time(0.8)),
+        ("Taller tracks", lambda: window.playlist.zoom_height(1.25)),
+        ("Shorter tracks", lambda: window.playlist.zoom_height(0.8)),
+        ("Fit song", lambda: window.playlist.fit_song()),
+        ("Reset time and height", lambda: window.playlist.reset_zoom()),
+    ):
+        zoom_menu.addAction(text, callback)
+    window.track_zoom_button.setMenu(zoom_menu)
+    tl.addWidget(window.track_zoom_button)
 
     tl.addStretch(1)
     window.btn_song_loop = QPushButton("⟳ SONG LOOP")

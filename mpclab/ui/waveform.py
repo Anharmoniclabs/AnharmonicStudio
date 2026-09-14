@@ -8,8 +8,9 @@ a cut by one millisecond with a mouse is nobody's idea of a good time.
 
 from __future__ import annotations
 
+import math
 import numpy as np
-from PySide6.QtCore import Qt, QRectF, Signal, QPointF, QMimeData, QPoint
+from PySide6.QtCore import Qt, QRectF, Signal, QPointF, QMimeData, QPoint, QEvent
 from PySide6.QtGui import (
     QPainter,
     QPen,
@@ -119,6 +120,7 @@ class WaveformView(QWidget):
     selectionFinished = Signal(float, float)
     viewChanged = Signal()
     cutCursorChanged = Signal(float)
+    amplitudeChanged = Signal(float)
     playRequested = Signal()  # Enter / double-click on the ruler
     sendRangeRequested = Signal()  # Ctrl+Enter while the waveform owns focus
     mapRangeRequested = Signal()  # Ctrl+Shift+Enter while the waveform owns focus
@@ -150,7 +152,7 @@ class WaveformView(QWidget):
         self.selection_start = 0.0
         self.selection_end = 0.0
         self.snap_mode = "zero crossing"
-        self.amp_zoom = 1.0  # vertical zoom, ctrl+wheel
+        self.amp_zoom = 1.0  # display amplitude, Alt+wheel
         self._hover_x: float | None = None
         self._drag_marker = -1
         self.cut_mode = False
@@ -194,7 +196,7 @@ class WaveformView(QWidget):
 
     # ── geometry ─────────────────────────────────────────────
     def _span(self) -> float:
-        return max(1e-9, self.view_b - self.view_a)
+        return max(1e-15, self.view_b - self.view_a)
 
     def wave_rect(self) -> QRectF:
         """The area the waveform itself occupies, below the ruler."""
@@ -293,7 +295,7 @@ class WaveformView(QWidget):
             return
         span = self._span()
         centre = focus if focus is not None else self.view_a + span / 2
-        new_span = min(1.0, max(0.0002, span * factor))
+        new_span = min(1.0, max(self.minimum_span(), span * factor))
         a = min(max(0.0, centre - (centre - self.view_a) * (new_span / span)), 1.0 - new_span)
         self.view_a, self.view_b = a, a + new_span
         self.viewChanged.emit()
@@ -320,13 +322,14 @@ class WaveformView(QWidget):
             return
         a = self.selection_start / self.duration
         b = self.selection_end / self.duration
-        pad = max(0.0001, (b - a) * max(0.0, padding))
+        minimum = self.minimum_span()
+        pad = (b - a) * max(0.0, padding)
         a, b = max(0.0, a - pad), min(1.0, b + pad)
-        if b - a < 0.0002:
+        if b - a < minimum:
             centre = (a + b) / 2
-            a = max(0.0, centre - 0.0001)
-            b = min(1.0, a + 0.0002)
-            a = max(0.0, b - 0.0002)
+            a = max(0.0, centre - minimum / 2)
+            b = min(1.0, a + minimum)
+            a = max(0.0, b - minimum)
         self.view_a, self.view_b = a, b
         self.viewChanged.emit()
         self.update()
@@ -406,22 +409,44 @@ class WaveformView(QWidget):
             self.set_selection(start, start + length)
 
     # ── interaction ──────────────────────────────────────────
+    def minimum_span(self):
+        return 1 / max(1, len(self.audio)) if self.audio is not None else 0.0002
+
+    def set_amplitude(self, value):
+        self.amp_zoom = min(24.0, max(0.25, float(value)))
+        self.amplitudeChanged.emit(self.amp_zoom)
+        self.update()
+
+    def reset_view(self):
+        self.set_amplitude(1.0)
+        self.fit()
+
+    def event(self, ev):
+        if ev.type() == QEvent.NativeGesture and ev.gestureType() == Qt.ZoomNativeGesture:
+            focus = self.view_a + ev.position().x() / max(1, self.width()) * self._span()
+            self.zoom_by(math.exp(-ev.value()), focus)
+            ev.accept()
+            return True
+        return super().event(ev)
+
     def wheelEvent(self, ev):
         if self.duration <= 0:
+            ev.ignore()
             return
-        delta = ev.angleDelta().y()
-        mods = ev.modifiers()
-        if mods & Qt.ControlModifier:
-            # Vertical zoom, as in every audio editor: makes a quiet passage
-            # readable without touching the time axis.
-            self.amp_zoom = float(np.clip(self.amp_zoom * (1.25 if delta > 0 else 0.8), 0.25, 24.0))
-            self.update()
-            return
-        if mods & Qt.ShiftModifier:
-            self.pan_by(0.15 * (-1 if delta > 0 else 1))
-            return
-        focus = self.view_a + (ev.position().x() / max(1, self.width())) * self._span()
-        self.zoom_by(0.8 if delta > 0 else 1.25, focus)
+        pixel, angle = ev.pixelDelta(), ev.angleDelta()
+        delta = pixel.y() / 240 if not pixel.isNull() else angle.y() / 540
+        if ev.modifiers() & Qt.AltModifier:
+            if delta:
+                self.set_amplitude(self.amp_zoom * math.exp(delta))
+        elif ev.modifiers() & Qt.ShiftModifier:
+            if delta:
+                self.pan_by(-delta)
+        elif delta:
+            focus = self.view_a + ev.position().x() / max(1, self.width()) * self._span()
+            self.zoom_by(math.exp(-delta), focus)
+        elif pixel.x() or angle.x():
+            self.pan_by(-(pixel.x() / max(1, self.width()) if pixel.x() else angle.x() / 800))
+        ev.accept()
 
     def mousePressEvent(self, ev):
         if self.duration <= 0:

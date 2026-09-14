@@ -187,7 +187,7 @@ SHORTCUTS = (
         "CHOP / EDIT",
         (
             ("wheel", "zoom around the pointer"),
-            ("Shift+wheel", "scroll · Ctrl+wheel makes the wave taller"),
+            ("Shift+wheel", "scroll · Alt+wheel makes the wave taller"),
             ("+  ·  -", "zoom in / out"),
             ("Z  ·  0", "zoom to the range / fit the whole sample"),
             ("←  →", "nudge the range end · Alt moves the whole range"),

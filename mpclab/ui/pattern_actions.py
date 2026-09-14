@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QInputDialog
 
 from ..model import Pattern, Clip, Row, uid, remap_step_lane
 from ..workflow import pattern_arrangement_target
-from .playlist import ROW_H, RULER_H
+from .playlist import RULER_H
 
 
 class PatternActionsMixin:
@@ -183,9 +183,9 @@ class PatternActionsMixin:
         self.playlist.setFocus(Qt.OtherFocusReason)
         self.song_scroll.ensureVisible(
             int(self.playlist.beat_to_x(start) + 20),
-            int(RULER_H + (row_index + 0.5) * ROW_H),
+            int(RULER_H + (row_index + 0.5) * self.playlist.row_height),
             40,
-            ROW_H,
+            int(self.playlist.row_height),
         )
         self.status.showMessage(
             f"{pattern.name} added to {self.project.rows[row_index].name} "

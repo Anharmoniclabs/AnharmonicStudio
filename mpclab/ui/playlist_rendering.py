@@ -9,7 +9,7 @@ from PySide6.QtGui import QColor, QPainter, QPen, QFont, QFontMetrics, QPolygonF
 from ..model import Clip
 from .theme import q, TRACK_COLORS, is_light
 from .waveform import draw_peaks
-from .playlist_geometry import HEAD_W, ROW_H, RULER_H
+from .playlist_geometry import HEAD_W, RULER_H
 
 
 def paintEvent(owner, ev):
@@ -53,31 +53,31 @@ def paintEvent(owner, ev):
     # lanes
     any_row_solo = any(row.solo for row in owner.rows())
     for i, row in enumerate(owner.rows()):
-        y = RULER_H + i * ROW_H
+        y = RULER_H + i * owner.row_height
         row_disabled = row.mute or (any_row_solo and not row.solo)
         if owner._drop_target and owner._drop_target[0] == i:
-            p.fillRect(QRectF(HEAD_W, y, w - HEAD_W, ROW_H), q("accent", 32))
+            p.fillRect(QRectF(HEAD_W, y, w - HEAD_W, owner.row_height), q("accent", 32))
         if i % 2:
-            p.fillRect(QRectF(HEAD_W, y, w - HEAD_W, ROW_H), q("fg", 8))
+            p.fillRect(QRectF(HEAD_W, y, w - HEAD_W, owner.row_height), q("fg", 8))
         if row_disabled:
-            p.fillRect(QRectF(HEAD_W, y, w - HEAD_W, ROW_H), q("rec", 22))
+            p.fillRect(QRectF(HEAD_W, y, w - HEAD_W, owner.row_height), q("rec", 22))
         p.setPen(QPen(q("fg", 30)))
-        p.drawLine(0, int(y + ROW_H), w, int(y + ROW_H))
+        p.drawLine(0, int(y + owner.row_height), w, int(y + owner.row_height))
 
         # header
-        p.fillRect(QRectF(0, y, HEAD_W, ROW_H), q("bg2"))
+        p.fillRect(QRectF(0, y, HEAD_W, owner.row_height), q("bg2"))
         track_color = row.color or TRACK_COLORS[i % len(TRACK_COLORS)]
-        p.fillRect(QRectF(4, y, HEAD_W - 4, ROW_H), q(track_color, 24))
-        p.fillRect(QRectF(0, y, 4, ROW_H), q(track_color))
+        p.fillRect(QRectF(4, y, HEAD_W - 4, owner.row_height), q(track_color, 24))
+        p.fillRect(QRectF(0, y, 4, owner.row_height), q(track_color))
         p.setPen(q("dim") if row_disabled else q("fg"))
         p.drawText(
-            QRectF(10, y + 3, HEAD_W - 82, ROW_H / 2),
+            QRectF(10, y + 3, HEAD_W - 82, owner.row_height / 2),
             Qt.AlignLeft | Qt.AlignVCenter,
             fm.elidedText(row.name, Qt.ElideRight, HEAD_W - 88),
         )
         p.setPen(q("rec") if row.mute else q("dim2"))
         p.drawText(
-            QRectF(10, y + ROW_H / 2, HEAD_W - 62, ROW_H / 2 - 4),
+            QRectF(10, y + owner.row_height / 2, HEAD_W - 62, owner.row_height / 2 - 4),
             Qt.AlignLeft | Qt.AlignVCenter,
             "MUTED" if row.mute else f"{len(row.clips)} clips",
         )
@@ -86,7 +86,7 @@ def paintEvent(owner, ev):
         if armed:
             p.setPen(q("rec"))
             p.drawText(
-                QRectF(10, y + ROW_H / 2, HEAD_W - 82, ROW_H / 2 - 4),
+                QRectF(10, y + owner.row_height / 2, HEAD_W - 82, owner.row_height / 2 - 4),
                 Qt.AlignRight | Qt.AlignVCenter,
                 "REC" if capture.active else "ARMED",
             )
@@ -109,12 +109,14 @@ def paintEvent(owner, ev):
             p.drawText(br, Qt.AlignCenter, label)
 
         for clip in row.clips:
-            owner._draw_clip(p, clip, y + 3, ROW_H - 7, row_disabled or clip.mute, track_color)
+            owner._draw_clip(
+                p, clip, y + 3, owner.row_height - 7, row_disabled or clip.mute, track_color
+            )
 
         if capture and capture.active and capture.target.id == row.id:
             left = owner.beat_to_x(capture.start_beat)
             right = owner.beat_to_x(max(capture.start_beat, owner.app.engine.beat))
-            recording = QRectF(left, y + 3, max(4, right - left), ROW_H - 7)
+            recording = QRectF(left, y + 3, max(4, right - left), owner.row_height - 7)
             p.fillRect(recording, q("rec", 42))
             p.setPen(QPen(q("rec"), 1))
             p.drawRect(recording)
@@ -122,8 +124,8 @@ def paintEvent(owner, ev):
             p.setClipRect(recording)
             for beat, peak in capture.peaks:
                 x = owner.beat_to_x(beat)
-                mid = y + ROW_H * 0.65
-                amplitude = peak * ROW_H * 0.25
+                mid = y + owner.row_height * 0.65
+                amplitude = peak * owner.row_height * 0.25
                 p.drawLine(QPointF(x, mid - amplitude), QPointF(x, mid + amplitude))
             p.drawText(
                 recording.adjusted(6, 1, -2, -2),

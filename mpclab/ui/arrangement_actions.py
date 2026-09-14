@@ -20,7 +20,7 @@ from ..model import (
     uid,
 )
 from .. import separate
-from .playlist import ROW_H, RULER_H
+from .playlist import RULER_H
 
 
 def set_playlist_focus(window, on: bool):
@@ -332,7 +332,7 @@ def add_vocal_track(window):
     window.track_capture.arm(row)
     window.playlist.refresh()
     window.prepare_vocal_recording()
-    window.song_scroll.ensureVisible(0, RULER_H + index * ROW_H)
+    window.song_scroll.ensureVisible(0, int(RULER_H + index * window.playlist.row_height))
 
 
 def open_vocal_clip(window, clip=None):
@@ -352,7 +352,8 @@ def add_song_row(window):
     window.track_controls_button.setChecked(True)
     window.playlist.refresh()
     window.song_scroll.ensureVisible(
-        int(window.playlist.beat_to_x(0)), RULER_H + len(window.project.rows) * ROW_H
+        int(window.playlist.beat_to_x(0)),
+        int(RULER_H + len(window.project.rows) * window.playlist.row_height),
     )
 
 

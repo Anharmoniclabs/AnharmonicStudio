@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import math
 
 from .window_client import WindowClient
 
-from PySide6.QtCore import Qt, QRectF, QSize, QPointF, Signal, QTimer
+from PySide6.QtCore import Qt, QRectF, QSize, QPointF, Signal, QTimer, QEvent
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QWidget, QMenu
 
@@ -39,6 +40,7 @@ class PlaylistView(WindowClient, QWidget):
         super().__init__(parent)
         self.app = app
         self.px_per_beat = 26.0
+        self.row_height = ROW_H
         self.snap = 4.0
         self.place = None  # ("pattern"|"audio", ref)
         self.place_template: Clip | None = None
@@ -66,6 +68,63 @@ class PlaylistView(WindowClient, QWidget):
         self._timer.start(33)
         self._last_beat = -1.0
         self.setFocusPolicy(Qt.StrongFocus)
+
+    def zoom_time(self, factor, position=None):
+        scroll = self.app.song_scroll.horizontalScrollBar()
+        viewport_x = (
+            self.app.song_scroll.viewport().width() / 2
+            if position is None
+            else position.x() - scroll.value()
+        )
+        beat = self.x_to_beat(scroll.value() + viewport_x)
+        self.px_per_beat = min(512, max(0.01, self.px_per_beat * factor))
+        self.refresh()
+        scroll.setValue(round(self.beat_to_x(beat) - viewport_x))
+        self.app.zoom.blockSignals(True)
+        self.app.zoom.setValue(round(self.px_per_beat))
+        self.app.zoom.blockSignals(False)
+
+    def zoom_height(self, factor, position=None):
+        scroll = self.app.song_scroll.verticalScrollBar()
+        viewport_y = (
+            self.app.song_scroll.viewport().height() / 2
+            if position is None
+            else position.y() - scroll.value()
+        )
+        row = (scroll.value() + viewport_y - RULER_H) / self.row_height
+        self.row_height = min(240, max(36, self.row_height * factor))
+        self.refresh()
+        scroll.setValue(round(RULER_H + row * self.row_height - viewport_y))
+
+    def fit_song(self):
+        end = max(4, self.app.project.song_end(), self.app.project.loop_end)
+        desired = max(0.01, (self.app.song_scroll.viewport().width() - HEAD_W - 24) / end)
+        self.zoom_time(desired / self.px_per_beat)
+        self.app.song_scroll.horizontalScrollBar().setValue(0)
+
+    def reset_zoom(self):
+        self.row_height = ROW_H
+        self.zoom_time(26 / self.px_per_beat)
+        self.app.song_scroll.horizontalScrollBar().setValue(0)
+        self.app.song_scroll.verticalScrollBar().setValue(0)
+
+    def event(self, ev):
+        if ev.type() == QEvent.NativeGesture and ev.gestureType() == Qt.ZoomNativeGesture:
+            self.zoom_time(math.exp(ev.value()), ev.position())
+            ev.accept()
+            return True
+        return super().event(ev)
+
+    def wheelEvent(self, ev):
+        if ev.modifiers() & (Qt.ControlModifier | Qt.AltModifier):
+            pixel = ev.pixelDelta()
+            delta = pixel.y() / 240 if not pixel.isNull() else ev.angleDelta().y() / 540
+            if delta:
+                method = self.zoom_height if ev.modifiers() & Qt.AltModifier else self.zoom_time
+                method(math.exp(delta), ev.position())
+            ev.accept()
+            return
+        super().wheelEvent(ev)
 
     def update_cursor(self):
         cursors = {
@@ -130,7 +189,7 @@ class PlaylistView(WindowClient, QWidget):
         )
         return QSize(
             int(HEAD_W + length * self.px_per_beat + 40),
-            int(RULER_H + len(self.rows()) * ROW_H + 20),
+            int(RULER_H + len(self.rows()) * self.row_height + 20),
         )
 
     def refresh(self):
@@ -147,7 +206,7 @@ class PlaylistView(WindowClient, QWidget):
     def row_at(self, y: float) -> int:
         if y < RULER_H:
             return -1
-        i = int((y - RULER_H) // ROW_H)
+        i = int((y - RULER_H) // self.row_height)
         return i if 0 <= i < len(self.rows()) else -1
 
     def _snap(self, beat: float) -> float:
@@ -484,13 +543,13 @@ class PlaylistView(WindowClient, QWidget):
             selected = list(self._marquee_selection)
             self._marquee_selection = []
             for ri, row in enumerate(self.rows()):
-                y = RULER_H + ri * ROW_H
+                y = RULER_H + ri * self.row_height
                 for clip in row.clips:
                     cr = QRectF(
                         self.beat_to_x(clip.start_beat),
                         y,
                         clip.length_beats * self.px_per_beat,
-                        ROW_H,
+                        self.row_height,
                     )
                     if rect.intersects(cr) and clip not in selected:
                         selected.append(clip)
