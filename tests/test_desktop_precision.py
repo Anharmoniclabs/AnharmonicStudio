@@ -7,6 +7,7 @@ import pytest
 from PySide6.QtCore import Qt, QPointF
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QComboBox
 
 from mpclab.model import Project
 from mpclab.music import Note
@@ -48,6 +49,8 @@ def test_note_start_zoom_and_triplet_grid_keep_musical_coordinates():
     project = Project()
     app = SimpleNamespace(
         project=project,
+        bars_box=QComboBox(),
+        step_grid=SimpleNamespace(refresh=lambda: None),
         engine=SimpleNamespace(beat=0, playing=False),
         snapshot=lambda: None,
         _set_dirty=lambda dirty: None,
