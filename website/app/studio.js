@@ -412,36 +412,26 @@
     setStatus(item.name + ' assigned to pad ' + padNumber(index));
   }
 
-  const waveformCache = new WeakMap();
   function sampleWindow(buffer) {
     return state.sampleView?.key === selectionKey() ? state.sampleView : { start: 0, end: buffer?.duration || 0 };
   }
   function drawWaveform(canvas, buffer, selection = null) {
     if (!canvas) return;
-    const bounds = canvas.getBoundingClientRect(), ratio = window.devicePixelRatio || 1;
-    canvas.width = Math.max(100, Math.floor(bounds.width * ratio)); canvas.height = Math.max(30, Math.floor(bounds.height * ratio));
+    const bounds = canvas.getBoundingClientRect(), ratio = Math.min(3, window.devicePixelRatio || 1);
+    canvas.width = clamp(Math.floor(bounds.width * ratio), 1, 4096); canvas.height = clamp(Math.floor(bounds.height * ratio), 1, 1024);
     const context = canvas.getContext('2d'), width = canvas.width, height = canvas.height;
     context.clearRect(0, 0, width, height);
     context.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent-ink').trim() || state.accent; context.beginPath();
     const view = canvas.id === 'waveform' ? sampleWindow(buffer) : { start: 0, end: buffer?.duration || 0 };
     if (buffer) {
       const amplitude = canvas.id === 'waveform' ? state.sampleAmplitude : 1;
-      const key = [width, height, view.start, view.end, amplitude, context.strokeStyle].join(':');
-      let cached = waveformCache.get(buffer);
-      if (!cached || cached.key !== key) {
-        const raster = document.createElement('canvas'); raster.width = width; raster.height = height;
-        const pen = raster.getContext('2d'), data = buffer.getChannelData(0);
-        pen.strokeStyle = context.strokeStyle; pen.beginPath();
-        const first = Math.floor(view.start * buffer.sampleRate), length = Math.max(1, Math.ceil((view.end - view.start) * buffer.sampleRate));
-        for (let x = 0; x < width; x++) {
-          let min = 0, max = 0;
-          const from = first + Math.floor(x / width * length), to = Math.min(data.length, first + Math.max(Math.floor((x + 1) / width * length), Math.floor(x / width * length) + 1));
-          for (let index = from; index < to; index++) { min = Math.min(min, data[index]); max = Math.max(max, data[index]); }
-          pen.moveTo(x, height / 2 + min * height * .46 * amplitude); pen.lineTo(x, height / 2 + max * height * .46 * amplitude);
-        }
-        pen.stroke(); cached = { key, raster }; waveformCache.set(buffer, cached);
+      const shape = AnharmonicWaveform.envelope(buffer, { offset: view.start,
+        sourceLength: view.end - view.start, duration: view.end - view.start }, width);
+      for (let x = 0; x < width; x++) {
+        context.moveTo(x, height / 2 - clamp(shape.high[x] * amplitude, -1, 1) * height * .46);
+        context.lineTo(x, height / 2 - clamp(shape.low[x] * amplitude, -1, 1) * height * .46);
       }
-      context.drawImage(cached.raster, 0, 0);
+      context.stroke();
     } else { context.moveTo(0, height / 2); context.lineTo(width, height / 2); context.stroke(); }
     if (buffer && selection) {
       const start = width * (selection.start - view.start) / (view.end - view.start), end = width * (selection.end - view.start) / (view.end - view.start);
@@ -511,6 +501,29 @@
     }));
     renderSong(); setStatus((media ? media.name : projectStore.pattern.name) + ' added to song.');
   }
+  let songWaveFrame = null;
+  function drawSongWaveforms() {
+    const timeline = $('.timeline'); if (!timeline) return;
+    const viewport = timeline.getBoundingClientRect(), project = projectStore.project;
+    const clips = new Map(project.rows.flatMap(row => row.clips.map(clip => [clip.id, clip])));
+    const color = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim() || '#eeeeee';
+    timeline.querySelectorAll('.clip-waveform').forEach(canvas => {
+      const element = canvas.parentElement, bounds = element.getBoundingClientRect();
+      const left = Math.max(bounds.left, viewport.left), right = Math.min(bounds.right, viewport.right);
+      const clip = clips.get(element.dataset.clip), buffer = clip && state.buffers.get(clip.ref);
+      if (!buffer || right <= left || bounds.bottom <= viewport.top || bounds.top >= viewport.bottom) {
+        canvas.style.display = 'none'; canvas.width = canvas.height = 1; return;
+      }
+      canvas.style.display = 'block'; canvas.style.left = (left - bounds.left) + 'px'; canvas.style.width = (right - left) + 'px';
+      AnharmonicWaveform.draw(canvas, buffer, { offset: clip.offset, sourceLength: clip.source_length,
+        duration: clip.length_beats * 60 / project.bpm, loop: clip.loop, reverse: clip.reverse,
+        start: (left - bounds.left) / bounds.width, end: (right - bounds.left) / bounds.width, color });
+    });
+  }
+  function requestSongWaveforms() {
+    if (songWaveFrame !== null) return;
+    songWaveFrame = requestAnimationFrame(() => { songWaveFrame = null; drawSongWaveforms(); });
+  }
   function renderSong() {
     const oldTimeline = $('.timeline'), oldScroll = oldTimeline ? { left: oldTimeline.scrollLeft, top: oldTimeline.scrollTop } : { left: 0, top: 0 };
     const zoom = state.songZoom;
@@ -532,9 +545,10 @@
         '<button class="row-mute ' + (row.mute ? 'active' : '') + '" data-row-index="' + rowIndex + '" aria-label="Mute ' + escapeHTML(row.name) + '">M</button> ' +
         '<button class="row-solo ' + (row.solo ? 'active' : '') + '" data-row-index="' + rowIndex + '" aria-label="Solo ' + escapeHTML(row.name) + '">S</button> ' +
         '<button class="row-options" data-row-index="' + rowIndex + '" aria-label="Options for ' + escapeHTML(row.name) + '">⋮</button></span></div><div class="track-lane" data-row-index="' + rowIndex + '" style="--grid-unit:' + (zoom * (state.arrangeSnap || .25)) + 'px;min-width:' + width + 'px">' +
-        row.clips.map(clip => '<button class="clip ' + (clip.kind === 'audio' ? 'audio ' : '') + (clip.mute ? 'muted' : '') + '" data-clip="' + escapeHTML(clip.id) + '" data-row-index="' + rowIndex + '" style="left:' + clip.start_beat * zoom + 'px;width:' + Math.max(8, clip.length_beats * zoom) + 'px" title="' + escapeHTML(clipName(clip)) + '">' + escapeHTML(clipName(clip)) + '<i></i></button>').join('') + '</div></div>').join('') +
+        row.clips.map(clip => '<button class="clip ' + (clip.kind === 'audio' ? 'audio ' : '') + (clip.mute ? 'muted' : '') + '" data-clip="' + escapeHTML(clip.id) + '" data-row-index="' + rowIndex + '" style="left:' + clip.start_beat * zoom + 'px;width:' + Math.max(8, clip.length_beats * zoom) + 'px" title="' + escapeHTML(clipName(clip)) + '">' + '<span class="clip-label">' + escapeHTML(clipName(clip)) + '</span>' + (clip.kind === 'audio' ? '<canvas class="clip-waveform" aria-hidden="true"></canvas>' : '') + '<i></i></button>').join('') + '</div></div>').join('') +
       '<p class="empty-timeline">Draw places the selected pattern. Drop library audio onto a row. Select moves clips; the right edge resizes. Right-click opens clip options. Arm a row, then Record to capture a microphone take.</p></div>');
     const timeline = $('.timeline'); timeline.scrollLeft = oldScroll.left; timeline.scrollTop = oldScroll.top;
+    timeline.addEventListener('scroll', requestSongWaveforms, { passive: true }); requestSongWaveforms();
     const zoomSong = (value, clientX = timeline.getBoundingClientRect().left + timeline.clientWidth / 2) => {
       const origin = ($('.track-lane')?.getBoundingClientRect().left ?? timeline.getBoundingClientRect().left + 202) - timeline.getBoundingClientRect().left + timeline.scrollLeft;
       const x = clientX - timeline.getBoundingClientRect().left, beat = Math.max(0, (timeline.scrollLeft + x - origin) / state.songZoom);
@@ -543,7 +557,7 @@
     on('#song-time-zoom', 'change', event => zoomSong(Number(event.target.value) / 100 * 45));
     on('.song-zoom-in', 'click', () => zoomSong(state.songZoom * 1.5));
     on('.song-zoom-out', 'click', () => zoomSong(state.songZoom / 1.5));
-    const resizeTracks = value => { state.songHeight = clamp(value, 42, 180); timeline.style.setProperty('--song-height', state.songHeight + 'px'); $('#song-track-height').value = state.songHeight; };
+    const resizeTracks = value => { state.songHeight = clamp(value, 42, 180); timeline.style.setProperty('--song-height', state.songHeight + 'px'); $('#song-track-height').value = state.songHeight; requestSongWaveforms(); };
     on('#song-track-height', 'input', event => resizeTracks(event.target.value));
     on('.song-view-reset', 'click', () => { state.songHeight = 58; state.songZoom = 45; renderSong(); $('.timeline').scrollLeft = 0; });
     let wheelFrame = null, pendingWheel = null;
@@ -785,7 +799,7 @@
         const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientWidth : 1;
         const kind = event.altKey ? 'amplitude' : !event.ctrlKey && (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) ? 'pan' : 'time';
         const delta = (kind === 'pan' ? (event.deltaX || event.deltaY) : event.deltaY) * unit;
-        pendingWheel = { kind, delta: delta + (pendingWheel?.kind === kind ? pendingWheel.delta : 0), fraction: clamp((event.clientX - canvas.getBoundingClientRect().left) / canvas.clientWidth, 0, 1) };
+        pendingWheel = { kind, delta: delta + (pendingWheel?.kind === kind ? pendingWheel.delta : 0), fraction: clamp((event.clientX - canvas.getBoundingClientRect().left) / canvas.getBoundingClientRect().width, 0, 1) };
         if (wheelFrame !== null) return;
         wheelFrame = requestAnimationFrame(() => {
           wheelFrame = null; const change = pendingWheel; pendingWheel = null; if (!canvas.isConnected) return;
@@ -1082,6 +1096,7 @@
     $('#master-volume').value = project.master * 100; $('#master-value').textContent = Math.round(project.master * 100) + '%';
   }
   function applyTheme() {
+    requestSongWaveforms();
     document.documentElement.dataset.theme = state.theme;
     document.documentElement.style.setProperty('--accent', state.accent);
     document.documentElement.style.setProperty('--accent2', state.accent);
@@ -1102,6 +1117,7 @@
     if (state.workspace === 'sampler') drawWaveform($('#waveform'), padBuffer(), currentSelection());
   }
   function updatePanels() {
+    requestSongWaveforms();
     const mobile = window.matchMedia('(max-width:760px)').matches;
     if (mobile && state.mobileLayout === false) state.browserOpen = state.padsOpen = false;
     state.mobileLayout = mobile;
@@ -1221,8 +1237,9 @@
   };
   let lastSpaceTap = -Infinity, spaceTransport = Promise.resolve();
   window.addEventListener('keydown', act(async event => {
+    if (event.code !== 'Space' || typing(event.target) || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) lastSpaceTap = -Infinity;
     if (state.loading) return;
-    if (typing(event.target) || event.altKey) return;
+    if (typing(event.target) || event.altKey || (event.code === 'Space' && event.shiftKey)) return;
     const modifier = event.ctrlKey || event.metaKey;
     if (modifier && event.key.toLowerCase() === 's') { event.preventDefault(); await saveProject(); return; }
     if (modifier && event.key.toLowerCase() === 'z') { event.preventDefault(); event.shiftKey ? projectStore.redo() : projectStore.undo(); syncControls(); renderAll(); return; }
@@ -1275,7 +1292,7 @@
   });
   window.addEventListener('blur', () => { lastSpaceTap = -Infinity; state.heldPads.forEach(value => typeof value === 'string' && value.startsWith('note:') ? state.engine?.releaseNote(Number(value.slice(5))) : releasePad(value)); state.heldPads.clear(); state.heldSynth.forEach(note => state.engine?.releaseNote(note)); state.heldSynth.clear(); stopArp(); });
   window.addEventListener('beforeunload', event => { if (state.dirty || state.recording || state.recordPending || state.loading || state.recoveryRecording) { event.preventDefault(); event.returnValue = ''; } });
-  window.addEventListener('resize', () => { updatePanels(); syncInspector(); if (state.workspace === 'sampler') drawWaveform($('#waveform'), padBuffer(), currentSelection()); });
+  window.addEventListener('resize', () => { requestSongWaveforms(); updatePanels(); syncInspector(); if (state.workspace === 'sampler') drawWaveform($('#waveform'), padBuffer(), currentSelection()); });
   setInterval(() => {
     const meter = state.engine?.meter(), peak = Math.min(1, Number(meter?.peak) || 0);
     $$('.track-meter').forEach(element => element.value = Math.min(1, meter?.tracks?.[Number(element.dataset.track)]?.peak || 0));
