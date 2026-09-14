@@ -73,6 +73,7 @@ class TypingKeyboardWindow(WindowClient, QDialog):
         self.resize(900, 310)
         self._held_keys: dict[int, int] = {}
         self._sustained: set[int] = set()
+        self._note_destinations = {}
         self._syncing = False
 
         outer = QVBoxLayout(self)
@@ -153,10 +154,14 @@ class TypingKeyboardWindow(WindowClient, QDialog):
         index = self.patch.findText(self.app.project.synth.name)
         self.patch.setCurrentIndex(index)
         self.keyboard.update()
-        sample = getattr(self.app.piano_roll, "target_pad", None)
+        sample = (
+            None
+            if self.app.studio.selected == self.app.TAB_SYNTH
+            else getattr(self.app.piano_roll, "target_pad", None)
+        )
         self.patch.setEnabled(sample is None)
         self.patch.setToolTip(
-            "Sound follows the selected Notes channel; select Synth there for presets"
+            "In Instruments, keys play the selected instrument/VST. In Notes, keys follow its Sound selector."
         )
         self._syncing = False
 
@@ -183,7 +188,22 @@ class TypingKeyboardWindow(WindowClient, QDialog):
         self._held_keys[key] = note
         self._sustained.discard(note)
         if not already_held:
-            self.app.play_selected_note(note, velocity)
+            if note in self._note_destinations:
+                self._release_destination(note)
+            if self.app.studio.selected == self.app.TAB_SYNTH:
+                instrument = self.app.project.selected_instrument
+                self._note_destinations[note] = ("instrument", instrument)
+                self.app.play_synth_note(note, velocity, instrument_id=instrument)
+            else:
+                self._note_destinations[note] = ("notes", None)
+                self.app.play_selected_note(note, velocity)
+
+    def _release_destination(self, note):
+        destination, instrument = self._note_destinations.pop(note, ("notes", None))
+        if destination == "instrument":
+            self.app.release_synth_note(note, instrument_id=instrument)
+        else:
+            self.app.release_selected_note(note)
 
     def _note_off(self, key: int) -> None:
         note = self._held_keys.pop(key, None)
@@ -192,7 +212,7 @@ class TypingKeyboardWindow(WindowClient, QDialog):
         if self.sustain.isChecked():
             self._sustained.add(note)
         else:
-            self.app.release_selected_note(note)
+            self._release_destination(note)
 
     def _mouse_note_on(self, note: int, velocity: float) -> None:
         # Negative keys cannot collide with physical Qt key codes.
@@ -207,7 +227,7 @@ class TypingKeyboardWindow(WindowClient, QDialog):
         still_held = set(self._held_keys.values())
         for note in tuple(self._sustained):
             if note not in still_held:
-                self.app.release_selected_note(note)
+                self._release_destination(note)
         self._sustained.clear()
 
     @staticmethod
@@ -295,6 +315,10 @@ class TypingKeyboardWindow(WindowClient, QDialog):
 
     def panic(self, *, send: bool = True) -> None:
         """Release local state; optionally ask the engine to kill all notes."""
+        if send:
+            for note in tuple(self._note_destinations):
+                self._release_destination(note)
+        self._note_destinations.clear()
         self._held_keys.clear()
         self._sustained.clear()
         self.keyboard.active.clear()

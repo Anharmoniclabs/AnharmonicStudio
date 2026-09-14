@@ -509,6 +509,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self._autosave_timer.start(15000)
         self.devices = DevicesController(self)
         self.devices.changed.connect(self.synth_panel.sync_plugin_mode)
+        self.devices.changed.connect(self.piano_roll.sync_channels)
         self.synth_panel.sync_plugin_mode()
 
     # ── construction ─────────────────────────────────────────

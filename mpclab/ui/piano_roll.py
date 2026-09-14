@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 import math
+from pathlib import Path
 
 from .window_client import WindowClient
 
@@ -859,7 +860,14 @@ class PianoRollPanel(WindowClient, QWidget):
         referenced = {n.pad for p in project.patterns for n in p.notes if n.pad is not None}
         self.channel.blockSignals(True)
         self.channel.clear()
-        self.channel.addItem(f"Synth · {project.synth.name}", None)
+        plugin = project.plugins.get("instrument", {})
+        external = getattr(getattr(self.app.engine, "external", None), "instrument", None)
+        instrument_name = (
+            f"VST · {Path(plugin.get('path', '')).stem or 'External instrument'}"
+            if external is not None
+            else f"Synth · {project.synth.name}"
+        )
+        self.channel.addItem(instrument_name, None)
         for instrument in project.instruments:
             self.channel.addItem(f"{instrument.name} · {instrument.patch.name}", instrument.id)
         for index, pad in enumerate(project.pads):
