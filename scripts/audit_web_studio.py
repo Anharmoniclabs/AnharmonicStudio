@@ -721,6 +721,53 @@ def main():
                 )
                 fresh.close()
 
+                mobile_context = browser.new_context(
+                    viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True
+                )
+                mobile = mobile_context.new_page()
+                mobile.on("pageerror", lambda error: report["browser_errors"].append(str(error)))
+                mobile.goto(url)
+                mobile.wait_for_selector("#pad-grid .pad", state="attached")
+                toggle = mobile.locator("#no-overlap")
+                check(
+                    "mobile_no_overlap_defaults_on", toggle.get_attribute("aria-pressed") == "true"
+                )
+                bounds = toggle.bounding_box()
+                check(
+                    "mobile_no_overlap_visible_without_scrolling",
+                    bounds["x"] >= 0
+                    and bounds["x"] + bounds["width"] <= 390
+                    and bounds["height"] >= 40,
+                )
+                mobile.evaluate("""() => {
+                    const original = AnharmonicAudio.AudioEngine.prototype.resume;
+                    AnharmonicAudio.AudioEngine.prototype.resume = function(...args) {
+                        window.mobileEngine = this; return original.apply(this, args);
+                    };
+                }""")
+                mobile.locator('[data-workspace="instruments"]').tap()
+                mobile.locator(".synth-preview").tap()
+                mobile.wait_for_function("window.mobileEngine?.voices.size > 0")
+                check(
+                    "mobile_toggle_reaches_audio_engine",
+                    mobile.evaluate("mobileEngine.singleTrigger"),
+                )
+                toggle.tap()
+                check(
+                    "mobile_overlap_can_be_enabled",
+                    mobile.evaluate("!mobileEngine.singleTrigger")
+                    and toggle.get_attribute("aria-pressed") == "false",
+                )
+                mobile.reload()
+                mobile.wait_for_selector("#pad-grid .pad", state="attached")
+                check(
+                    "mobile_overlap_preference_survives_reload",
+                    toggle.get_attribute("aria-pressed") == "false",
+                )
+                toggle.tap()
+                mobile.screenshot(path=str(args.output / "mobile-no-overlap.png"), full_page=True)
+                mobile_context.close()
+
                 # Corrupt local storage must be preserved, never silently removed.
                 recovery = browser.new_context()
                 recovery_page = recovery.new_page()

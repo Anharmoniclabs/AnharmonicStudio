@@ -16,6 +16,7 @@
     generation: 0, revision: 0, loading: false, saving: false, dirty: false, corruptSaved: null, recording: null, recordPending: false,
     arrangeTool: 'select', arrangeSnap: 1, loadedOnly: false, follow: false,
     notePad: null, noteRoot: 60, noteMono: false, sampleSnap: 0,
+    noOverlap: window.matchMedia('(max-width:760px), (pointer:coarse)').matches,
     heldPads: new Map(), heldSynth: new Set(), arpTimer: null, arpIndex: 0,
     browserOpen: true, padsOpen: true, focused: false, metronome: false, theme: 'dark', accent: '#d6ab65'
   };
@@ -149,8 +150,10 @@
         }
         const playhead = $('#song-playhead'); if (playhead) playhead.style.left = (190 + position.beat * 45) + 'px';
       },
-      onError: report
+      onError: report,
+      onLiveTrigger: () => { state.previewSource?.stop(); state.previewSource = null; }
     });
+    state.engine.setSingleTrigger(state.noOverlap);
     await state.engine.resume();
     $('.audio-ready').textContent = 'AUDIO ACTIVE';
     const generation = state.generation;
@@ -176,6 +179,18 @@
     pad?.classList.add('hit'); setTimeout(() => pad?.classList.remove('hit'), 100);
   }
   function releasePad(index) { state.engine?.releasePad(index); }
+  function syncNoOverlap() {
+    const control = $('#no-overlap');
+    control.textContent = 'NO OVERLAP: ' + (state.noOverlap ? 'ON' : 'OFF');
+    control.setAttribute('aria-pressed', String(state.noOverlap));
+  }
+  on('#no-overlap', 'click', () => {
+    state.noOverlap = !state.noOverlap;
+    state.engine?.setSingleTrigger(state.noOverlap);
+    try { localStorage.setItem('anharmonic-no-overlap', String(state.noOverlap)); } catch { /* Session setting still works without storage. */ }
+    syncNoOverlap();
+    setStatus(state.noOverlap ? 'No overlap: each tap replaces the previous sample or note.' : 'Overlap enabled: samples and notes can layer.');
+  });
   function stopPlayback() {
     state.engine?.stop(); state.playing = false; state.step = -1; state.beat = 0;
     stopArp(); state.heldSynth.forEach(note => state.engine?.releaseNote(note)); state.heldSynth.clear();
@@ -361,7 +376,7 @@
       const details = document.createElement('span'), name = document.createElement('strong'), meta = document.createElement('small');
       name.textContent = item.name; meta.textContent = (Number(item.duration) || 0).toFixed(2) + ' s · ' + (state.buffers.has(item.id) || state.media.has(item.id) ? 'Audio available' : 'Load to check audio');
       details.append(name, meta); sound.append(icon, details);
-      sound.addEventListener('click', act(async () => { state.selectedMedia = item.id; $$('#sound-tree .sound[data-media-id]').forEach(element => element.classList.toggle('selected', element.dataset.mediaId === item.id)); $('#use-sound').disabled = $('#download-sound').disabled = false; const engine = await ensureAudio(); const buffer = state.buffers.get(item.id); if (!engine || !buffer) throw new Error('This sound is missing. Reimport its original file.'); state.previewSource?.stop(); const source = engine.context.createBufferSource(); source.buffer = buffer; source.connect(engine.graph.master); source.start(); state.previewSource = source; source.onended = () => { source.disconnect(); if (state.previewSource === source) state.previewSource = null; }; }));
+      sound.addEventListener('click', act(async () => { state.selectedMedia = item.id; $$('#sound-tree .sound[data-media-id]').forEach(element => element.classList.toggle('selected', element.dataset.mediaId === item.id)); $('#use-sound').disabled = $('#download-sound').disabled = false; const engine = await ensureAudio(); const buffer = state.buffers.get(item.id); if (!engine || !buffer) throw new Error('This sound is missing. Reimport its original file.'); engine.beginLiveTrigger(); state.previewSource?.stop(); const source = engine.context.createBufferSource(); source.buffer = buffer; source.connect(engine.graph.master); source.start(); state.previewSource = source; source.onended = () => { source.disconnect(); if (state.previewSource === source) state.previewSource = null; }; }));
       sound.addEventListener('dblclick', act(() => assignMedia(item.id, state.selectedPad)));
       sound.addEventListener('dragstart', event => { event.dataTransfer.setData('application/x-anharmonic-media', item.id); event.dataTransfer.effectAllowed = 'copy'; });
       tree.append(sound);
@@ -1111,6 +1126,8 @@
   }, 80);
 
   try {
+    const noOverlap = localStorage.getItem('anharmonic-no-overlap');
+    if (noOverlap !== null) state.noOverlap = noOverlap === 'true';
     state.theme = localStorage.getItem('anharmonic-theme') === 'light' ? 'light' : 'dark';
     const accent = localStorage.getItem('anharmonic-accent'); if (/^#[0-9a-f]{6}$/i.test(accent || '')) state.accent = accent;
     const saved = localStorage.getItem(storageKey);
@@ -1121,5 +1138,5 @@
   } catch { setStatus('Browser storage is unavailable. Download Project + audio to keep your work.'); }
   state.dirty = false;
   if (window.matchMedia('(max-width:760px)').matches) state.browserOpen = state.padsOpen = false;
-  syncControls(); renderAll(); applyTheme(); updatePanels();
+  syncNoOverlap(); syncControls(); renderAll(); applyTheme(); updatePanels();
 })();

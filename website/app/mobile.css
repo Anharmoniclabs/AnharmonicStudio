@@ -115,3 +115,6 @@
     min-height: 240px;
   }
 }
+
+#no-overlap { white-space: nowrap; min-height: 40px; }
+#no-overlap[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #111; }

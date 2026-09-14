@@ -252,9 +252,10 @@
   }
 
   class AudioEngine {
-    constructor({ getProject, getBuffer, onPosition = () => {}, onError = () => {} }) {
+    constructor({ getProject, getBuffer, onPosition = () => {}, onError = () => {}, onLiveTrigger = () => {} }) {
       if (typeof getProject !== 'function' || typeof getBuffer !== 'function') throw new Error('Audio engine requires project and sample accessors.');
       this.getProject = getProject; this.getBuffer = getBuffer; this.onPosition = onPosition; this.onError = onError;
+      this.singleTrigger = false; this.onLiveTrigger = onLiveTrigger;
       this.context = null; this.graph = null; this.playing = false; this.paused = false; this.pausedBeat = 0; this.mode = 'pattern'; this.timer = null;
       this.voices = new Set(); this.retiringVoices = new Set(); this.reverseBuffers = new WeakMap(); this.loopBuffers = new WeakMap(); this.noiseBuffers = new WeakMap(); this.metronome = false; this.rendering = false;
       this.preparedBudget = null;
@@ -431,9 +432,9 @@
           if (nextEnd <= at) { voice.stop(at, true); return; }
           gain.gain.cancelAndHoldAtTime(at); gain.gain.setValueAtTime(level, Math.max(at, nextEnd - release)); gain.gain.linearRampToValueAtTime(0, nextEnd); source.stop(nextEnd); voice.end = nextEnd;
         },
-        stop: (time = context.currentTime, immediate = false) => {
+        stop: (time = context.currentTime, immediate = false, maxRelease = Infinity) => {
           const at = Math.max(context.currentTime, finite(time)); if (at >= voice.end) return;
-          const fade = immediate || at < when ? 0 : Math.min(.02, release, Math.max(0, voice.end - at));
+          const fade = immediate || at < when ? 0 : Math.min(.02, release, maxRelease, Math.max(0, voice.end - at));
           const held = at < when ? 0 : at < when + attack ? level * (at - when) / attack : release && at > voice.end - release ? level * (voice.end - at) / release : level;
           try { gain.gain.cancelAndHoldAtTime(at); gain.gain.setValueAtTime(held, at); if (fade) gain.gain.linearRampToValueAtTime(0, at + fade); else gain.gain.setValueAtTime(0, at); source.stop(at + fade); } catch { /* source already ended */ }
           voice.end = Math.min(voice.end, at + fade); if (voice.end <= context.currentTime) pool.delete(voice);
@@ -462,7 +463,25 @@
 
     triggerPad(index, opts = {}) {
       if (!this.context) throw new Error('Start audio before triggering a pad.');
-      this.sync(); return this.padVoice(index, opts, this.context, this.graph, this.voices);
+      this.sync(); this.beginLiveTrigger();
+      const voice = this.padVoice(index, opts, this.context, this.graph, this.voices);
+      if (voice) voice.live = true;
+      return voice;
+    }
+    setSingleTrigger(enabled) {
+      const changed = this.singleTrigger !== Boolean(enabled);
+      this.singleTrigger = Boolean(enabled);
+      if (changed && this.singleTrigger) this.beginLiveTrigger();
+    }
+    beginLiveTrigger() {
+      if (!this.singleTrigger) return;
+      this.onLiveTrigger();
+      const time = this.context?.currentTime || 0;
+      // Only manual previews participate. Scheduled song/pattern voices and
+      // offline exports retain their intended polyphony.
+      for (const voice of [...this.voices, ...this.retiringVoices]) {
+        if (voice.live) voice.stop(time, false, .005);
+      }
     }
     releasePad(index) { for (const voice of [...this.voices, ...this.retiringVoices]) if (voice.pad === index && voice.gate) voice.stop(); }
 
@@ -515,9 +534,9 @@
           gain.gain.cancelAndHoldAtTime(at); gain.gain.setValueAtTime(sustainLevel, time); gain.gain.linearRampToValueAtTime(0, time + release);
           sources.forEach(source => source.stop(time + release)); voice.end = time + release;
         },
-        stop: (time = context.currentTime, immediate = false) => {
+        stop: (time = context.currentTime, immediate = false, maxRelease = Infinity) => {
           const at = Math.max(context.currentTime, finite(time)); if (at >= voice.end) return;
-          const fade = immediate || at < when ? 0 : Math.min(release, Math.max(0, voice.end - at));
+          const fade = immediate || at < when ? 0 : Math.min(release, maxRelease, Math.max(0, voice.end - at));
           const age = at - when;
           const held = age < 0 ? 0 : age < attack ? level * age / attack : age < decayEnd ? level + (sustainLevel - level) * (age - attack) / (decayEnd - attack) : at > voice.end - release ? sustainLevel * (voice.end - at) / release : sustainLevel;
           try { gain.gain.cancelAndHoldAtTime(at); gain.gain.setValueAtTime(held, at); if (fade) gain.gain.linearRampToValueAtTime(0, at + fade); else gain.gain.setValueAtTime(0, at); sources.forEach(source => source.stop(at + fade)); } catch { /* already ended */ }
@@ -532,8 +551,10 @@
 
     triggerNote(pitch, opts = {}) {
       if (!this.context) throw new Error('Start audio before triggering a note.');
-      this.sync();
-      return opts.pad !== null && opts.pad !== undefined ? this.padVoice(opts.pad, { ...opts, pitch }, this.context, this.graph, this.voices) : this.synthVoice(pitch, opts, this.context, this.graph, this.voices);
+      this.sync(); this.beginLiveTrigger();
+      const voice = opts.pad !== null && opts.pad !== undefined ? this.padVoice(opts.pad, { ...opts, pitch }, this.context, this.graph, this.voices) : this.synthVoice(pitch, opts, this.context, this.graph, this.voices);
+      if (voice) voice.live = true;
+      return voice;
     }
     releaseNote(pitch) { for (const voice of [...this.voices, ...this.retiringVoices]) if (voice.pitch === pitch) voice.stop(); }
 
