@@ -9,7 +9,7 @@ const css = fs.readFileSync(path.join(root, 'compatibility.css'), 'utf8');
 
 test('web studio keeps the desktop-processing boundary visible in normal transport UI', () => {
   assert.match(html, /class="engine-boundary"/);
-  assert.match(html, /NO DESKTOP PLUGINS \/ NATIVE DSP/);
+  assert.match(html, /Web audio/);
   assert.match(html, /cannot run native desktop plugins, device routing, or native-only DSP/);
 });
 

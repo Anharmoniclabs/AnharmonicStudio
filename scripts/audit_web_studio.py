@@ -71,7 +71,14 @@ def main():
                 context = browser.new_context(viewport={"width": 1600, "height": 1000})
                 page = context.new_page()
                 page.on("pageerror", lambda error: report["browser_errors"].append(str(error)))
-                page.on("dialog", lambda dialog: dialog.accept())
+                page.on(
+                    "dialog",
+                    lambda dialog: (
+                        dialog.accept("62")
+                        if dialog.type == "prompt" and "Root MIDI" in dialog.message
+                        else dialog.accept()
+                    ),
+                )
                 page.goto(url)
                 page.wait_for_selector("#pad-grid .pad")
                 check("canonical_entry_opens_studio", page.url.endswith("/app/studio.html"))
@@ -133,7 +140,7 @@ def main():
                     window.auditDocument = null; window.auditPads = [];
                     const original = AnharmonicProject.ProjectStore.prototype.notify;
                     AnharmonicProject.ProjectStore.prototype.notify = function(...args) {
-                        window.auditDocument = this.toJSON(); return original.apply(this,args);
+                        window.auditStore = this; window.auditDocument = this.toJSON(); return original.apply(this,args);
                     };
                     const resume = AnharmonicAudio.AudioEngine.prototype.resume;
                     AnharmonicAudio.AudioEngine.prototype.resume = function(...args) {
@@ -270,6 +277,32 @@ def main():
                 check("pattern_selection_restored", model()["selected_pattern"] == 0)
 
                 workspace("sampler")
+                page.locator(".sample-snap").click()
+                page.get_by_role("menuitem", name="BEAT", exact=True).click()
+                page.locator("#sample-start").fill("0.123")
+                page.locator("#sample-start").press("Tab")
+                start = float(page.locator("#sample-start").input_value())
+                sample_rate = int(
+                    page.locator(".sampler-help").inner_text().split(" Hz")[0].split(" · ")[-1]
+                )
+                check("numeric_trim_bypasses_musical_snap", abs(start - 0.123) < 1 / sample_rate)
+                page.locator(".sample-forward").click()
+                check(
+                    "trim_nudges_exactly_one_sample",
+                    abs(
+                        float(page.locator("#sample-start").input_value()) - start - 1 / sample_rate
+                    )
+                    < 0.0000011,
+                )
+                page.locator(".sample-zoom").click()
+                check(
+                    "waveform_zoom_preserves_selection",
+                    abs(
+                        float(page.locator("#sample-start").input_value()) - start - 1 / sample_rate
+                    )
+                    < 0.0000011,
+                )
+                page.locator(".sample-fit").click()
                 page.locator("#sample-start").fill("0.1")
                 page.locator("#sample-start").press("Tab")
                 page.locator("#sample-end").fill("0.3")
@@ -306,17 +339,58 @@ def main():
                 check(
                     "notes_target_selected_sample", model()["patterns"][0]["notes"][-1]["pad"] == 16
                 )
-                page.locator(".note-root").click()
-                page.get_by_role("menuitem", name="D4", exact=True).click()
+                check(
+                    "piano_exposes_all_midi_rows",
+                    page.locator(".keys span").count() == 128
+                    and page.locator(".keys span").first.inner_text() == "G9"
+                    and page.locator(".keys span").last.inner_text() == "C-1",
+                )
+                check(
+                    "piano_has_labeled_beat_ruler",
+                    page.locator(".piano-ruler span").first.inner_text() == "1.1",
+                )
+                page.locator(".note").first.click()
+                page.locator("#note-pitch").fill("0")
+                page.locator("#note-pitch").press("Tab")
+                check(
+                    "numeric_note_pitch_reaches_lowest_midi",
+                    model()["patterns"][0]["notes"][-1]["pitch"] == 0,
+                )
+                page.locator("#note-pitch").fill("127")
+                page.locator("#note-pitch").press("Tab")
+                check(
+                    "numeric_note_pitch_reaches_highest_midi",
+                    model()["patterns"][0]["notes"][-1]["pitch"] == 127,
+                )
+                page.locator("#note-velocity").fill("32")
+                page.locator("#note-velocity").press("Tab")
+                check(
+                    "numeric_note_velocity_persists",
+                    abs(model()["patterns"][0]["notes"][-1]["velocity"] - 32 / 127) < 0.001,
+                )
+                page.locator("#note-division").select_option("16")
+                page.locator("#note-zoom").select_option("140")
+                check(
+                    "piano_fine_grid_and_zoom",
+                    page.locator("#note-grid").evaluate(
+                        "el => el.style.getPropertyValue('--grid-unit')"
+                    )
+                    == "8.75px",
+                )
+                page.locator("#note-division").select_option("4")
+                page.locator("#note-zoom").select_option("70")
+                page.locator(".note-edit-menu").click()
+                page.get_by_role("menuitem", name="Root pitch:", exact=False).click()
                 check("sample_root_persisted", model()["pads"][16]["root_note"] == 62)
-                page.locator(".note-chord").click()
-                page.get_by_role("menuitem", name="D4 Minor", exact=True).click()
+                page.locator(".note-edit-menu").click()
+                page.get_by_role("menuitem", name="Minor chord", exact=True).click()
                 check(
                     "chord_respects_selected_root",
                     sorted(note["pitch"] for note in model()["patterns"][0]["notes"][-3:])
                     == [62, 65, 69],
                 )
-                page.locator(".note-mono").click()
+                page.locator(".note-edit-menu").click()
+                page.get_by_role("menuitem", name="Enable monophonic notes", exact=True).click()
                 check("mono_persisted_for_sample", model()["pads"][16]["mono"])
                 page.locator(".note-action").click()
                 page.get_by_role("menuitem", name="Synthesizer", exact=True).click()
@@ -539,7 +613,8 @@ def main():
                 original_audio.value.save_as(original_path)
                 check("recorded_audio_downloads_for_desktop", original_path.stat().st_size > 44)
                 with page.expect_download() as desktop_export:
-                    page.locator("#export-desktop").click()
+                    page.locator("#project-menu").click()
+                    page.get_by_role("menuitem", name="Export desktop JSON", exact=True).click()
                 desktop_path = args.output / "desktop-project.json"
                 desktop_export.value.save_as(desktop_path)
                 desktop_project = json.loads(desktop_path.read_text())
@@ -562,7 +637,10 @@ def main():
                     == 3,
                 )
                 with page.expect_download() as exported:
-                    page.locator("#export-project").click()
+                    page.locator("#project-menu").click()
+                    page.get_by_role(
+                        "menuitem", name="Download project + audio", exact=True
+                    ).click()
                 portable_path = args.output / "portable-project.json"
                 exported.value.save_as(portable_path)
                 portable = json.loads(portable_path.read_text())
@@ -572,6 +650,19 @@ def main():
                     and len(portable["media"]) == 3
                     and all(item["data"] for item in portable["media"]),
                 )
+                page.evaluate("window.auditStore.setPatternGrid({bars:64,div:8})")
+                workspace("beats")
+                check(
+                    "long_pattern_pages_without_dom_explosion",
+                    page.locator(".step-line button").count() <= 2048
+                    and page.locator(".beats-next").is_enabled(),
+                )
+                page.locator(".beats-next").click()
+                check(
+                    "sequencer_page_uses_absolute_steps",
+                    page.locator(".step-line button").first.get_attribute("data-step") == "128",
+                )
+                page.evaluate("window.auditStore.undo()")
                 page.reload()
                 page.wait_for_selector("#pad-grid .pad")
                 check(
@@ -602,7 +693,8 @@ def main():
                 )
                 second.locator("#playback-mode").select_option("song")
                 with second.expect_download() as rendered:
-                    second.locator("#export-wav").click()
+                    second.locator("#project-menu").click()
+                    second.get_by_role("menuitem", name="Export WAV", exact=True).click()
                 wav_path = args.output / "song.wav"
                 rendered.value.save_as(wav_path)
                 with wave.open(str(wav_path), "rb") as rendered_wav:
@@ -707,7 +799,8 @@ def main():
                 second.screenshot(path=str(args.output / "web-studio-mix.png"), full_page=True)
                 second.set_viewport_size({"width": 390, "height": 844})
                 second.screenshot(path=str(args.output / "web-studio-mobile.png"), full_page=True)
-                second.locator("#help-toggle").click()
+                second.locator("#project-menu").click()
+                second.get_by_role("menuitem", name="Help & shortcuts", exact=True).click()
                 check("mobile_help_remains_accessible", second.locator("#help-dialog").is_visible())
                 second.locator("#help-dialog").get_by_role(
                     "button", name="Close", exact=True
@@ -788,6 +881,35 @@ def main():
                     "retained" in recovery_page.locator("#status").inner_text(),
                 )
                 recovery.close()
+                page.locator("#appearance-toggle").click()
+                page.locator("#accent-picker").evaluate(
+                    "el => { el.value = '#000000'; el.dispatchEvent(new Event('input', {bubbles:true})); }"
+                )
+                check(
+                    "custom_black_accent_keeps_readable_ink",
+                    page.evaluate(
+                        "getComputedStyle(document.documentElement).getPropertyValue('--accent-ink').trim() !== '#000000' && getComputedStyle(document.documentElement).getPropertyValue('--on-accent').trim() === '#ffffff'"
+                    ),
+                )
+                page.locator("#accent-wheel").focus()
+                page.keyboard.press("ArrowRight")
+                check(
+                    "hue_wheel_keyboard_changes_accent",
+                    page.evaluate("localStorage.getItem('anharmonic-accent') !== '#000000'"),
+                )
+                page.locator("#theme-toggle").click()
+                check(
+                    "appearance_light_surface_applies",
+                    page.locator("html").get_attribute("data-theme") == "light",
+                )
+                page.locator("#appearance-reset").click()
+                check(
+                    "blush_reset_persists",
+                    page.evaluate("localStorage.getItem('anharmonic-accent')") == "#c692a4",
+                )
+                page.locator("#appearance-dialog").get_by_role(
+                    "button", name="Done", exact=True
+                ).click()
                 check("no_browser_exceptions", not report["browser_errors"])
             except Exception:
                 report["failure"] = traceback.format_exc()

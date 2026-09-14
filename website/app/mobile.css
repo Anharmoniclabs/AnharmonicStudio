@@ -118,3 +118,7 @@
 
 #no-overlap { white-space: nowrap; min-height: 40px; }
 #no-overlap[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #111; }
+
+/* Preserve contrast for any user-picked accent, including black and white. */
+#no-overlap[aria-pressed="true"]{color:var(--on-accent)}
+@media(max-width:760px){.project-name{width:105px;min-width:105px}.project-actions #undo-project,.project-actions #redo-project{font-size:0;min-width:36px}.project-actions #undo-project::before{content:'↶';font-size:18px}.project-actions #redo-project::before{content:'↷';font-size:18px}}
