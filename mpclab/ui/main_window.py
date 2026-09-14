@@ -147,7 +147,7 @@ SHORTCUTS = (
     (
         "TRANSPORT",
         (
-            ("Space", "play / pause"),
+            ("Space", "play / pause · double-tap to restart from top"),
             ("Esc", "stop, rewind, kill every voice"),
             ("Home", "jump to the start"),
             ("L", "pattern / song mode"),
@@ -1022,6 +1022,12 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     # ── keyboard: pads and transport ─────────────────────────
     def eventFilter(self, watched, event):
+        if event.type() == QEvent.KeyPress and (
+            event.key() != Qt.Key_Space
+            or _is_text_entry(watched)
+            or event.modifiers() != Qt.NoModifier
+        ):
+            self._last_transport_space = None
         # Numeric-keypad pads are a performance surface, not a widget-local
         # shortcut.  A producer may keep focus in the Browser, Arrange,
         # mixer, or an inspector while playing a pattern take.  Capture the
@@ -1061,6 +1067,10 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             event.type() == QEvent.KeyPress
             and event.key() == Qt.Key_Space
             and not event.isAutoRepeat()
+            and event.modifiers() == Qt.NoModifier
+            and isinstance(watched, QWidget)
+            and watched.window() is self
+            and QApplication.activeModalWidget() is None
         ):
             # The custom StepGrid owns Space while it has focus: Space is the
             # standard keyboard toggle for its selected step, not transport.
@@ -1072,7 +1082,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             # active, which would otherwise let Space steal a keystroke out of
             # the project-name field.
             if not _is_text_entry(watched) and not _is_text_entry(QApplication.focusWidget()):
-                self.toggle_play()
+                window_transport.space_transport(self)
                 event.accept()
                 return True
         return super().eventFilter(watched, event)
@@ -1147,7 +1157,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             return
 
         if key == Qt.Key_Space:
-            self.toggle_play()
+            window_transport.space_transport(self)
         elif key == Qt.Key_Escape:
             self.stop_all()
         elif key == Qt.Key_Home:

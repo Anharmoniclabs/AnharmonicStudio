@@ -46,7 +46,7 @@ def _build_transport(window) -> QWidget:
     window.btn_play.setObjectName("play")
     window.btn_play.setCheckable(True)
     window.btn_play.setFixedWidth(38)
-    window.btn_play.setToolTip("Play / pause  (Space)")
+    window.btn_play.setToolTip("Play / pause (Space) · double-tap Space to restart from top")
     window.btn_play.clicked.connect(window.toggle_play)
     window.btn_stop = QPushButton("■")
     window.btn_stop.setFixedWidth(38)

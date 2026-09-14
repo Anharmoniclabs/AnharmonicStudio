@@ -136,6 +136,19 @@ def _cancel_record_count(window):
         window.btn_rec.setChecked(False)
 
 
+def space_transport(window):
+    """Single Space pauses/resumes; two distinct taps restart from beat zero."""
+    now = time.monotonic()
+    previous = getattr(window, "_last_transport_space", None)
+    window._last_transport_space = now
+    if previous is not None and 0 <= now - previous <= 0.35:
+        window._last_transport_space = None
+        window.stop_all()
+        window.engine.play(0.0)
+    else:
+        window.toggle_play()
+
+
 def toggle_play(window):
     if window.track_capture.active:
         window.btn_rec.setChecked(False)
