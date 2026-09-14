@@ -320,6 +320,7 @@
     setPatternGrid({ bars = this.pattern.bars, div = this.pattern.div } = {}) {
       bars = number(bars, this.pattern.bars, 1, 256, true);
       div = number(div, this.pattern.div, 1, 32, true);
+      if (bars === this.pattern.bars && div === this.pattern.div) return;
       this.transact('change pattern grid', document => {
         const pattern = document.patterns[document.selected_pattern];
         const total = bars * 4 * div;
@@ -381,7 +382,10 @@
     assignPad(pad, mediaId, changes = {}) {
       number(pad, 0, 0, PAD_COUNT - 1, true);
       this.transact('assign sample to pad', document => {
-        document.pads[pad] = { ...document.pads[pad], ...changes, sample_id: mediaId };
+        const previous = document.pads[pad];
+        document.pads[pad] = { ...previous, sync_beats: 0,
+          ...(previous.sample_id !== mediaId ? { mode: 'one-shot', reverse: false } : {}),
+          ...changes, sample_id: mediaId };
       });
     }
     setTempo(bpm) { const value = number(bpm, 110, 20, 400); this.transact('change tempo', document => { document.bpm = value; }); }

@@ -259,3 +259,17 @@ test('shortening pattern trims notes and steps; undo restores the entire phrase'
     assert.equal(JSON.stringify(store.toJSON()), before);
   }
 });
+
+test('replacing a synced loop resets source-specific playback settings and can be undone', () => {
+  const store = new ProjectStore();
+  store.assignPad(0, 'old', { start: 1, end: 9, sync_beats: 16, mode: 'loop', reverse: true });
+  store.assignPad(0, 'new', { start: 0, end: .25 });
+  assert.equal(store.project.pads[0].sync_beats, 0);
+  assert.equal(store.project.pads[0].mode, 'one-shot');
+  assert.equal(store.project.pads[0].reverse, false);
+  store.undo(); assert.equal(store.project.pads[0].sync_beats, 16);
+  assert.equal(store.project.pads[0].sample_id, 'old');
+  const history = store.history.length;
+  store.setPatternGrid({ bars: store.pattern.bars, div: store.pattern.div });
+  assert.equal(store.history.length, history);
+});
