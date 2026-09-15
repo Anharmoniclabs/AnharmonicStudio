@@ -6,6 +6,22 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 
 
+def prism_tempo_events(plugin, bpm):
+    """Private NRPN on channel 16 carries tempo through hosts without a playhead."""
+    if getattr(plugin, "info", {}).get("name") != "Anharmonic Prism":
+        return []
+    value = round(max(20, min(400, bpm)) * 100)
+    return [
+        ([0xBF, cc, data], 0)
+        for cc, data in (
+            (99, 125),
+            (98, 80 + (value >> 14)),
+            (6, (value >> 7) & 127),
+            (38, value & 127),
+        )
+    ]
+
+
 @dataclass(eq=False)
 class ExternalNote:
     routing: object
@@ -30,11 +46,23 @@ class ExternalDSP:
         self._gate_owners = {}
         self.reset_requested = False
 
-    def note_on(self, note, velocity, offset=0, gate=None, live=True, channel=None):
+    def note_on(
+        self,
+        note,
+        velocity,
+        offset=0,
+        gate=None,
+        live=True,
+        channel=None,
+        *,
+        event_source=None,
+        trigger_id=None,
+    ):
         channel = (0 if live else 1) if channel is None else channel
-        self.events.append(
-            ([0x90 | channel, note, max(1, min(127, round(velocity * 127)))], offset)
-        )
+        message = [0x90 | channel, note, max(1, min(127, round(velocity * 127)))]
+        voice = ExternalNote(self, note, channel, event_source, trigger_id, onset=message)
+        self.voices.append(voice)
+        self.events.append((message, offset))
         if gate is not None:
             ending = (offset + gate, channel, note)
             self.ends.append(ending)
@@ -61,8 +89,7 @@ class ExternalDSP:
             else:
                 kept.append(ending)
         self.ends = kept
-        # MIDI1 cannot address an individual overlapping note on one channel.
-        # Keep another event's gate intact instead of silencing its shared pitch.
+        # MIDI 1.0 cannot address one overlapping note on a shared channel.
         if not self._has_peer(voice):
             self.events.append(([0x80 | voice.channel, voice.note, 0], offset))
 
@@ -82,9 +109,13 @@ class ExternalDSP:
         self.ends.clear()
         self.voices.clear()
         self._gate_owners.clear()
-        self.reset_requested = True
+        # Prism handles CC123 itself. Recreating its processor here stalls the
+        # live worker long enough to overflow the audio queue.
+        self.reset_requested = (
+            getattr(self.instrument, "info", {}).get("name") != "Anharmonic Prism"
+        )
 
-    def render_instrument(self, destination, frames, sample_rate):
+    def render_instrument(self, destination, frames, sample_rate, bpm=120, parameters=None):
         instrument = self.instrument
         if instrument is None:
             self.events.clear()
@@ -109,12 +140,13 @@ class ExternalDSP:
                 if voice is not None:
                     self._gate_owners[id(next_ending)] = voice
         self.ends = future
-        midi = [
+        midi = prism_tempo_events(instrument, bpm) + [
             (message, offset / sample_rate)
             for message, offset in sorted(self.events, key=lambda item: item[1])
         ]
         self.events.clear()
-        output = instrument.render(None, frames, midi, reset=self.reset_requested)
+        options = {"parameters": parameters} if parameters else {}
+        output = instrument.render(None, frames, midi, reset=self.reset_requested, **options)
         self.reset_requested = False
         self.voices[:] = [voice for voice in self.voices if not voice.dead]
         if output is not None:
@@ -140,11 +172,12 @@ class ExternalDSP:
 
 
 class OfflinePlugins:
-    def __init__(self, specifications, sample_rate, synth_events):
+    def __init__(self, specifications, sample_rate, synth_events, bpm=120):
         from .plugin_host import IsolatedPlugin, PluginError
 
         self.stack = ExitStack()
         self.sample_rate = sample_rate
+        self.bpm = bpm
         self.instrument = self.effect = None
         self.events = []
         self.index = 0
@@ -170,15 +203,16 @@ class OfflinePlugins:
             self.stack.close()
             raise
 
-    def render_instrument(self, destination, start, frames):
+    def render_instrument(self, destination, start, frames, parameters=None):
         if self.instrument is None:
             return
-        midi = []
+        midi = prism_tempo_events(self.instrument, self.bpm)
         while self.index < len(self.events) and self.events[self.index][0] < start + frames:
             at, message = self.events[self.index]
             midi.append((message, max(0, at - start) / self.sample_rate))
             self.index += 1
-        destination += self.instrument.render(None, frames, midi)
+        options = {"parameters": parameters} if parameters else {}
+        destination += self.instrument.render(None, frames, midi, **options)
 
     def render_effect(self, block):
         if self.effect is not None:
