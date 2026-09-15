@@ -30,14 +30,11 @@ class ExternalDSP:
         self._gate_owners = {}
         self.reset_requested = False
 
-    def note_on(
-        self, note, velocity, offset=0, gate=None, live=True, *, event_source=None, trigger_id=None
-    ):
-        channel = 0 if live else 1
-        message = [0x90 | channel, note, max(1, min(127, round(velocity * 127)))]
-        voice = ExternalNote(self, note, channel, event_source, trigger_id, onset=message)
-        self.voices.append(voice)
-        self.events.append((message, offset))
+    def note_on(self, note, velocity, offset=0, gate=None, live=True, channel=None):
+        channel = (0 if live else 1) if channel is None else channel
+        self.events.append(
+            ([0x90 | channel, note, max(1, min(127, round(velocity * 127)))], offset)
+        )
         if gate is not None:
             ending = (offset + gate, channel, note)
             self.ends.append(ending)
@@ -161,9 +158,11 @@ class OfflinePlugins:
                     raise PluginError(f"Plugin is not an {slot}")
                 setattr(self, slot, plugin)
             if self.instrument is not None:
-                for at, note, velocity, gate in synth_events:
-                    self.events.append((at, [0x91, note, max(1, min(127, round(velocity * 127)))]))
-                    self.events.append((at + gate, [0x81, note, 0]))
+                for event in synth_events:
+                    at, note, velocity, gate = event[:4]
+                    channel = event[4] if len(event) > 4 else 1
+                    self.events.append((at, [0x90 | channel, note, max(1, min(127, round(velocity * 127)))]))
+                    self.events.append((at + gate, [0x80 | channel, note, 0]))
                 self.events.sort(key=lambda item: (item[0], item[1][0]))
         except Exception:
             self.stack.close()

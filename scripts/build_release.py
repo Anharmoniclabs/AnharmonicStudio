@@ -32,6 +32,8 @@ PACKAGES = (
     "pycparser",
     "python-rtmidi",
     "pedalboard",
+    "verovio",
+    "onnxruntime",
 )
 
 
@@ -138,7 +140,7 @@ def make_spec(stage, native, ffmpeg, ffprobe, pitch_engine=None):
 from PyInstaller.utils.hooks import copy_metadata, collect_all
 metadata = []
 plugin_data, plugin_binaries, plugin_imports = [], [], []
-for module in ("pedalboard", "rtmidi"):
+for module in ("pedalboard", "rtmidi", "verovio", "onnxruntime"):
     data, binaries, hidden = collect_all(module)
     plugin_data += data
     plugin_binaries += binaries
