@@ -376,7 +376,16 @@ class MidiRouter:
             type(v) is not int or not 0 <= v < 128 for v in message[1:]
         ):
             return
-        if kind in (0xA0, 0xC0, 0xD0):
+        if kind == 0xA0:
+            self.last_event = f"Ch {channel + 1} · Poly pressure {message[1]} · {message[2]}"
+            self.expression(list(message))
+            return
+        if kind == 0xC0:
+            self.last_event = f"Ch {channel + 1} · Program {message[1]}"
+            self.expression(list(message))
+            return
+        if kind == 0xD0:
+            self.last_event = f"Ch {channel + 1} · Channel pressure · {message[1]}"
             self.expression(list(message))
             return
         number, value = message[1:3]

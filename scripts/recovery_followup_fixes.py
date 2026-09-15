@@ -16,16 +16,16 @@ def replace_once(path: str, old: str, new: str, label: str) -> None:
 def fix_midi_expression_diagnostics() -> None:
     replace_once(
         "mpclab/midi_devices.py",
-        '''        if kind in (0xA0, 0xC0, 0xD0):\n            self.expression(list(message))\n            return''',
-        '''        if kind == 0xA0:\n            self.last_event = f"Ch {channel + 1} · Poly pressure {message[1]} · {message[2]}"\n            self.expression(list(message))\n            return\n        if kind == 0xC0:\n            self.last_event = f"Ch {channel + 1} · Program {message[1]}"\n            self.expression(list(message))\n            return\n        if kind == 0xD0:\n            self.last_event = f"Ch {channel + 1} · Channel pressure · {message[1]}"\n            self.expression(list(message))\n            return''',
+        """        if kind in (0xA0, 0xC0, 0xD0):\n            self.expression(list(message))\n            return""",
+        """        if kind == 0xA0:\n            self.last_event = f"Ch {channel + 1} · Poly pressure {message[1]} · {message[2]}"\n            self.expression(list(message))\n            return\n        if kind == 0xC0:\n            self.last_event = f"Ch {channel + 1} · Program {message[1]}"\n            self.expression(list(message))\n            return\n        if kind == 0xD0:\n            self.last_event = f"Ch {channel + 1} · Channel pressure · {message[1]}"\n            self.expression(list(message))\n            return""",
         "MIDI expression diagnostics",
     )
 
     test = Path("tests/test_midi_devices.py")
     text = test.read_text()
     text = text.replace(
-        'assert expression == [[0xE3, 0, 100], [0xB0, 1, 90]]',
-        'assert expression == [[0xE3, 0, 100], [0xB4, 1, 90]]',
+        "assert expression == [[0xE3, 0, 100], [0xB0, 1, 90]]",
+        "assert expression == [[0xE3, 0, 100], [0xB4, 1, 90]]",
         1,
     )
     test.write_text(text)

@@ -135,7 +135,9 @@ def reconcile_track_recording() -> None:
             raise SystemExit("track recorder MIDI finish shape not found")
         text = text.replace(finish_old, finish_new, 1)
 
-    add_old = '                    sources.append(app.library.add_audio(block, label, kind="recording"))'
+    add_old = (
+        '                    sources.append(app.library.add_audio(block, label, kind="recording"))'
+    )
     add_new = """                    sources.append(\n                        app.library.add_audio(\n                            block,\n                            label,\n                            kind=\"recording\",\n                            source_sample_rate=self._capture_sample_rate,\n                        )\n                    )"""
     if add_new not in text:
         if add_old not in text:
@@ -149,7 +151,9 @@ def reconcile_track_recording() -> None:
             raise SystemExit("recording placement shape not found")
         text = text.replace(placement_old, placement_new, 1)
 
-    discard_old = """        self.unsaved = None\n        self.target = None\n        self.notes.clear()"""
+    discard_old = (
+        """        self.unsaved = None\n        self.target = None\n        self.notes.clear()"""
+    )
     discard_new = """        self.unsaved = None\n        self.midi_take = None\n        self.target = None\n        self.notes.clear()"""
     if discard_new not in text:
         if discard_old not in text:
@@ -161,7 +165,9 @@ def reconcile_track_recording() -> None:
 def reconcile_test_lint() -> None:
     p = Path("tests/test_prism.py")
     text = p.read_text()
-    text = text.replace("            for block in range(32):\n", "            for _block in range(32):\n", 1)
+    text = text.replace(
+        "            for block in range(32):\n", "            for _block in range(32):\n", 1
+    )
     p.write_text(text)
 
 

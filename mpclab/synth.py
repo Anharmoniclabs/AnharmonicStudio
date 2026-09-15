@@ -786,9 +786,13 @@ class SynthVoice:
             if self._half_pending:
                 pair_l = math.tanh((self._half_left + left[i]) * 0.5 * drive)
                 pair_r = math.tanh((self._half_right + right[i]) * 0.5 * drive)
-                cutoff = patch.cutoff * math.exp2(
-                    patch.filter_env * self._half_envelope * 4.5
-                    + patch.lfo_filter * self._half_lfo * 3.0
+                cutoff = (
+                    patch.cutoff
+                    * (1.0 + self.pressure)
+                    * math.exp2(
+                        patch.filter_env * self._half_envelope * 4.5
+                        + patch.lfo_filter * self._half_lfo * 3.0
+                    )
                 )
                 cutoff = min(filter_rate * 0.44, max(30.0, cutoff))
                 blend = min(
@@ -808,14 +812,18 @@ class SynthVoice:
                 v1 = a1 * self.ic1_r + a2 * v3
                 v2 = self.ic2_r + a2 * self.ic1_r + a3 * v3
                 self.ic1_r, self.ic2_r = 2.0 * v1 - self.ic1_r, 2.0 * v2 - self.ic2_r
-                filtered_r[i] = v2
-
-        # Open-filter settings blend the saturated signal back in, restoring
-        # the airy top octave that the efficient half-rate filter omits.
-        filtered_l = filtered_l * (1.0 - high_blend) + left_half * high_blend
-        filtered_r = filtered_r * (1.0 - high_blend) + right_half * high_blend
-        filtered_l = np.repeat(filtered_l, 2)[:n]
-        filtered_r = np.repeat(filtered_r, 2)[:n]
+                v2_r = v2
+                self._half_hold_left = v2_l * (1.0 - blend) + pair_l * blend
+                self._half_hold_right = v2_r * (1.0 - blend) + pair_r * blend
+                self._half_pending = False
+            else:
+                self._half_pending = True
+                self._half_left = float(left[i])
+                self._half_right = float(right[i])
+                self._half_envelope = float(env[i])
+                self._half_lfo = float(lfo[i])
+            filtered_l[i] = self._half_hold_left
+            filtered_r[i] = self._half_hold_right
         gain = (
             env * min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume) * self.expression_gain
         )

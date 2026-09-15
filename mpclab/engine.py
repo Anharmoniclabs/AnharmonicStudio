@@ -780,6 +780,8 @@ class Engine:
         instrument_id: str | None = None,
         midi_channel: int = 0,
         midi_owner: str | None = None,
+        event_source=None,
+        trigger_id=None,
     ) -> None:
         voices = self.synth_voices if voices is None else voices
         if (
@@ -788,7 +790,14 @@ class Engine:
             and self.external.instrument is not None
         ):
             self.external.note_on(
-                note, velocity, offset, gate_frames, live_trigger, channel=midi_channel
+                note,
+                velocity,
+                offset,
+                gate_frames,
+                live_trigger,
+                channel=midi_channel,
+                event_source=event_source,
+                trigger_id=trigger_id,
             )
             return
         patch = self.project.instrument_patch(instrument_id)

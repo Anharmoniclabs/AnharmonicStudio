@@ -255,8 +255,11 @@ class IsolatedPlugin:
         if self.closed:
             raise PluginError("Plugin is closed")
         try:
-            send_packet(self.connection, {"frames": frames, "midi": midi, "reset": reset,
-                                          "parameters": parameters or {}}, audio)
+            send_packet(
+                self.connection,
+                {"frames": frames, "midi": midi, "reset": reset, "parameters": parameters or {}},
+                audio,
+            )
             header, raw = self._receive(timeout)
             if header.get("frames") != frames or len(raw) != frames * 8:
                 raise PluginError("Plugin returned the wrong block length")
@@ -324,12 +327,15 @@ class LivePlugin:
                     for key, value in updates.items():
                         self.info["parameters"][key]["value"] = value
                 try:
-                    sequence, audio, frames, midi, reset, *automation = self.requests.get(timeout=0.1)
+                    sequence, audio, frames, midi, reset, *automation = self.requests.get(
+                        timeout=0.1
+                    )
                 except queue.Empty:
                     continue
                 if automation:
-                    output = self.plugin.render(audio, frames, midi, reset=reset,
-                                                parameters=automation[0])
+                    output = self.plugin.render(
+                        audio, frames, midi, reset=reset, parameters=automation[0]
+                    )
                     for key, value in automation[0].items():
                         self.info["parameters"][key]["value"] = value
                 else:

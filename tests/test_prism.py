@@ -320,7 +320,7 @@ def test_prism_live_panic_keeps_processor_and_accepts_next_note():
             assert not routing.reset_requested
             routing.note_on(60, 0.8)
             peaks = []
-            for block in range(32):
+            for _block in range(32):
                 output = np.zeros((frames, 2), np.float32)
                 routing.render_instrument(output, frames, 48000)
                 # Wait for this test's worker, without depending on CI's

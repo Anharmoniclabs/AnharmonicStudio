@@ -82,6 +82,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         notes, audio = engine._collect(b0, b1, reuse=True)
         for event in notes:
             beat, pad_idx, vel, _gate, sequence_id = event
+            source = getattr(event, "source", None)
             off = int(max(0.0, (beat - b0) / bps))
             if pad_idx < 0:
                 instrument_id, pitch = decode_destination(proj, pad_idx)
@@ -93,6 +94,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
                     live_trigger=False,
                     instrument_id=instrument_id,
                     midi_channel=getattr(event, "channel", 0),
+                    event_source=source,
                 )
             elif pad_idx >= NPADS:
                 index, pitch = divmod(pad_idx - NPADS, 128)
@@ -177,13 +179,20 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
 
     # Deliver Prism curves with their audio block, without UI timers or camera work.
     prism_parameters = {}
-    if engine.playing and engine.mode == "song" and getattr(engine.external.instrument, "info", {}).get("name") == "Anharmonic Prism":
-        prism_parameters = automation_parameters(proj, start_beat,
-                                                 getattr(engine, "prism_gesture_targets", ()))
+    if (
+        engine.playing
+        and engine.mode == "song"
+        and getattr(engine.external.instrument, "info", {}).get("name") == "Anharmonic Prism"
+    ):
+        prism_parameters = automation_parameters(
+            proj, start_beat, getattr(engine, "prism_gesture_targets", ())
+        )
     synth_track = proj.validate_track_index(proj.synth.track, "synth output")
     external_bus = getattr(engine, "_external_instrument", None)
     if external_bus is None:
-        engine.external.render_instrument(tbuf[synth_track], frames, engine.sr, proj.bpm, prism_parameters)
+        engine.external.render_instrument(
+            tbuf[synth_track], frames, engine.sr, proj.bpm, prism_parameters
+        )
     else:
         external = external_bus[:frames]
         external.fill(0.0)
