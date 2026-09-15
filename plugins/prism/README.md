@@ -1,22 +1,80 @@
-# Anharmonic Prism 1.0
+# Anharmonic Prism 1.1
 
-A 32-voice stereo synth built from Anharmonic Studio's native oscillator, envelope and resonant-filter renderer. Includes 54 oscillator sounds (24 new), eight arpeggiator recipes, pulse shaping, sub/noise, stereo spread, filter and pitch LFOs, drive, chorus, tempo-synced ping-pong echo and reverb.
+A layered sound workstation built on Studio's native oscillator, envelope and
+resonant-filter renderer. Two independent synth layers have 32 voices each;
+76 automatable parameters shape 54 factory tones and 120 layered performances.
+Both Studio and the separate VST3 have dedicated graphical editors.
 
-The instrument is included with Studio and also packaged separately. VST3 runs in compatible hosts; the macOS build also produces AU for Logic. This is not an AAX release. Each operating system needs its own binary; a Linux build cannot run in a Windows or macOS DAW.
+## Expanded sound banks
 
-## Install and play
+174 sounds are built in. The 96-sound expansion adds twelve presets to each of
+eight category banks: Orchestra - Strings, Brass, Winds and Mallets; Cinema -
+Hits; Atmosphere - Pads; Motion - Arps; and Laboratory - Textures. These are
+original synthesized orchestral interpretations, not recorded acoustic samples.
+Choose a bank in the category filter, then load a sound. Arp presets enable their
+clocked pattern automatically; hold a chord and adjust project tempo. Hits have
+zero sustain and decay naturally. Pads benefit from held chords and their release
+tails. Every sound can be edited and saved with its two layers, effects and motion.
 
-Copy `VST3/Anharmonic Prism.vst3` to your user plugin folder, then rescan instruments in your DAW:
+## Shape and perform
+
+- **Perform:** blend layers; use Tone, Motion, Space and Texture macros; drag the
+  morph pad; draw eight modulation steps. Drawing a step enables modulation if depth was zero.
+- **Layer A / B:** independent oscillators, pulse shaping, sub/noise, detune,
+  drive, stereo width, ADSR envelopes and resonant filters. Drag the filter pad
+  and envelope handles. Load different factory tones into each layer.
+- **Motion:** eight arp recipes, chord order, gate and octave controls; step and
+  LFO modulation route to cutoff, detune, level, pan or oscillator blend.
+- **Effects:** chorus, tempo-synced ping-pong echo, reverb, bit crusher and tremolo.
+- **Sound explorer:** search and category filters, starred sounds, layer loading,
+  full-performance loading, mutation (native editor), undo and A/B comparison.
+
+In the native VST3, double-click a browser sound or press Enter to load the full
+sound, or select one and use Load to A / B. In Studio use Load sound, Load to
+layer A / B or Enter. Turn or vertically drag knobs; double-click resets them.
+Studio also supports Shift for fine knob movement. The waveform is actual plugin
+output. Sound files and DAW state recall the layers, effects, macros and motion.
+Legacy tones load with the new features at neutral defaults.
+
+Arp, step motion and echo use DAW tempo. Studio sends project tempo through its
+isolated host for live playback and export; the standalone defaults to 120 BPM.
+Modulation runs in bounded DSP chunks (up to 64 samples); it is not a per-sample
+modulation matrix. Modulation phase follows the instrument clock, not DAW PPQ.
+Turning arp on/off releases existing voices. MIDI sustain and ±2 semitone bend
+are supported. This release uses original oscillator synthesis and presets;
+commercial sample libraries are not included.
+
+## Studio and piano roll
+
+Open **Instruments → Launch Prism** or select the Prism tab. Native instrument
+retains the built-in library. Switching back to Prism remembers its tone within
+the current project session. Live knob gestures update the existing VST3 instance
+without reloading; each Studio drag is one undo step. Save/Open `.prism.json`
+exchanges the full Prism sound with the separate plugin.
+
+Notes has a 1–256-bar length control for each pattern, New, Extend ×2 and Generate.
+Generation creates a separate editable chords, arp, bass or melody pattern using
+root, scale, rhythm and variation settings. Existing patterns stay intact. Length
+cannot be shortened across existing notes or steps. A shared beat/note pattern
+has one duration; create a new note pattern to keep its length separate.
+
+Piano grid shortcuts: Alt+1/2/3/4 select/draw/paint/erase; Ctrl+A select all channel
+notes; Ctrl+X/C/V cut/copy/paste; Ctrl+D duplicate (extending the pattern when
+needed); Ctrl+Q quantize; Ctrl+L legato; Delete erase; Esc deselect; arrows move;
+Shift+arrows move a beat/octave; Ctrl+wheel zoom. Click the ruler to place the
+paste cursor; Home/End move it to the start/last note end. Ctrl+Z and Ctrl+Shift+Z
+undo/redo. The F1 shortcut sheet lists the bindings.
+
+## Install the separate plugin
+
+Copy `VST3/Anharmonic Prism.vst3` to your host's plugin folder and rescan:
 
 - Linux: `~/.vst3/`
-- Windows: a VST3 folder configured in your host, or `C:\Program Files\Common Files\VST3\` with administrator access.
-- macOS: `~/Library/Audio/Plug-Ins/VST3/`; for Logic copy the AU component to `~/Library/Audio/Plug-Ins/Components/`.
+- Windows: `C:\Program Files\Common Files\VST3\` or the host's configured folder.
+- macOS: `~/Library/Audio/Plug-Ins/VST3/`; the macOS pack also builds AU for Logic
+  in `~/Library/Audio/Plug-Ins/Components/`.
 
-Insert Prism on a MIDI instrument track. Select a sound, send notes, and use the three control pages for tone, motion and effects. Double-click a control to reset it. The host can automate all 32 parameters. MIDI pitch bend spans ±2 semitones; sustain and note-off are supported. The arp follows host BPM (120 BPM when no tempo is supplied) and advances at sample boundaries. Its phase starts with the instrument's clock; bar/PPQ alignment is not implemented. Turning arp on/off releases previous notes; play the chord again.
-
-The scope shows actual plugin output. Mutate changes a bounded selection of tone controls. Store A and Recall A compare sounds; Undo restores parameter edits. Host sessions recall the complete parameter state. Save/load `.prism.json` exchanges oscillator tone and arp settings with Studio. Plugin effects are included in plugin sound files; Studio uses mixer-track effects and does not translate the plugin's chorus/reverb/echo implementation. Sample-library instruments are not embedded in Prism.
-
-In Studio's Instruments tab, **Use Prism VST3** loads the bundled plugin into the external-instrument slot. The existing built-in synth remains separately available. Use Devices & Plugins for external instrument routing/controls. To transfer the built-in tone, save a Prism sound and load it in the plugin. Track-effect recipes affect all sources routed to that mixer track and use the project's shared delay/reverb sends.
+Use the pack for the target operating system. AAX is not included.
 
 ## Build and source
 
@@ -25,20 +83,6 @@ In Studio's Instruments tab, **Use Prism VST3** loads the bundled plugin into th
 The pack contains the corresponding project source and pinned JUCE source archive. The plugin is distributed under GPLv3, consistent with the source engine; framework and embedded SDK notices remain in their source files. This is an open-source release pack, not a proprietary-licensed plugin. JUCE source: https://github.com/juce-framework/JUCE/tree/7.0.12. VST is a trademark of Steinberg Media Technologies GmbH.
 
 Linux packages inherit the build machine's glibc and graphics requirements. Cross-platform targets and CI configuration are not evidence of successful builds, signing, notarization, or testing in every DAW; use the accompanying validation report for tested platforms and hosts. Keep both source archives with public distribution of this pack.
-
-### Studio sound lab
-
-In Studio, open **Instruments → Launch Prism** or select the **Prism** tab.
-The **Native instrument** tab keeps the built-in sound browser and controls.
-Switching back to Prism restores its tone within the current project session.
-
-Prism's Studio editor has rotary controls (vertical drag, Shift for fine control,
-double-click to reset), waveform selectors, a cutoff/resonance XY pad, a live
-output scope, and oscillator, envelope, motion/arp and effects pages. Edits are
-sent to the running VST3 instance without reloading or releasing held notes.
-Project saves retain the normalized plugin parameters; each knob drag is one
-undo gesture. Store A and Swap A/B compare two sounds. The separate VST3 pack
-continues to provide its native JUCE editor in other hosts.
 
 ### Movable musical typing
 

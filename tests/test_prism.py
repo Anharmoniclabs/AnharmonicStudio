@@ -156,7 +156,7 @@ def test_graphical_editor_changes_running_plugin_without_reloading(window):  # n
     assert bridge is not None
     pid = bridge.plugin.process.pid
     editor = panel.prism_surface
-    assert len(editor.findChildren(PrismKnob)) == 26
+    assert len(editor.findChildren(PrismKnob)) == 57
     assert not editor.findChildren(QDoubleSpinBox)
     history = len(window._undo)
     knob = editor.knobs["12"]
@@ -216,3 +216,165 @@ def test_live_parameters_preserve_held_note():
         assert np.max(np.abs(quiet)) < 0.0001
     finally:
         plugin.close()
+
+
+def test_workstation_performances_and_layer_controls(window):  # noqa: F811
+    from mpclab.ui.prism_controls import CATALOG, PERFORMANCES, SPECS, plain
+    from types import SimpleNamespace
+
+    panel = window.synth_panel.prism_surface
+    assert len(PERFORMANCES) == 120 and len(CATALOG) == 174
+    edits = []
+    window.project.plugins["instrument"] = {"path": "Anharmonic Prism.vst3", "parameters": {}}
+    window.engine.external.instrument = SimpleNamespace(
+        set_parameters=lambda v: edits.append(dict(v)),
+        close=lambda: None,
+        info={"parameters": {}},
+        error="",
+    )
+    for item in PERFORMANCES:
+        panel.preset(item["name"])
+        assert len(edits[-1]) == 76
+        assert all(0 <= v <= 1 for v in edits[-1].values())
+        assert plain(SPECS[53], panel.values["53"]) > 0
+    original = panel.values["12"]
+    panel.presets.setCurrentRow(1)
+    panel.load_layer(True)
+    assert panel.values["12"] == original
+    assert set(edits[-1]) == {str(i) for i in range(32, 53)}
+    assert panel.edit_layer == 32
+    panel.star_selected()
+    panel.starred_only.setChecked(True)
+    panel.filter_presets()
+    assert sum(not panel.presets.item(i).isHidden() for i in range(panel.presets.count())) == 1
+    window.engine.external.instrument = None
+
+
+def test_workstation_sound_file_roundtrip_includes_layers_and_motion(window, tmp_path, monkeypatch):  # noqa: F811
+    from mpclab.ui.prism_controls import QFileDialog, QMessageBox, PERFORMANCES
+
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: pytest.fail(str(args[-1])))
+    from types import SimpleNamespace
+
+    panel = window.synth_panel.prism_surface
+    window.project.plugins["instrument"] = {"path": "Anharmonic Prism.vst3", "parameters": {}}
+    window.engine.external.instrument = SimpleNamespace(
+        set_parameters=lambda v: None, close=lambda: None, info={"parameters": {}}, error=""
+    )
+    panel.preset(PERFORMANCES[-1]["name"])
+    saved = dict(panel.values)
+    target = tmp_path / "full.prism.json"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
+    panel.save_sound()
+    assert target.exists()
+    panel.reset()
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (str(target), ""))
+    panel.open_sound()
+    assert panel.values == pytest.approx(saved)
+    window.engine.external.instrument = None
+
+
+def test_studio_tempo_reaches_real_prism_arpeggiator():
+    from mpclab.prism import bundled_plugin
+    from mpclab.plugin_host import IsolatedPlugin
+    from mpclab.external_dsp import prism_tempo_events
+
+    path = bundled_plugin()
+    if path is None:
+        pytest.skip("Build Prism first")
+    outputs = []
+    for bpm in (60, 120):
+        plugin = IsolatedPlugin({"path": str(path), "parameters": {"21": 1, "22": 0.4}})
+        try:
+            chunks = []
+            for block in range(48):
+                midi = prism_tempo_events(plugin, bpm)
+                assert midi, plugin.info.get("name")
+                if block == 0:
+                    midi += [([0x90, 60, 100], 0), ([0x90, 67, 100], 0)]
+                chunks.append(plugin.render(None, 512, midi))
+            outputs.append(np.concatenate(chunks))
+        finally:
+            plugin.close()
+    assert np.max(np.abs(outputs[0] - outputs[1])) > 0.01
+
+
+def test_prism_live_panic_keeps_processor_and_accepts_next_note():
+    import time
+    from mpclab.external_dsp import ExternalDSP
+    from mpclab.plugin_host import IsolatedPlugin, LivePlugin
+    from mpclab.prism import bundled_plugin
+
+    path = bundled_plugin()
+    if path is None:
+        pytest.skip("Build Prism first")
+    frames = 128
+    plugin = IsolatedPlugin({"path": str(path)}, 48000)
+    for block in range(3):
+        plugin.render(None, frames, reset=block == 0)
+    routing = ExternalDSP()
+    routing.instrument = bridge = LivePlugin(plugin, frames)
+    try:
+        for _ in range(2):  # Loading panic, then panic after a held note.
+            routing.panic()
+            assert not routing.reset_requested
+            routing.note_on(60, 0.8)
+            peaks = []
+            for _block in range(32):
+                output = np.zeros((frames, 2), np.float32)
+                routing.render_instrument(output, frames, 48000)
+                # Wait for this test's worker, without depending on CI's
+                # ability to schedule a Python thread every 2.7 ms.
+                deadline = time.monotonic() + 2
+                while bridge.results.empty() and not bridge.error:
+                    assert time.monotonic() < deadline, "Prism worker stalled"
+                    time.sleep(0.001)
+                assert not bridge.error, bridge.error
+                peaks.append(float(np.max(np.abs(output))))
+            assert max(peaks) > 0.01
+    finally:
+        routing.close()
+
+
+def test_staging_updated_plugin_preserves_an_existing_loaded_mapping(tmp_path):
+    import mmap
+    from scripts.build_prism import stage_plugin
+
+    source = tmp_path / "source"
+    target = tmp_path / "installed"
+    source.mkdir()
+    target.mkdir()
+    (source / "plugin.so").write_bytes(b"new binary contents")
+    (target / "plugin.so").write_bytes(b"old binary contents")
+    with (target / "plugin.so").open("rb") as file:
+        with mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
+            stage_plugin(source, target)
+            assert mapped[:] == b"old binary contents"
+            assert (target / "plugin.so").read_bytes() == b"new binary contents"
+
+
+def test_performance_banks_are_portable_and_distinct():
+    from collections import Counter
+    from mpclab.ui.prism_controls import PERFORMANCES, SPECS
+
+    specs = {s["id"]: s for s in SPECS}
+    signatures = set()
+    for item in PERFORMANCES:
+        parse_sound(json.dumps(dict(item, format="anharmonic-prism", version=1)))
+        for key, value in item["effects"].items():
+            spec = specs[key]
+            assert spec["low"] <= value <= spec["high"]
+            if spec["step"]:
+                assert value == int(value)
+        patch = {k: v for k, v in item["patch"].items() if k != "name"}
+        signature = json.dumps([patch, item["effects"], item.get("arp", {})], sort_keys=True)
+        assert signature not in signatures
+        signatures.add(signature)
+    expansion = PERFORMANCES[24:]
+    assert len(Counter(item["category"] for item in expansion)) == 8
+    assert set(Counter(item["category"] for item in expansion).values()) == {12}
+    for item in expansion:
+        if item["category"] == "Motion - Arps":
+            assert item["arp"]["enabled"]
+        if item["category"] == "Cinema - Hits":
+            assert item["patch"]["sustain"] == item["effects"]["b_sustain"] == 0

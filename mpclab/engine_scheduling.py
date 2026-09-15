@@ -10,10 +10,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .model import NPADS
-from .music import Note
 from .event_source import EventSource, ScheduledNote
 from .instrument_state import event_destination
+from .midi_playback import sustained_duration
+from .model import NPADS
+from .music import Note
 
 if TYPE_CHECKING:
     from .engine import Engine
@@ -86,7 +87,7 @@ def pattern_events(
             for note_index, note in enumerate(pat.notes):
                 beat = base + note.start
                 if note.start < length and b0 - 1e-10 <= beat < min(b1, limit) - 1e-10:
-                    gate = min(note.duration, length - note.start, limit - beat)
+                    gate = min(sustained_duration(pat, note), length - note.start, limit - beat)
                     # Preserve the existing five-field event protocol:
                     # -1..-128 = synth; 0..63 = drum; >=64 = sample slot/pitch.
                     destination = (
@@ -97,7 +98,9 @@ def pattern_events(
                     out.append(
                         ScheduledNote(
                             (beat, destination, note.velocity, gate, sequence_id),
-                            EventSource(pat, note=note, note_index=note_index),
+                            source=EventSource(pat, note=note, note_index=note_index),
+                            channel=note.channel,
+                            release_velocity=note.release_velocity,
                         )
                     )
     sd_ = 1.0 / pat.div

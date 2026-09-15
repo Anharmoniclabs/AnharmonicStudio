@@ -540,6 +540,12 @@ class SynthVoice:
     trigger_id: object = None
     instrument_id: str | None = None
     patch_ref: SynthPatch | None = None
+    midi_channel: int = 0
+    midi_owner: str | None = None
+    pitch_bend: float = 0.0
+    expression_gain: float = 1.0
+    modulation: float = 0.0
+    pressure: float = 0.0
 
     def __post_init__(self):
         self._rng = default_rng(self.note * 7919 + self.age)
@@ -628,7 +634,7 @@ class SynthVoice:
     def _render_native(self, dest, patch, offset, n):
         stages = ("attack", "decay", "sustain", "release")
         kinds = {"saw": 0, "sine": 1, "triangle": 2, "square": 3}
-        base = midi_to_hz(self.note)
+        base = midi_to_hz(self.note + self.pitch_bend)
         sr = self.sample_rate
         # All allocations and Python work are per block, never per sample.
         self._native_params[:] = (
@@ -647,13 +653,13 @@ class SynthVoice:
             min(0.9, max(0.1, patch.pulse_width)),
             patch.sub,
             patch.noise,
-            patch.lfo_pitch,
+            patch.lfo_pitch + self.modulation * 40,
             patch.lfo_filter,
             patch.filter_env,
-            patch.cutoff,
+            min(20000, patch.cutoff * (1 + self.pressure)),
             2.0 - 1.92 * min(0.98, max(0.0, patch.resonance)),
             1.0 + max(0.0, patch.drive) * 9.0,
-            min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume),
+            min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume) * self.expression_gain,
             1.0 / max(1.0, 1.0 + patch.sub + patch.noise),
         )
         self._native_state[:] = (
@@ -718,7 +724,12 @@ class SynthVoice:
                 )
             envelope = self._envelope(n, patch)
             audio = self._orchestra.render(n, patch)
-            gain = envelope * min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume)
+            gain = (
+                envelope
+                * min(1.0, max(0.0, self.velocity))
+                * max(0.0, patch.volume)
+                * self.expression_gain
+            )
             dest[offset:] += (audio * gain[:, None]).astype(np.float32)
             self.age += n
             if self._orchestra.finished:
@@ -735,8 +746,8 @@ class SynthVoice:
         lfo = np.sin(2.0 * np.pi * lfo_phase)
         self.lfo_phase = float(np.mod(self.lfo_phase + n * lfo_step, 1.0))
 
-        base = midi_to_hz(self.note)
-        pitch_mod = np.exp2(lfo * patch.lfo_pitch / 1200.0)
+        base = midi_to_hz(self.note + self.pitch_bend)
+        pitch_mod = np.exp2(lfo * (patch.lfo_pitch + self.modulation * 40) / 1200.0)
         step1 = np.minimum(0.45, base * pitch_mod / sr)
         f2 = base * (2.0**patch.osc2_octave) * (2.0 ** (patch.detune / 1200.0))
         step2 = np.minimum(0.45, f2 * pitch_mod / sr)
@@ -775,9 +786,13 @@ class SynthVoice:
             if self._half_pending:
                 pair_l = math.tanh((self._half_left + left[i]) * 0.5 * drive)
                 pair_r = math.tanh((self._half_right + right[i]) * 0.5 * drive)
-                cutoff = patch.cutoff * math.exp2(
-                    patch.filter_env * self._half_envelope * 4.5
-                    + patch.lfo_filter * self._half_lfo * 3.0
+                cutoff = (
+                    patch.cutoff
+                    * (1.0 + self.pressure)
+                    * math.exp2(
+                        patch.filter_env * self._half_envelope * 4.5
+                        + patch.lfo_filter * self._half_lfo * 3.0
+                    )
                 )
                 cutoff = min(filter_rate * 0.44, max(30.0, cutoff))
                 blend = min(
@@ -809,7 +824,9 @@ class SynthVoice:
                 self._half_lfo = float(lfo[i])
             filtered_l[i] = self._half_hold_left
             filtered_r[i] = self._half_hold_right
-        gain = env * min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume)
+        gain = (
+            env * min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume) * self.expression_gain
+        )
         dest[offset:, 0] += (filtered_l * gain).astype(np.float32)
         dest[offset:, 1] += (filtered_r * gain).astype(np.float32)
         self.age += n

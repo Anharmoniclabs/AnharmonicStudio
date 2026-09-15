@@ -32,6 +32,7 @@ from .sample_drag import ArrangeDropFilter
 from .padgrid import PadGrid, PadInspector
 from .piano_roll import PianoRollPanel
 from .automation import AutomationPanel
+from .scoring import ScoringPanel
 from .mixer import MixerPanel
 from .synth import SynthPanel
 from .vocals import VocalPanel
@@ -203,7 +204,10 @@ def _build_menus(window):
         (
             "View",
             tuple(
-                (window.tabs.tabText(i) + f"\tCtrl+{i + 1}", lambda index=i: window.show_tab(index))
+                (
+                    window.tabs.tabText(i) + (f"\tCtrl+{i + 1}" if i < 9 else ""),
+                    lambda index=i: window.show_tab(index),
+                )
                 for i in range(window.tabs.count())
             )
             + (
@@ -262,8 +266,14 @@ def _build_stage(window) -> QWidget:
     window.tabs.addTab(window.piano_roll, "Piano Roll")
     window.automation_panel = AutomationPanel(window)
     window.tabs.addTab(window.automation_panel, "Automation")
+    studio_placeholder = QWidget()
+    window.tabs.addTab(studio_placeholder, "Studio")
+    window.scoring_panel = ScoringPanel(window)
+    window.tabs.addTab(window.scoring_panel, "Scoring")
     window.studio = StudioPanel(window.tabs)
-    window.tabs.addTab(window.studio, "Studio")
+    window.tabs.removeTab(8)
+    studio_placeholder.deleteLater()
+    window.tabs.insertTab(8, window.studio, "Studio")
     window._arrange_drop_filter = ArrangeDropFilter(window)
     window.tabs.currentChanged.connect(window._stage_changed)
     for index, tip in enumerate(
@@ -277,6 +287,7 @@ def _build_stage(window) -> QWidget:
             "Compose sample and synth notes  (F12 / Ctrl+7)",
             "Draw arrangement levels and pan  (Ctrl+8)",
             "Docked Playlist, channel rack and mix console  (Ctrl+9)",
+            "Sheet music, instrument parts, composition and score export",
         )
     ):
         window.tabs.setTabToolTip(index, tip)

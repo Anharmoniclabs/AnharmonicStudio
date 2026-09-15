@@ -14,10 +14,12 @@ from .engine_constants import AUDITION, METRONOME, SEND_TAIL, TRACK_DSP_TAIL
 from .model import NPADS
 from .event_source import release_deleted_events
 from .music import automation_values
+from .prism_motion import automation_parameters
 from .instrument_state import decode_destination, voice_patch
 from .sample_voice import _balance_gains
 from .native_dsp import NATIVE
 from .workflow_routing import clear_bus_buffers, finish_buses, route_track
+from .midi_playback import controls_in_range, render_expressive_voice, remember_control
 
 if TYPE_CHECKING:
     from .engine import Engine
@@ -91,6 +93,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
                     max(1, int(_gate / bps)),
                     live_trigger=False,
                     instrument_id=instrument_id,
+                    midi_channel=getattr(event, "channel", 0),
                     event_source=source,
                 )
             elif pad_idx >= NPADS:
@@ -148,20 +151,52 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         if preview.loop:
             travelled %= span
         engine.audition_time = (preview.s0 + travelled) / engine.sr
+    midi_controls = []
+    if engine.playing:
+        bps = proj.bpm / 60 / engine.sr
+        midi_controls = [
+            (round((beat - start_beat) / bps), control)
+            for beat, control in controls_in_range(
+                proj, engine.mode, start_beat, start_beat + frames * bps
+            )
+        ]
+    for frame, control in midi_controls:
+        if control.instrument is None and control.pad is None:
+            engine.external.events.append((control.message, max(0, frame)))
     for voice in engine.synth_voices:
-        voice.render(tbuf[voice.track], voice_patch(proj, voice))
+        render_expressive_voice(
+            voice,
+            tbuf[voice.track],
+            voice_patch(proj, voice),
+            engine.midi_playback_state,
+            midi_controls,
+        )
+    for _, control in midi_controls:
+        remember_control(engine.midi_playback_state, control)
     for index in range(len(engine.synth_voices) - 1, -1, -1):
         if engine.synth_voices[index].dead:
             del engine.synth_voices[index]
 
+    # Deliver Prism curves with their audio block, without UI timers or camera work.
+    prism_parameters = {}
+    if (
+        engine.playing
+        and engine.mode == "song"
+        and getattr(engine.external.instrument, "info", {}).get("name") == "Anharmonic Prism"
+    ):
+        prism_parameters = automation_parameters(
+            proj, start_beat, getattr(engine, "prism_gesture_targets", ())
+        )
     synth_track = proj.validate_track_index(proj.synth.track, "synth output")
     external_bus = getattr(engine, "_external_instrument", None)
     if external_bus is None:
-        engine.external.render_instrument(tbuf[synth_track], frames, engine.sr)
+        engine.external.render_instrument(
+            tbuf[synth_track], frames, engine.sr, proj.bpm, prism_parameters
+        )
     else:
         external = external_bus[:frames]
         external.fill(0.0)
-        engine.external.render_instrument(external, frames, engine.sr)
+        engine.external.render_instrument(external, frames, engine.sr, proj.bpm, prism_parameters)
         pdc = getattr(engine, "plugin_pdc", None)
         if engine.external.instrument is not None and pdc is not None and pdc.delay_samples > 0:
             pdc.process(tbuf, frames)

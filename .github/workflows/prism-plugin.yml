@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main, 'feature/instrument-plugin-*']
-    paths: ['plugins/prism/**', 'scripts/build_prism.py', 'mpclab/native/synth.cpp', 'mpclab/prism_arps.json', '.github/workflows/prism-plugin.yml']
+    paths: ['plugins/prism/**', 'scripts/build_prism.py', 'mpclab/native/synth.cpp', 'mpclab/prism_arps.json', 'mpclab/prism_performances.json', '.github/workflows/prism-plugin.yml']
   pull_request:
-    paths: ['plugins/prism/**', 'scripts/build_prism.py', 'mpclab/native/synth.cpp', 'mpclab/prism_arps.json', '.github/workflows/prism-plugin.yml']
+    paths: ['plugins/prism/**', 'scripts/build_prism.py', 'mpclab/native/synth.cpp', 'mpclab/prism_arps.json', 'mpclab/prism_performances.json', '.github/workflows/prism-plugin.yml']
 permissions:
   contents: read
 jobs:

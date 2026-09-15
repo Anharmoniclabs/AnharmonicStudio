@@ -192,13 +192,14 @@ def _start_capture(owner):
         else None
     )
     try:
-        if rec.monitor and rec.corrected_monitor:
-            from ..autotune.live import LiveMonitor
-
-            owner._live_monitor = LiveMonitor(
-                owner.app.project.vocal, owner.recorder.sample_rate, monitor_callback
+        if rec.input_device and selected is None:
+            raise RuntimeError(
+                "Selected input is disconnected. Reconnect it or choose another input."
             )
-            monitor_callback = owner._live_monitor.push
+        owner.recorder.engine = owner.app.engine
+        owner.recorder.sample_rate = owner.app.engine.sr
+        owner.recorder.blocksize = owner.app.engine.blocksize
+        owner.recorder.input_channels = tuple(rec.input_channels[:2])
         owner.recorder.start(device, rec.input_gain_db, monitor_callback)
         if (
             getattr(owner, "_live_monitor", None)

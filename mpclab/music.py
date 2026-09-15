@@ -7,6 +7,50 @@ import numpy as np
 
 
 @dataclass
+class MidiControl:
+    beat: float
+    message: list[int]
+    instrument: str | None = None
+    pad: int | None = None
+
+    def __post_init__(self):
+        if (
+            not isinstance(self.beat, (int, float))
+            or not math.isfinite(self.beat)
+            or not 0 <= self.beat <= 1_000_000
+        ):
+            raise ValueError("MIDI control position must be finite and nonnegative")
+        if not isinstance(self.message, list) or not self.message:
+            raise ValueError("MIDI control message is required")
+        status = self.message[0]
+        if type(status) is not int or status & 0xF0 not in (0xA0, 0xB0, 0xC0, 0xD0, 0xE0):
+            raise ValueError("Unsupported MIDI control status")
+        count = 2 if status & 0xF0 in (0xC0, 0xD0) else 3
+        if len(self.message) != count or any(
+            type(v) is not int or not 0 <= v < 128 for v in self.message[1:]
+        ):
+            raise ValueError("Invalid MIDI control data")
+        if self.instrument is not None and (
+            not isinstance(self.instrument, str) or not 0 < len(self.instrument) <= 128
+        ):
+            raise ValueError("Invalid MIDI control instrument")
+        if self.pad is not None and (
+            type(self.pad) is not int or not 0 <= self.pad < 64 or self.instrument is not None
+        ):
+            raise ValueError("Invalid MIDI control sample slot")
+
+
+def read_midi_controls(data):
+    if (
+        not isinstance(data, list)
+        or len(data) > 100000
+        or any(not isinstance(item, dict) for item in data)
+    ):
+        raise ValueError("MIDI controls must be an array of at most 100000 events")
+    return [MidiControl(**item) for item in data]
+
+
+@dataclass
 class Note:
     pitch: int = 60
     start: float = 0.0
@@ -123,10 +167,18 @@ def automation_targets(track_count=None):
     count = MAX_TRACKS if track_count is None else track_count
     if type(count) is not int or not 1 <= count <= MAX_TRACKS:
         raise ValueError("automation track count is outside the mixer limit")
-    return ["master"] + [f"track:{i}:{param}" for i in range(count) for param in ("gain", "pan")]
+    from .prism_motion import TARGETS
+
+    return (
+        ["master"]
+        + [f"track:{i}:{param}" for i in range(count) for param in ("gain", "pan")]
+        + list(TARGETS)
+    )
 
 
 def target_range(target):
+    if target.startswith("prism:"):
+        return (0.0, 1.0)
     return (-1.0, 1.0) if target.endswith(":pan") else (0.0, 1.3)
 
 
@@ -186,3 +238,13 @@ def read_automation(data, *, track_count=None):
     if len({lane.target for lane in lanes}) != len(lanes):
         raise ValueError("automation targets must be unique")
     return lanes
+
+
+def automation_label(target):
+    if target == "master":
+        return "Master • level"
+    if target.startswith("prism:"):
+        from .prism_motion import CONTROLS
+
+        return "Prism • " + CONTROLS[target.split(":")[1]]
+    return f"Track {int(target.split(':')[1]) + 1} • {target.split(':')[2]}"
