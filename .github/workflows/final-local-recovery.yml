@@ -40,7 +40,6 @@ jobs:
                   raise SystemExit(f"{label}: expected source shape not found")
               p.write_text(text.replace(old, new, 1))
 
-          # Engine synth spawning: keep MIDI routing and restore edit ownership.
           replace_once(
               "mpclab/engine.py",
               '''        instrument_id: str | None = None,\n        midi_channel: int = 0,\n        midi_owner: str | None = None,\n    ) -> None:''',
@@ -53,8 +52,6 @@ jobs:
               '''            self.external.note_on(\n                note,\n                velocity,\n                offset,\n                gate_frames,\n                live_trigger,\n                channel=midi_channel,\n                event_source=event_source,\n                trigger_id=trigger_id,\n            )''',
               "engine external synth routing",
           )
-
-          # Realtime mixer: each scheduled event carries its source identity.
           replace_once(
               "mpclab/engine_mixing.py",
               '''        for event in notes:\n            beat, pad_idx, vel, _gate, sequence_id = event\n            off = int(max(0.0, (beat - b0) / bps))''',
@@ -67,8 +64,6 @@ jobs:
               '''                    instrument_id=instrument_id,\n                    midi_channel=getattr(event, "channel", 0),\n                    event_source=source,\n                )''',
               "realtime synth ownership",
           )
-
-          # Offline renderer: preserve expressive MIDI channels and add Prism tempo/curves.
           replace_once(
               "mpclab/engine_offline.py",
               '''from .music import automation_values\nfrom .instrument_state import decode_destination, voice_patch''',
@@ -88,7 +83,6 @@ jobs:
               "offline Prism automation",
           )
 
-          # Keep main's partition-invariant fallback filter, layered with MIDI expression.
           synth_path = Path("mpclab/synth.py")
           merged = synth_path.read_text()
           baseline = subprocess.check_output(
@@ -123,7 +117,6 @@ jobs:
           )
           synth_path.write_text(merged[:current_start] + block + merged[current_end:])
 
-          # Track recording: one capture start, corrected cue, multichannel placement and MIDI take.
           track = Path("mpclab/ui/track_recording.py")
           text = track.read_text()
           text = text.replace(
@@ -178,11 +171,11 @@ jobs:
           uv lock --python 3.12
           uv sync --locked --group dev
 
-      - name: Static checks
+      - name: Format and static checks
         shell: bash
         run: |
           set -euo pipefail
-          uv run --no-sync ruff format --check mpclab tests scripts
+          uv run --no-sync ruff format mpclab tests scripts
           uv run --no-sync ruff check mpclab tests scripts
           uv run --no-sync python -m compileall -q mpclab scripts tests
           git diff --check
@@ -208,6 +201,6 @@ jobs:
           set -euo pipefail
           git config user.name "Anharmoniclabs recovery"
           git config user.email "132678602+Anharmoniclabs@users.noreply.github.com"
-          git add mpclab uv.lock
+          git add mpclab tests scripts uv.lock
           git commit -m "Reconcile recovered DAW, MIDI, scoring and Prism behavior"
           git push origin HEAD:integration/local-handfx-recovery-20260915
