@@ -122,6 +122,11 @@ def test_midi_records_visible_prism_despite_stale_sample_selection(window, monke
     assert released == [((60,), {})]
     note = window.project.pattern().notes[-1]
     assert (note.pitch, note.start, note.duration, note.pad, note.instrument, note.channel) == (
-        60, 0.25, 0.5, None, None, 2
+        60,
+        0.25,
+        0.5,
+        None,
+        None,
+        2,
     )
     assert not window.sample_workflow.recorded
