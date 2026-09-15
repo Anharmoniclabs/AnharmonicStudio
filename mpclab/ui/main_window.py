@@ -268,6 +268,7 @@ def output_device_inventory() -> tuple[list[dict], int | None]:
             {
                 "index": index,
                 "kind": "portaudio",
+                "channels": int(device.get("max_output_channels", 0)),
                 "name": name,
                 "host": host_name,
                 "label": f"{name}  ·  {host_name}",
@@ -411,6 +412,16 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         if audio_buffer not in valid_buffers:
             audio_buffer = DEFAULT_BLOCKSIZE
         self.engine = Engine(self.library, blocksize=audio_buffer)
+        try:
+            channels = json.loads(str(self.settings.value("audio/input_channels", "[0]")))
+            outputs = json.loads(str(self.settings.value("audio/output_channels", "[0, 1]")))
+            if isinstance(channels, list) and 1 <= len(channels) <= 64 and all(type(c) is int and 0 <= c < 64 for c in channels):
+                self.project.vocal_record.input_channels = channels
+            if isinstance(outputs, list) and len(outputs) == 2 and all(type(c) is int and 0 <= c < 64 for c in outputs):
+                self.engine.output_channels = tuple(outputs)
+            self.project.vocal_record.split_inputs = str(self.settings.value("audio/split_inputs", "false")).lower() == "true"
+        except (ValueError, TypeError):
+            pass
         self._audio_output_key = str(self.settings.value("audio/output_device", "") or "")
         if self._audio_output_key:
             try:
@@ -551,6 +562,8 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             str(self.settings.value("audio/input_device", "") or ""),
             str(self.settings.value("audio/workflow", "build") or "build"),
         )
+        rec = self.project.vocal_record
+        dialog.select_channels(rec.input_channels, self.engine.output_channels, rec.split_inputs, rec.monitor)
         dialog.accepted.connect(lambda: self._apply_audio_setup(dialog))
         dialog.finished.connect(lambda _result: self._audio_setup_closed(dialog))
         dialog.open()
@@ -563,6 +576,12 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
     def _apply_audio_setup(self, dialog: AudioSetupDialog) -> None:
         """Persist accepted onboarding choices through existing controls."""
         output_key = dialog.output_key
+        if self.track_capture.busy or self.vocal_panel.recorder.recording:
+            self.status.showMessage("Finish the take before changing audio devices", 5000)
+            return
+        mapping = tuple(dialog.output_channels.currentData() or (0, 1))
+        previous_mapping = self.engine.output_channels
+        self.engine.output_channels = mapping
         if output_key != self._audio_output_key:
             self._select_audio_output(output_key)
         frames = dialog.recommended_frames
@@ -574,11 +593,27 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.settings.setValue("audio/setup_complete", True)
         rec = self.project.vocal_record
         rec.input_device = dialog.input_key
+        selected, split = dialog.input_channels.currentData() or ((0,), False)
+        rec.input_channels, rec.split_inputs = list(selected), split
+        rec.monitor = bool(dialog.monitor_mode.currentData())
+        self.settings.setValue("audio/input_channels", json.dumps(rec.input_channels))
+        self.settings.setValue("audio/split_inputs", rec.split_inputs)
+        self.settings.setValue("audio/output_channels", json.dumps(mapping))
+        if previous_mapping != mapping and self.engine.stream is not None:
+            try:
+                self.engine.restart(self.engine.blocksize)
+            except Exception as exc:
+                self.engine.output_channels = previous_mapping
+                self.status.showMessage(f"Output channels unavailable: {exc}", 6000)
+                return
         if dialog.calibration is not None:
             milliseconds = dialog.calibration.milliseconds
             rec.input_latency_ms = milliseconds
             self.settings.setValue("audio/roundtrip_latency_ms", milliseconds)
             self.settings.setValue("audio/roundtrip_confidence", dialog.calibration.confidence)
+        else:
+            rec.input_latency_ms = 0.0
+            self.settings.setValue("audio/roundtrip_latency_ms", 0.0)
         self._set_dirty(True)
         self.vocal_panel.sync()
         self.track_inspector.sync()
@@ -586,11 +621,18 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     def _run_setup_loopback_calibration(self, input_device=None, output_device=None):
         """Temporarily yield the live device to the explicit cable test."""
+        if self.track_capture.busy or self.vocal_panel.recorder.recording:
+            raise RuntimeError("Finish the current take before running calibration")
         was_running = self.engine.stream is not None
         if was_running:
             self.engine.stop()
         try:
-            return run_loopback_calibration(input_device, output_device, self.engine.sr)
+            dialog = self._audio_setup_dialog
+            frames = dialog.recommended_frames if dialog else self.engine.blocksize
+            selected, _split = dialog.input_channels.currentData() if dialog else ((0,), False)
+            outputs = tuple(dialog.output_channels.currentData()) if dialog else self.engine.output_channels
+            return run_loopback_calibration(input_device, output_device, self.engine.sr,
+                                            blocksize=frames, input_channel=selected[0], output_channels=outputs)
         finally:
             if was_running:
                 try:
@@ -957,7 +999,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         sc("F10", lambda: self.show_tab(self.TAB_VOCALS))
         sc("F11", lambda: self.btn_playlist_focus.toggle())
         sc("F12", lambda: self.show_tab(self.TAB_PIANO))
-        for i in range(self.tabs.count()):
+        for i in range(min(9, self.tabs.count())):
             sc(f"Ctrl+{i + 1}", lambda idx=i: self.show_tab(idx))
 
     # ── keyboard: pads and transport ─────────────────────────
@@ -1675,6 +1717,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         if self.typing_keyboard is not None:
             self.typing_keyboard.panic()
         self.separator.shutdown()
+        self.scoring_panel.shutdown()
         self.vocal_panel.shutdown()
         self.engine.stop_transport(rewind=True)
         self.engine.stop()

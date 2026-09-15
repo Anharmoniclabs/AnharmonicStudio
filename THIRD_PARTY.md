@@ -1,5 +1,15 @@
 # Source and media licensing
 
+Audio-to-score transcription runs the bundled Spotify Basic Pitch ONNX model
+(Apache-2.0) using ONNX Runtime (MIT). The model, license and checksum are in
+`assets/models/basic-pitch/`. Song separation uses the optional Demucs engine
+already described below; model weights may be downloaded on first use.
+
+The Scoring workspace uses [Verovio](https://www.verovio.org/) (LGPLv3)
+for MusicXML engraving. Release bundles include its notation resources,
+package metadata and license notices. Upstream source is available at
+https://github.com/rism-digital/verovio.
+
 The original Anharmonic Studio application source and documentation are
 distributed under the [GNU General Public License v3.0 or later](LICENSE).
 This does not relicense Python dependencies, optional models, external programs,

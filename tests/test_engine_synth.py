@@ -10,7 +10,7 @@ import numpy as np
 
 sys.modules["sounddevice"] = types.SimpleNamespace(OutputStream=object)
 
-from mpclab.engine import Engine, MAX_SYNTH_VOICES
+from mpclab.engine import Engine
 
 
 class _Library:
@@ -46,10 +46,10 @@ class EngineSynthTests(unittest.TestCase):
         self.assertEqual(self.engine.arp_state.held, {60, 64, 67})
 
     def test_voice_stealing_caps_polyphony(self):
-        for note in range(48, 48 + MAX_SYNTH_VOICES + 5):
+        for note in range(48, 48 + self.engine.synth_polyphony + 5):
             self.engine.synth_note_on(note)
         self.callback()
-        self.assertLessEqual(len(self.engine.synth_voices), MAX_SYNTH_VOICES)
+        self.assertLessEqual(len(self.engine.synth_voices), self.engine.synth_polyphony)
 
 
 if __name__ == "__main__":

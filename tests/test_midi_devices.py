@@ -111,7 +111,7 @@ def test_unmapped_expression_reaches_instrument_and_mapped_controls_are_consumed
     router.handle("keys", [0xE3, 0, 100])
     router.handle("keys", [0xB0, 1, 90])
     router.handle("keys", [0xB0, 7, 100])
-    assert expression == [[0xE0, 0, 100], [0xB0, 1, 90]]
+    assert expression == [[0xE3, 0, 100], [0xB0, 1, 90]]
     assert calls == [("control", "master", 100)]
 
 

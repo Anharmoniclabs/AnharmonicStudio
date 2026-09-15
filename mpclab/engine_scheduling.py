@@ -13,6 +13,7 @@ import numpy as np
 from .model import NPADS
 from .music import Note
 from .instrument_state import event_destination
+from .midi_playback import ScheduledNote, sustained_duration
 
 if TYPE_CHECKING:
     from .engine import Engine
@@ -82,7 +83,7 @@ def pattern_events(
             for note in pat.notes:
                 beat = base + note.start
                 if note.start < length and b0 - 1e-10 <= beat < min(b1, limit) - 1e-10:
-                    gate = min(note.duration, length - note.start, limit - beat)
+                    gate = min(sustained_duration(pat, note), length - note.start, limit - beat)
                     # Preserve the existing five-field event protocol:
                     # -1..-128 = synth; 0..63 = drum; >=64 = sample slot/pitch.
                     destination = (
@@ -90,7 +91,7 @@ def pattern_events(
                         if note.pad is None
                         else NPADS + note.pad * 128 + note.pitch
                     )
-                    out.append((beat, destination, note.velocity, gate, sequence_id))
+                    out.append(ScheduledNote((beat, destination, note.velocity, gate, sequence_id), note.channel, note.release_velocity))
     sd_ = 1.0 / pat.div
     total = pat.total_steps
     if total <= 0:

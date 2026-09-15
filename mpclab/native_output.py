@@ -10,10 +10,16 @@ from __future__ import annotations
 
 import ctypes as ct
 import threading
+import time
+from types import SimpleNamespace
 
 import numpy as np
 
 from .native_core import stereo
+
+
+class DuplexHandles(ct.Structure):
+    _fields_ = [("input", ct.c_void_p), ("output", ct.c_void_p)]
 
 
 class OutputQueue:
@@ -71,10 +77,21 @@ class NativeOutputStream:
 
     native_callback = True
 
-    def __init__(self, sd, native, *, callback, samplerate, blocksize, **options):
+    def __init__(self, sd, native, *, callback, samplerate, blocksize, output_channels=(0, 1), capture_queue=None, **options):
         self.frames, self.sample_rate = blocksize, samplerate
         self.render = callback
         self.queue = OutputQueue(native.lib, blocksize * 2)
+        mapping = tuple(output_channels)
+        if len(mapping) != 2 or any(type(c) is not int or not 0 <= c < 64 for c in mapping):
+            self.queue.close()
+            raise ValueError("Select a valid stereo output pair")
+        if mapping != (0, 1):
+            function = native.lib.anh_output_channels
+            function.argtypes, function.restype = [ct.c_void_p, ct.c_size_t, ct.c_size_t, ct.c_size_t], ct.c_int
+            if function(self.queue.handle, max(mapping) + 1, *mapping):
+                self.queue.close()
+                raise ValueError("Output channel mapping failed")
+            options["channels"] = max(mapping) + 1
         self._stop = threading.Event()
         self._ready = threading.Event()
         self._worker = None
@@ -83,13 +100,22 @@ class NativeOutputStream:
         self._closed = False
         self._audio = np.zeros((blocksize, 2), dtype=np.float32)
         try:
-            address = ct.cast(native.lib.anh_output_callback, ct.c_void_p).value
+            kind = "output"
+            userdata = self.queue.handle
+            function = native.lib.anh_output_callback
+            if capture_queue is not None:
+                kind = "duplex"
+                self._duplex_handles = DuplexHandles(capture_queue.handle, self.queue.handle)
+                userdata = ct.addressof(self._duplex_handles)
+                options["channels"] = (capture_queue.channels, max(mapping) + 1)
+                function = native.lib.anh_duplex_callback
+            address = ct.cast(function, ct.c_void_p).value
             self._host = sd._StreamBase(
-                "output",
+                kind,
                 samplerate=samplerate,
                 blocksize=blocksize,
                 callback=sd._ffi.cast("PaStreamCallback*", address),
-                userdata=sd._ffi.cast("void*", self.queue.handle),
+                userdata=sd._ffi.cast("void*", userdata),
                 wrap_callback=None,
                 **options,
             )
@@ -101,7 +127,12 @@ class NativeOutputStream:
         try:
             while not self._stop.is_set():
                 if self.queue.available <= self.frames:
-                    self.render(self._audio, self.frames, None, False)
+                    # Estimated presentation time of this producer block. The
+                    # callback's render cursor must not be mistaken for what
+                    # the performer currently hears.
+                    presentation = time.monotonic() + self.host_output_latency + self.queue.available / self.sample_rate
+                    self.render(self._audio, self.frames,
+                                SimpleNamespace(output_monotonic=presentation), False)
                     if not self.queue.write(self._audio):
                         raise RuntimeError("Native output producer violated its queue bound")
                     if self.queue.available >= self.frames * 2:
@@ -158,9 +189,14 @@ class NativeOutputStream:
                 self._closed = True
 
     @property
+    def host_output_latency(self):
+        value = self._host.latency
+        return float(value[-1] if isinstance(value, (tuple, list)) else value)
+
+    @property
     def latency(self):
         return (
-            float(self._host.latency) + self.frames * 2 / self.sample_rate
+            self.host_output_latency + self.frames * 2 / self.sample_rate
             if self._host is not None
             else 0.0
         )

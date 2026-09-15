@@ -17,6 +17,7 @@ from .instrument_state import decode_destination, voice_patch
 from .sample_voice import _balance_gains
 from .native_dsp import NATIVE
 from .workflow_routing import clear_bus_buffers, finish_buses, route_track
+from .midi_playback import controls_in_range, render_expressive_voice, remember_control
 
 if TYPE_CHECKING:
     from .engine import Engine
@@ -77,7 +78,8 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         b0 = engine.beat
         b1 = b0 + frames * bps
         notes, audio = engine._collect(b0, b1, reuse=True)
-        for beat, pad_idx, vel, _gate, sequence_id in notes:
+        for event in notes:
+            beat, pad_idx, vel, _gate, sequence_id = event
             off = int(max(0.0, (beat - b0) / bps))
             if pad_idx < 0:
                 instrument_id, pitch = decode_destination(proj, pad_idx)
@@ -88,6 +90,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
                     max(1, int(_gate / bps)),
                     live_trigger=False,
                     instrument_id=instrument_id,
+                    midi_channel=getattr(event, "channel", 0),
                 )
             elif pad_idx >= NPADS:
                 index, pitch = divmod(pad_idx - NPADS, 128)
@@ -141,8 +144,19 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         if preview.loop:
             travelled %= span
         engine.audition_time = (preview.s0 + travelled) / engine.sr
+    midi_controls = []
+    if engine.playing:
+        bps = proj.bpm / 60 / engine.sr
+        midi_controls = [(round((beat - start_beat) / bps), control)
+                         for beat, control in controls_in_range(proj, engine.mode, start_beat, start_beat + frames * bps)]
+    for frame, control in midi_controls:
+        if control.instrument is None and control.pad is None:
+            engine.external.events.append((control.message, max(0, frame)))
     for voice in engine.synth_voices:
-        voice.render(tbuf[voice.track], voice_patch(proj, voice))
+        render_expressive_voice(voice, tbuf[voice.track], voice_patch(proj, voice),
+                                engine.midi_playback_state, midi_controls)
+    for _, control in midi_controls:
+        remember_control(engine.midi_playback_state, control)
     for index in range(len(engine.synth_voices) - 1, -1, -1):
         if engine.synth_voices[index].dead:
             del engine.synth_voices[index]

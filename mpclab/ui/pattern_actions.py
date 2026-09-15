@@ -40,6 +40,8 @@ class PatternActionsMixin:
         self.step_grid.refresh()
         if hasattr(self, "piano_roll"):
             self.piano_roll.sync()
+        if hasattr(self, "scoring_panel") and self.scoring_panel.isVisible():
+            self.scoring_panel.refresh()
 
     def _pattern_picked(self, idx):
         if idx < 0:

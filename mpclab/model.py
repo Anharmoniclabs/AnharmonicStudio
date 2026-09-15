@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass, field, asdict, replace
 from pathlib import Path
 
-from .music import Note, AutomationLane, read_notes, read_automation
+from .music import Note, MidiControl, AutomationLane, read_notes, read_automation, read_midi_controls
 from .plugin_registry import validate_project_plugins
 from .project_migrations import legacy_mixer_track_id, migrate_project_document
 
@@ -193,6 +193,7 @@ class Pattern:
     bars: int = 2
     div: int = 4  # steps per beat
     notes: list[Note] = field(default_factory=list)
+    midi_controls: list[MidiControl] = field(default_factory=list)
     # pad index -> {step index: velocity}
     steps: dict[int, dict[int, float]] = field(default_factory=dict)
 
@@ -342,6 +343,8 @@ class VocalRecordSettings:
     """Project-local defaults for the vocal capture deck."""
 
     input_device: str = ""  # stable ``host/name`` key; empty = default
+    input_channels: list[int] = field(default_factory=lambda: [0])
+    split_inputs: bool = False
     input_gain_db: float = 0.0
     input_latency_ms: float = 0.0  # measured input/loopback placement offset
     monitor: bool = False
@@ -350,6 +353,12 @@ class VocalRecordSettings:
     auto_place: bool = True
     playlist_row: int = 0
     mixer_track: int = 3
+
+    def __post_init__(self):
+        if not isinstance(self.input_channels, list) or not 1 <= len(self.input_channels) <= 64 or any(type(c) is not int or not 0 <= c < 64 for c in self.input_channels) or len(set(self.input_channels)) != len(self.input_channels):
+            raise ValueError("Recording inputs must be distinct channel numbers from 1 to 64")
+        if type(self.split_inputs) is not bool:
+            raise ValueError("Separate-input recording must be enabled or disabled")
 
 
 @dataclass
@@ -918,6 +927,7 @@ class Project:
                     div=div,
                     steps=steps,
                     notes=read_notes(p.get("notes", [])),
+                    midi_controls=read_midi_controls(p.get("midi_controls", [])),
                 )
             )
         proj.patterns = pats or [Pattern()]

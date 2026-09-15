@@ -20,6 +20,7 @@ from .instrument_state import decode_destination, voice_patch
 from .plugin_chain_runtime import OfflinePluginChains, RoutingDelayBank, compile_chain_latency_plan
 from .plugin_latency import PluginDelayCompensator, plugin_path_latency_samples
 from .sample_voice import PadRenderWorkspace, PadVoice, _balance_gains
+from .midi_playback import controls_in_range, render_expressive_voice, remember_control
 from .workflow_routing import (
     MAX_ROUTING_BUSES,
     clear_bus_buffers,
@@ -272,7 +273,8 @@ def iter_offline_blocks(
     try:
         notes, audio = engine._collect(0.0, length_beats)
         synth_events = []
-        for beat, index, velocity, gate, _sequence_id in notes:
+        for event in notes:
+            beat, index, velocity, gate, _sequence_id = event
             if index < 0:
                 instrument_id, pitch = decode_destination(proj, index)
                 synth_events.append(
@@ -282,15 +284,23 @@ def iter_offline_blocks(
                         velocity,
                         max(1, int(gate * spb * engine.sr)),
                         instrument_id,
+                        getattr(event, "channel", 0),
                     )
                 )
         synth_events.sort(key=lambda event: event[0])
+        control_events = [(round(beat * spb * engine.sr), control)
+                          for beat, control in controls_in_range(proj, mode, 0, length_beats)]
+        control_index = 0
+        control_state = {}
         synth_voices = []
         next_synth = 0
         if proj.plugins:
             plugins = OfflinePlugins(
-                proj.plugins, engine.sr, [event[:4] for event in synth_events if event[4] is None]
+                proj.plugins, engine.sr, [(*event[:4], event[5]) for event in synth_events if event[4] is None]
             )
+            if plugins.instrument is not None:
+                plugins.events.extend((at, c.message) for at, c in control_events if c.instrument is None and c.pad is None)
+                plugins.events.sort(key=lambda event: event[0])
         voices: list[tuple[int, PadVoice]] = []
         for event in notes:
             item = engine._offline_pad_event(*event, spb)
@@ -391,7 +401,7 @@ def iter_offline_blocks(
                     del active[index]
 
             while next_synth < len(synth_events) and synth_events[next_synth][0] < stop:
-                at, pitch, velocity, gate, instrument_id = synth_events[next_synth]
+                at, pitch, velocity, gate, instrument_id, channel = synth_events[next_synth]
                 if instrument_id is not None or plugins is None or plugins.instrument is None:
                     engine._spawn_synth(
                         pitch,
@@ -401,10 +411,18 @@ def iter_offline_blocks(
                         voices=synth_voices,
                         live_trigger=False,
                         instrument_id=instrument_id,
+                        midi_channel=channel,
                     )
                 next_synth += 1
+            block_controls = []
+            while control_index < len(control_events) and control_events[control_index][0] < stop:
+                at, control = control_events[control_index]
+                block_controls.append((max(0, at - start), control))
+                control_index += 1
             for voice in synth_voices:
-                voice.render(tracks[voice.track], voice_patch(proj, voice))
+                render_expressive_voice(voice, tracks[voice.track], voice_patch(proj, voice), control_state, block_controls)
+            for _, control in block_controls:
+                remember_control(control_state, control)
             synth_voices[:] = [voice for voice in synth_voices if not voice.dead]
             if plugins is not None and plugins.instrument is not None:
                 external_block = external[:frames]
