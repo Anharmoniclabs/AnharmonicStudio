@@ -3,7 +3,6 @@
 from dataclasses import replace
 from collections import deque
 import math
-import numpy as np
 
 import numpy as np
 
@@ -47,6 +46,7 @@ class TrackCapture(WindowClient, QObject):
         self.pending = False
         self.unsaved = None
         self._capture_sample_rate = None
+        self._live_monitor = None
         self.notes = []
         self.midi_take = None
         self.held = {}
@@ -146,15 +146,22 @@ class TrackCapture(WindowClient, QObject):
                         )
                 self.recorder.sample_rate = app.engine.sr
                 self.recorder.blocksize = app.engine.blocksize
+                self.recorder.input_channels = tuple(self.settings.input_channels)
                 from ..autotune.live import LiveMonitor, MonitorRoute
 
                 route = MonitorRoute(self.recorder, app.engine, self.settings.monitor_gain)
-                # Start dry capture first, then initialize using its negotiated rate.
                 self.recorder.start(
                     device, self.settings.input_gain_db, route if self.settings.monitor else None
                 )
-                self.recorder.input_channels = tuple(self.settings.input_channels)
-                self.recorder.start(device, self.settings.input_gain_db, monitor)
+                if self.settings.monitor and self.settings.corrected_monitor:
+                    try:
+                        self._live_monitor = LiveMonitor(
+                            self.project.vocal, self.recorder.sample_rate, route
+                        )
+                        self.recorder.monitor_callback = self._live_monitor.push
+                    except Exception as exc:
+                        self._cue_error = f"Corrected cue unavailable; monitoring dry · {exc}"
+                self._capture_sample_rate = self.recorder.sample_rate
         except Exception as exc:
             self.message = f"Input could not start · {exc}"
             self.target = None
@@ -212,6 +219,9 @@ class TrackCapture(WindowClient, QObject):
             return
         if not self.active:
             return
+        if self._live_monitor is not None:
+            self._live_monitor.close()
+            self._live_monitor = None
         if self.midi_take is not None:
             completed = self.app.engine.midi.end_take()
             if completed is not None:
@@ -275,21 +285,50 @@ class TrackCapture(WindowClient, QObject):
                 split = self.settings.split_inputs or audio.shape[1] > 2
                 sources = []
                 for channel in range(len(self.settings.input_channels) if split else 1):
-                    block = np.repeat(audio[:, channel:channel + 1], 2, axis=1) if split else audio
-                    label = f"{name} · Input {self.settings.input_channels[channel] + 1}" if split else name
-                    sources.append(app.library.add_audio(block, label, kind="recording"))
+                    block = (
+                        np.repeat(audio[:, channel : channel + 1], 2, axis=1) if split else audio
+                    )
+                    label = (
+                        f"{name} · Input {self.settings.input_channels[channel] + 1}"
+                        if split
+                        else name
+                    )
+                    sources.append(
+                        app.library.add_audio(
+                            block,
+                            label,
+                            kind="recording",
+                            source_sample_rate=self._capture_sample_rate,
+                        )
+                    )
                 for channel, source in enumerate(sources):
-                    beat, trim, length = take_placement(self.start_beat, source.duration, app.project.bpm,
-                        self.settings.input_latency_ms, first_capture=self.recorder.first_capture_monotonic,
-                        anchor=app.engine.capture_anchor)
-                    placed = Clip(kind="audio", ref=source.id, start_beat=beat, offset=trim,
-                                  length_beats=max(1 / app.engine.sr, length), source_length=source.duration,
-                                  track=min(len(app.project.tracks) - 1, self.target.record_track + channel))
+                    beat, trim, length = take_placement(
+                        self.start_beat,
+                        source.duration,
+                        app.project.bpm,
+                        self.settings.input_latency_ms,
+                        first_capture=self.recorder.first_capture_monotonic,
+                        anchor=app.engine.capture_anchor,
+                    )
+                    placed = Clip(
+                        kind="audio",
+                        ref=source.id,
+                        start_beat=beat,
+                        offset=trim,
+                        length_beats=max(1 / app.engine.sr, length),
+                        source_length=source.duration,
+                        track=min(len(app.project.tracks) - 1, self.target.record_track + channel),
+                    )
                     if channel == 0:
                         clip = placed
                     else:
-                        additional_rows.append(Row(name=f"{self.target.name} · Input {self.settings.input_channels[channel] + 1}",
-                                                   clips=[placed], record_track=placed.track))
+                        additional_rows.append(
+                            Row(
+                                name=f"{self.target.name} · Input {self.settings.input_channels[channel] + 1}",
+                                clips=[placed],
+                                record_track=placed.track,
+                            )
+                        )
             else:
                 length = max(n.start + n.duration for n in notes)
                 pattern = Pattern(name=name, bars=max(1, math.ceil(length / 4)))
@@ -308,6 +347,8 @@ class TrackCapture(WindowClient, QObject):
             row.clips.append(clip)
             position = app.project.rows.index(row) + 1
             app.project.rows[position:position] = additional_rows
+            if audio is not None:
+                app.engine.preload_project_audio()
         except Exception as exc:
             app.discard_snapshot()
             app._redo[:] = previous_redo
@@ -353,6 +394,7 @@ class TrackCapture(WindowClient, QObject):
             self.changed.emit()
             return
         self.unsaved = None
+        self.midi_take = None
         self.target = None
         self.notes.clear()
         self.peaks.clear()

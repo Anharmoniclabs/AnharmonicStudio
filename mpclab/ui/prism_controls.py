@@ -407,7 +407,9 @@ class PrismControls(WindowClient, QWidget):
         root.setSpacing(10)
         header = QHBoxLayout()
         title = QLabel("PRISM")
-        title.setStyleSheet("font-size: 26px; font-weight: 600; letter-spacing: 4px; color: #eeeae2; padding: 0px")
+        title.setStyleSheet(
+            "font-size: 26px; font-weight: 600; letter-spacing: 4px; color: #eeeae2; padding: 0px"
+        )
         header.addWidget(title)
         header.addStretch()
         for label, callback in (
@@ -561,9 +563,7 @@ class PrismControls(WindowClient, QWidget):
         right.addWidget(tabs, 1)
         body.addLayout(right, 1)
         root.addLayout(body, 1)
-        hint = QLabel(
-            "Shift + drag  ·  Fine adjustment          Double-click  ·  Reset control"
-        )
+        hint = QLabel("Shift + drag  ·  Fine adjustment          Double-click  ·  Reset control")
         hint.setStyleSheet("color: #aaa69e; padding: 4px")
         root.addWidget(hint)
         self.timer = QTimer(self)
@@ -573,6 +573,7 @@ class PrismControls(WindowClient, QWidget):
 
     def show_camera(self):
         from .prism_camera import PrismCameraDialog
+
         if self.camera_dialog is None:
             self.camera_dialog = PrismCameraDialog(self)
         self.camera_dialog.show()

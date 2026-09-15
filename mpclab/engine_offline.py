@@ -16,6 +16,7 @@ from .external_dsp import OfflinePlugins
 from .fx import MixRack
 from .model import NPADS
 from .music import automation_values
+from .prism_motion import automation_parameters
 from .instrument_state import decode_destination, voice_patch
 from .plugin_chain_runtime import OfflinePluginChains, RoutingDelayBank, compile_chain_latency_plan
 from .plugin_latency import PluginDelayCompensator, plugin_path_latency_samples
@@ -289,18 +290,27 @@ def iter_offline_blocks(
                     )
                 )
         synth_events.sort(key=lambda event: event[0])
-        control_events = [(round(beat * spb * engine.sr), control)
-                          for beat, control in controls_in_range(proj, mode, 0, length_beats)]
+        control_events = [
+            (round(beat * spb * engine.sr), control)
+            for beat, control in controls_in_range(proj, mode, 0, length_beats)
+        ]
         control_index = 0
         control_state = {}
         synth_voices = []
         next_synth = 0
         if proj.plugins:
             plugins = OfflinePlugins(
-                proj.plugins, engine.sr, [(*event[:4], event[5]) for event in synth_events if event[4] is None]
+                proj.plugins,
+                engine.sr,
+                [(*event[:4], event[5]) for event in synth_events if event[4] is None],
+                proj.bpm,
             )
             if plugins.instrument is not None:
-                plugins.events.extend((at, c.message) for at, c in control_events if c.instrument is None and c.pad is None)
+                plugins.events.extend(
+                    (at, c.message)
+                    for at, c in control_events
+                    if c.instrument is None and c.pad is None
+                )
                 plugins.events.sort(key=lambda event: event[0])
         voices: list[tuple[int, PadVoice]] = []
         for event in notes:
@@ -422,14 +432,23 @@ def iter_offline_blocks(
                 block_controls.append((max(0, at - start), control))
                 control_index += 1
             for voice in synth_voices:
-                render_expressive_voice(voice, tracks[voice.track], voice_patch(proj, voice), control_state, block_controls)
+                render_expressive_voice(
+                    voice,
+                    tracks[voice.track],
+                    voice_patch(proj, voice),
+                    control_state,
+                    block_controls,
+                )
             for _, control in block_controls:
                 remember_control(control_state, control)
             synth_voices[:] = [voice for voice in synth_voices if not voice.dead]
             if plugins is not None and plugins.instrument is not None:
                 external_block = external[:frames]
                 external_block.fill(0.0)
-                plugins.render_instrument(external_block, start, frames)
+                parameters = {}
+                if mode == "song" and plugins.instrument.info.get("name") == "Anharmonic Prism":
+                    parameters = automation_parameters(proj, start / (spb * engine.sr))
+                plugins.render_instrument(external_block, start, frames, parameters)
                 if plugin_pdc.delay_samples > 0:
                     plugin_pdc.process(tracks, frames)
                 synth_track = proj.validate_track_index(proj.synth.track, "synth output")

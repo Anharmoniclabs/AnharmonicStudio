@@ -155,7 +155,11 @@ def automation_targets(track_count=None):
         raise ValueError("automation track count is outside the mixer limit")
     from .prism_motion import TARGETS
 
-    return ["master"] + [f"track:{i}:{param}" for i in range(count) for param in ("gain", "pan")] + list(TARGETS)
+    return (
+        ["master"]
+        + [f"track:{i}:{param}" for i in range(count) for param in ("gain", "pan")]
+        + list(TARGETS)
+    )
 
 
 def target_range(target):
@@ -227,5 +231,6 @@ def automation_label(target):
         return "Master • level"
     if target.startswith("prism:"):
         from .prism_motion import CONTROLS
+
         return "Prism • " + CONTROLS[target.split(":")[1]]
     return f"Track {int(target.split(':')[1]) + 1} • {target.split(':')[2]}"

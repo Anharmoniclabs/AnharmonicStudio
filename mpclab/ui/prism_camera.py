@@ -52,8 +52,10 @@ class HandPreview(QWidget):
             p.setRenderHint(QPainter.Antialiasing)
             cx, cy = self.width() / 2, self.height() / 2
             scale = min(self.height() / 300, self.width() / 600)
+
             def at(x, y):
                 return QPointF(cx + x * scale, cy + y * scale)
+
             p.setPen(QPen(QColor("#313944"), 1))
             for radius in (75, 115, 155):
                 p.drawEllipse(at(0, 0), radius * scale, radius * scale)
@@ -62,7 +64,7 @@ class HandPreview(QWidget):
             for i, (x, y) in enumerate(tips):
                 color = QColor(FINGER_EFFECTS[i][4])
                 p.setPen(QPen(QColor("#657781"), 9 * scale, Qt.SolidLine, Qt.RoundCap))
-                joint = at(x * .65, 15)
+                joint = at(x * 0.65, 15)
                 p.drawLine(wrist, joint)
                 p.drawLine(joint, at(x, y))
                 p.setPen(Qt.NoPen)
@@ -78,8 +80,11 @@ class HandPreview(QWidget):
             p.drawLine(wrist, at(-72, 35))
             p.drawLine(at(-72, 35), at(-105, -5))
             p.setPen(QColor("#b9c9c3"))
-            p.drawText(QRectF(0, self.height() - 30, self.width(), 25), Qt.AlignCenter,
-                       "FOUR FINGERS. FOUR WAYS TO SHAPE YOUR SOUND.")
+            p.drawText(
+                QRectF(0, self.height() - 30, self.width(), 25),
+                Qt.AlignCenter,
+                "FOUR FINGERS. FOUR WAYS TO SHAPE YOUR SOUND.",
+            )
             return
         size = self.image.size().scaled(self.size(), Qt.KeepAspectRatio)
         r = QRectF(
@@ -135,7 +140,9 @@ class PrismCameraDialog(WindowClient, QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         title = QLabel("PRISM  /  HAND FX")
-        title.setStyleSheet("font-size: 24px; font-weight: 600; letter-spacing: 3px; color: #d7fff1;")
+        title.setStyleSheet(
+            "font-size: 24px; font-weight: 600; letter-spacing: 3px; color: #d7fff1;"
+        )
         layout.addWidget(title)
         hint = QLabel(
             "Play a Prism sound. Touch a finger to your thumb to grab its effect.\n"
@@ -155,7 +162,9 @@ class PrismCameraDialog(WindowClient, QDialog):
         self.effect_meters = []
         for finger, key, name, description, color in FINGER_EFFECTS:
             card = QFrame()
-            card.setStyleSheet(f"QFrame {{ background: #22252d; border: 1px solid {color}; border-radius: 10px; }} QLabel {{ border: none; }}")
+            card.setStyleSheet(
+                f"QFrame {{ background: #22252d; border: 1px solid {color}; border-radius: 10px; }} QLabel {{ border: none; }}"
+            )
             body = QVBoxLayout(card)
             label = QLabel(f"{finger.upper()} + THUMB")
             label.setStyleSheet(f"color: {color}; font-size: 10px; font-weight: 600;")
@@ -171,7 +180,9 @@ class PrismCameraDialog(WindowClient, QDialog):
             meter.setRange(0, 100)
             meter.setValue(round(self.panel.values.get(key, 0) * 100))
             meter.setFormat("%p%")
-            meter.setStyleSheet(f"QProgressBar {{ background: #15171e; border: none; border-radius: 4px; height: 18px; text-align: center; color: white; }} QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}")
+            meter.setStyleSheet(
+                f"QProgressBar {{ background: #15171e; border: none; border-radius: 4px; height: 18px; text-align: center; color: white; }} QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}"
+            )
             body.addWidget(meter)
             self.effect_cards.append(card)
             self.effect_names.append(title)
@@ -365,7 +376,9 @@ class PrismCameraDialog(WindowClient, QDialog):
             if self._gesture:
                 self.release_gesture()
             self.status.setText(
-                "Ready · touch a fingertip to your thumb" if points else "Show one hand to the camera"
+                "Ready · touch a fingertip to your thumb"
+                if points
+                else "Show one hand to the camera"
             )
         else:
             if not self._gesture:
@@ -384,13 +397,17 @@ class PrismCameraDialog(WindowClient, QDialog):
                 self.status.setText(str(exc))
                 return
             self.status.setText(
-                FINGER_EFFECTS[self.mapper.finger][0] + " pinch · " + "   ".join(f"{CONTROLS[k]} {v:.0%}" for k, v in values.items())
+                FINGER_EFFECTS[self.mapper.finger][0]
+                + " pinch · "
+                + "   ".join(f"{CONTROLS[k]} {v:.0%}" for k, v in values.items())
             )
         self.preview.finger = self.mapper.finger
         for i, box in enumerate(self.mapping):
             value = values.get(box.currentData(), current.get(box.currentData(), 0))
             self.effect_meters[i].setValue(round(value * 100))
-            self.effect_meters[i].setFormat("LIVE · %p%" if self._gesture and self.mapper.finger == i else "%p%")
+            self.effect_meters[i].setFormat(
+                "LIVE · %p%" if self._gesture and self.mapper.finger == i else "%p%"
+            )
         self.preview.active = self._gesture
         self.preview.update()
 

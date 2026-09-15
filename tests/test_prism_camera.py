@@ -278,6 +278,7 @@ def test_each_finger_controls_only_its_effect(finger, key):
 
 def test_finger_switch_requires_a_fresh_pinch_and_pickup():
     from mpclab.prism_motion import FingerFXMapper
+
     mapper = FingerFXMapper()
     mapper.update(hand(0), {"12": 0.4})
     mapper.update(hand(0.1), {"12": 0.4})
@@ -285,5 +286,7 @@ def test_finger_switch_requires_a_fresh_pinch_and_pickup():
     points[12] = (0.51, 0.4, 0)
     assert mapper.update(GestureFrame(0.2, tuple(points)), {}) == {}
     assert mapper.update(GestureFrame(0.3, tuple(points)), {}) == {}
-    assert mapper.update(GestureFrame(0.4, tuple(points)), {"26": 0.7}) == pytest.approx({"26": 0.7})
+    assert mapper.update(GestureFrame(0.4, tuple(points)), {"26": 0.7}) == pytest.approx(
+        {"26": 0.7}
+    )
     assert mapper.update(GestureFrame(1.0, tuple(points)), {}) == {}

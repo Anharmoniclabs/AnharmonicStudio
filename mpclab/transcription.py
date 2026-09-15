@@ -78,6 +78,7 @@ def signal_level(path, cancel):
 
 def decode_audio(source, destination, cancel, *, rate=SAMPLE_RATE, channels=1):
     """Decode through an owned, headless FFmpeg child, with a hard length cap."""
+    check_cancel(cancel)
     ffmpeg = media_tool("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("FFmpeg is required to read song audio.")
