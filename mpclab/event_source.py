@@ -1,6 +1,7 @@
 """Transient event ownership for stopping deleted pattern events, never serialized."""
 
 from dataclasses import dataclass
+
 from .engine_constants import FADE
 
 
@@ -20,11 +21,13 @@ class EventSource:
 
 
 class ScheduledNote(tuple):
-    """Keep the five-field scheduling protocol, with realtime-only ownership."""
+    """Five-field scheduler event with realtime ownership and MIDI metadata."""
 
-    def __new__(cls, values, source):
+    def __new__(cls, values, source=None, channel=0, release_velocity=0):
         event = super().__new__(cls, values)
         event.source = source
+        event.channel = channel
+        event.release_velocity = release_velocity
         return event
 
 
