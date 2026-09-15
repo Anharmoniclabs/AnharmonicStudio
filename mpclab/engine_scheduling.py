@@ -10,11 +10,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .model import NPADS
-from .music import Note
 from .event_source import EventSource, ScheduledNote
 from .instrument_state import event_destination
-from .midi_playback import ScheduledNote, sustained_duration
+from .midi_playback import sustained_duration
+from .model import NPADS
+from .music import Note
 
 if TYPE_CHECKING:
     from .engine import Engine
@@ -98,8 +98,9 @@ def pattern_events(
                     out.append(
                         ScheduledNote(
                             (beat, destination, note.velocity, gate, sequence_id),
-                            note.channel,
-                            note.release_velocity,
+                            source=EventSource(pat, note=note, note_index=note_index),
+                            channel=note.channel,
+                            release_velocity=note.release_velocity,
                         )
                     )
     sd_ = 1.0 / pat.div
