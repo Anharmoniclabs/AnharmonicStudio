@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(AnharmonicPrism VERSION 1.0.0 LANGUAGES C CXX)
+project(AnharmonicPrism VERSION 1.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(JUCE_SOURCE_DIR "" CACHE PATH "Pinned JUCE 7.0.12 source directory")

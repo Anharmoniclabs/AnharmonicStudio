@@ -29,6 +29,7 @@ public:
   void setStateInformation(const void *, int) override;
   void setValue(int, float);
   void loadSound(const juce::var &);
+  void loadLayer(const juce::var &, bool second);
   void loadArp(const juce::var &);
   juce::var exportSound() const;
   juce::UndoManager undo;
@@ -37,15 +38,20 @@ public:
   std::array<std::atomic<float>, 512> scope{};
   std::atomic<int> scopeWrite{0};
   std::atomic<bool> panic{false};
+  std::atomic<int> motionStep{0};
 
 private:
   static juce::AudioProcessorValueTreeState::ParameterLayout layout();
   std::array<std::atomic<float> *, parameterCount> values{};
-  prism::Engine engine;
+  prism::Engine engine, layerB;
+  prism::Patch baseA, baseB;
+  double motionPhase = 0, sequenceBeat = 0, tremPhase = 0;
+  std::array<float, 64> layerLeft{}, layerRight{};
   juce::Reverb reverb;
   juce::dsp::Chorus<float> chorus;
   juce::AudioBuffer<float> delay;
   int delayIndex = 0;
+  int tempoBank = 0, tempoPage = 0, tempoData = 0;
   double tempo = 120, arpNext = 0, arpGate = 0;
   int arpIndex = 0, arpNote = -1, arpChannel = 1;
   bool arpEnabled = false, wasPlaying = false;

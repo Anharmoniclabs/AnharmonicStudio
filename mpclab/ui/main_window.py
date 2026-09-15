@@ -1891,6 +1891,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             self.status.showMessage("Cancelling export; close again when it finishes", 5000)
             ev.ignore()
             return
+        self.synth_panel.prism_surface.shutdown_camera()
         if self._dirty:
             try:
                 self._backup_recovery()

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
 )
 
-from ..music import AutomationLane, automation_targets, target_range
+from ..music import AutomationLane, automation_targets, target_range, automation_label
 from .theme import q
 from .editor_tools import editor_bar
 
@@ -183,11 +183,7 @@ class AutomationPanel(WindowClient, QWidget):
         top = QHBoxLayout()
         self.target = QComboBox()
         for target in automation_targets(len(self.app.project.tracks)):
-            label = (
-                "Master • level"
-                if target == "master"
-                else f"Track {int(target.split(':')[1]) + 1} • {target.split(':')[2]}"
-            )
+            label = automation_label(target)
             self.target.addItem(label, target)
         top.addWidget(self.target)
         self.enabled = QCheckBox("Read automation")
@@ -261,11 +257,7 @@ class AutomationPanel(WindowClient, QWidget):
             self.target.blockSignals(True)
             self.target.clear()
             for target in targets:
-                label = (
-                    "Master • level"
-                    if target == "master"
-                    else f"Track {int(target.split(':')[1]) + 1} • {target.split(':')[2]}"
-                )
+                label = automation_label(target)
                 self.target.addItem(label, target)
             self.target.setCurrentIndex(max(0, self.target.findData(current)))
             self.target.blockSignals(False)

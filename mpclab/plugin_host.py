@@ -251,11 +251,12 @@ class IsolatedPlugin:
         if not header.get("updated"):
             raise PluginError("Plugin did not accept parameters")
 
-    def render(self, audio, frames, midi=(), *, reset=False, timeout=2):
+    def render(self, audio, frames, midi=(), *, reset=False, timeout=2, parameters=None):
         if self.closed:
             raise PluginError("Plugin is closed")
         try:
-            send_packet(self.connection, {"frames": frames, "midi": midi, "reset": reset}, audio)
+            send_packet(self.connection, {"frames": frames, "midi": midi, "reset": reset,
+                                          "parameters": parameters or {}}, audio)
             header, raw = self._receive(timeout)
             if header.get("frames") != frames or len(raw) != frames * 8:
                 raise PluginError("Plugin returned the wrong block length")
@@ -323,10 +324,16 @@ class LivePlugin:
                     for key, value in updates.items():
                         self.info["parameters"][key]["value"] = value
                 try:
-                    sequence, audio, frames, midi, reset = self.requests.get(timeout=0.1)
+                    sequence, audio, frames, midi, reset, *automation = self.requests.get(timeout=0.1)
                 except queue.Empty:
                     continue
-                output = self.plugin.render(audio, frames, midi, reset=reset)
+                if automation:
+                    output = self.plugin.render(audio, frames, midi, reset=reset,
+                                                parameters=automation[0])
+                    for key, value in automation[0].items():
+                        self.info["parameters"][key]["value"] = value
+                else:
+                    output = self.plugin.render(audio, frames, midi, reset=reset)
                 self.scope = output[-512:].copy()
                 try:
                     self.results.put_nowait((sequence, output))
@@ -338,7 +345,7 @@ class LivePlugin:
         finally:
             self.plugin.close()
 
-    def render(self, audio, frames, midi=(), *, reset=False):
+    def render(self, audio, frames, midi=(), *, reset=False, parameters=None):
         if self.error:
             return None
         if not 0 < frames <= self.blocksize:
@@ -349,6 +356,7 @@ class LivePlugin:
         try:
             self.requests.put_nowait(
                 (sequence, None if audio is None else audio.copy(), frames, list(midi), reset)
+                + ((dict(parameters),) if parameters else ())
             )
         except queue.Full:
             self.error = "Plugin could not keep up; reload it or increase the audio buffer"

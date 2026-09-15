@@ -457,6 +457,7 @@ class SynthPanel(WindowClient, QWidget):
         head.setMinimumWidth(head.sizeHint().width())
         scroll.setFixedHeight(50)
         scroll.setWidget(head)
+        self._native_head = scroll
         outer.addWidget(scroll)
         quick, form = self._section("INSTRUMENT")
         self._slider(form, "Brightness", "cutoff", 50, 18000, lambda v: f"{v:.0f} Hz", True)
@@ -685,6 +686,13 @@ class SynthPanel(WindowClient, QWidget):
         kl.addWidget(QLabel("TYPING KEYS"))
         kl.addWidget(QLabel("Ctrl+T opens the movable keyboard · play while editing controls"))
         kl.addStretch(1)
+        self.keyboard_toggle = QPushButton("Hide piano")
+        self.keyboard_toggle.setCheckable(True)
+        self.keyboard_toggle.setToolTip(
+            "Collapse the docked piano; Ctrl+T still opens the movable keyboard"
+        )
+        self.keyboard_toggle.toggled.connect(self._toggle_docked_keyboard)
+        kl.addWidget(self.keyboard_toggle)
         down = QPushButton("OCT −")
         down.setObjectName("mini")
         down.clicked.connect(lambda: self.set_octave(self.octave - 1))
@@ -698,10 +706,17 @@ class SynthPanel(WindowClient, QWidget):
         outer.addWidget(keyboard_bar)
 
         self.keyboard = PianoKeyboard()
+        self.keyboard.setFixedHeight(112)
         self.keyboard.notePressed.connect(self.app.play_synth_note)
         self.keyboard.noteReleased.connect(self.app.release_synth_note)
         outer.addWidget(self.keyboard)
         self.preset.currentTextChanged.connect(self.load_preset)
+
+    def _toggle_docked_keyboard(self, hidden):
+        if hidden:
+            self.keyboard.mouseReleaseEvent(None)
+        self.keyboard.setVisible(not hidden)
+        self.keyboard_toggle.setText("Show piano" if hidden else "Hide piano")
 
     def _combo(self, form, label, attr, labels, values=None):
         combo = QComboBox()
