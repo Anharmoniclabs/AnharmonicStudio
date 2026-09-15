@@ -14,6 +14,7 @@ from .engine_constants import AUDITION, METRONOME, SEND_TAIL, TRACK_DSP_TAIL
 from .model import NPADS
 from .event_source import release_deleted_events
 from .music import automation_values
+from .prism_motion import automation_parameters
 from .instrument_state import decode_destination, voice_patch
 from .sample_voice import _balance_gains
 from .native_dsp import NATIVE
@@ -165,14 +166,19 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         if engine.synth_voices[index].dead:
             del engine.synth_voices[index]
 
+    # Deliver Prism curves with their audio block, without UI timers or camera work.
+    prism_parameters = {}
+    if engine.playing and engine.mode == "song" and getattr(engine.external.instrument, "info", {}).get("name") == "Anharmonic Prism":
+        prism_parameters = automation_parameters(proj, start_beat,
+                                                 getattr(engine, "prism_gesture_targets", ()))
     synth_track = proj.validate_track_index(proj.synth.track, "synth output")
     external_bus = getattr(engine, "_external_instrument", None)
     if external_bus is None:
-        engine.external.render_instrument(tbuf[synth_track], frames, engine.sr)
+        engine.external.render_instrument(tbuf[synth_track], frames, engine.sr, proj.bpm, prism_parameters)
     else:
         external = external_bus[:frames]
         external.fill(0.0)
-        engine.external.render_instrument(external, frames, engine.sr)
+        engine.external.render_instrument(external, frames, engine.sr, proj.bpm, prism_parameters)
         pdc = getattr(engine, "plugin_pdc", None)
         if engine.external.instrument is not None and pdc is not None and pdc.delay_samples > 0:
             pdc.process(tbuf, frames)

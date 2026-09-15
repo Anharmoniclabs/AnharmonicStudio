@@ -153,10 +153,14 @@ def automation_targets(track_count=None):
     count = MAX_TRACKS if track_count is None else track_count
     if type(count) is not int or not 1 <= count <= MAX_TRACKS:
         raise ValueError("automation track count is outside the mixer limit")
-    return ["master"] + [f"track:{i}:{param}" for i in range(count) for param in ("gain", "pan")]
+    from .prism_motion import TARGETS
+
+    return ["master"] + [f"track:{i}:{param}" for i in range(count) for param in ("gain", "pan")] + list(TARGETS)
 
 
 def target_range(target):
+    if target.startswith("prism:"):
+        return (0.0, 1.0)
     return (-1.0, 1.0) if target.endswith(":pan") else (0.0, 1.3)
 
 
@@ -216,3 +220,12 @@ def read_automation(data, *, track_count=None):
     if len({lane.target for lane in lanes}) != len(lanes):
         raise ValueError("automation targets must be unique")
     return lanes
+
+
+def automation_label(target):
+    if target == "master":
+        return "Master • level"
+    if target.startswith("prism:"):
+        from .prism_motion import CONTROLS
+        return "Prism • " + CONTROLS[target.split(":")[1]]
+    return f"Track {int(target.split(':')[1]) + 1} • {target.split(':')[2]}"

@@ -254,5 +254,357 @@
     "high": 1,
     "default": 0,
     "step": 0
+  },
+  {
+    "id": "b_osc1",
+    "label": "B Oscillator 1",
+    "low": 0,
+    "high": 3,
+    "default": 0,
+    "step": 1
+  },
+  {
+    "id": "b_osc2",
+    "label": "B Oscillator 2",
+    "low": 0,
+    "high": 3,
+    "default": 3,
+    "step": 1
+  },
+  {
+    "id": "b_osc_mix",
+    "label": "B Oscillator blend",
+    "low": 0,
+    "high": 1,
+    "default": 0.42,
+    "step": 0
+  },
+  {
+    "id": "b_osc2_octave",
+    "label": "B Oscillator octave",
+    "low": -4,
+    "high": 4,
+    "default": 0,
+    "step": 1
+  },
+  {
+    "id": "b_detune",
+    "label": "B Detune",
+    "low": 0,
+    "high": 30,
+    "default": 8,
+    "step": 0
+  },
+  {
+    "id": "b_pulse_width",
+    "label": "B Pulse width",
+    "low": 0.1,
+    "high": 0.9,
+    "default": 0.5,
+    "step": 0
+  },
+  {
+    "id": "b_sub",
+    "label": "B Sub oscillator",
+    "low": 0,
+    "high": 0.8,
+    "default": 0.18,
+    "step": 0
+  },
+  {
+    "id": "b_noise",
+    "label": "B Noise",
+    "low": 0,
+    "high": 0.35,
+    "default": 0.015,
+    "step": 0
+  },
+  {
+    "id": "b_attack",
+    "label": "B Attack",
+    "low": 0.0005,
+    "high": 3,
+    "default": 0.025,
+    "step": 0
+  },
+  {
+    "id": "b_decay",
+    "label": "B Decay",
+    "low": 0.005,
+    "high": 3,
+    "default": 0.32,
+    "step": 0
+  },
+  {
+    "id": "b_sustain",
+    "label": "B Sustain",
+    "low": 0,
+    "high": 1,
+    "default": 0.68,
+    "step": 0
+  },
+  {
+    "id": "b_release",
+    "label": "B Release",
+    "low": 0.005,
+    "high": 5,
+    "default": 0.65,
+    "step": 0
+  },
+  {
+    "id": "b_cutoff",
+    "label": "B Cutoff",
+    "low": 50,
+    "high": 18000,
+    "default": 2400,
+    "step": 0
+  },
+  {
+    "id": "b_resonance",
+    "label": "B Resonance",
+    "low": 0,
+    "high": 0.96,
+    "default": 0.28,
+    "step": 0
+  },
+  {
+    "id": "b_filter_env",
+    "label": "B Filter envelope",
+    "low": 0,
+    "high": 1,
+    "default": 0.38,
+    "step": 0
+  },
+  {
+    "id": "b_drive",
+    "label": "B Drive",
+    "low": 0,
+    "high": 1,
+    "default": 0.18,
+    "step": 0
+  },
+  {
+    "id": "b_spread",
+    "label": "B Stereo width",
+    "low": 0,
+    "high": 1,
+    "default": 0.42,
+    "step": 0
+  },
+  {
+    "id": "b_lfo_rate",
+    "label": "B LFO rate",
+    "low": 0.03,
+    "high": 12,
+    "default": 0.32,
+    "step": 0
+  },
+  {
+    "id": "b_lfo_pitch",
+    "label": "B LFO pitch",
+    "low": 0,
+    "high": 30,
+    "default": 2,
+    "step": 0
+  },
+  {
+    "id": "b_lfo_filter",
+    "label": "B LFO filter",
+    "low": 0,
+    "high": 0.8,
+    "default": 0.08,
+    "step": 0
+  },
+  {
+    "id": "b_volume",
+    "label": "B Level",
+    "low": 0,
+    "high": 0.75,
+    "default": 0.42,
+    "step": 0
+  },
+  {
+    "id": "layer_mix",
+    "label": "Layer A / B",
+    "low": 0,
+    "high": 1,
+    "default": 0,
+    "step": 0
+  },
+  {
+    "id": "macro_tone",
+    "label": "Tone",
+    "low": 0,
+    "high": 1,
+    "default": 0,
+    "step": 0
+  },
+  {
+    "id": "macro_motion",
+    "label": "Motion",
+    "low": 0,
+    "high": 1,
+    "default": 0,
+    "step": 0
+  },
+  {
+    "id": "macro_space",
+    "label": "Space",
+    "low": 0,
+    "high": 1,
+    "default": 0,
+    "step": 0
+  },
+  {
+    "id": "macro_texture",
+    "label": "Texture",
+    "low": 0,
+    "high": 1,
+    "default": 0,
+    "step": 0
+  },
+  {
+    "id": "seq_depth",
+    "label": "Step depth",
+    "low": -1,
+    "high": 1,
+    "default": 0,
+    "step": 0
+  },
+  {
+    "id": "seq_rate",
+    "label": "Step division",
+    "low": 0,
+    "high": 5,
+    "default": 2,
+    "step": 1
+  },
+  {
+    "id": "seq_target",
+    "label": "Step destination",
+    "low": 0,
+    "high": 4,
+    "default": 0,
+    "step": 1
+  },
+  {
+    "id": "seq_1",
+    "label": "Step 1",
+    "low": 0,
+    "high": 1,
+    "default": 0.5,
+    "step": 0
+  },
+  {
+    "id": "seq_2",
+    "label": "Step 2",
+    "low": 0,
+    "high": 1,
+    "default": 0.8,
+    "step": 0
+  },
+  {
+    "id": "seq_3",
+    "label": "Step 3",
+    "low": 0,
+    "high": 1,
+    "default": 0.35,
+    "step": 0
+  },
+  {
+    "id": "seq_4",
+    "label": "Step 4",
+    "low": 0,
+    "high": 1,
+    "default": 1,
+    "step": 0
+  },
+  {
+    "id": "seq_5",
+    "label": "Step 5",
+    "low": 0,
+    "high": 1,
+    "default": 0.5,
+    "step": 0
+  },
+  {
+    "id": "seq_6",
+    "label": "Step 6",
+    "low": 0,
+    "high": 1,
+    "default": 0.2,
+    "step": 0
+  },
+  {
+    "id": "seq_7",
+    "label": "Step 7",
+    "low": 0,
+    "high": 1,
+    "default": 0.7,
+    "step": 0
+  },
+  {
+    "id": "seq_8",
+    "label": "Step 8",
+    "low": 0,
+    "high": 1,
+    "default": 0,
+    "step": 0
+  },
+  {
+    "id": "mod_rate",
+    "label": "Motion rate",
+    "low": 0.03,
+    "high": 12,
+    "default": 0.5,
+    "step": 0
+  },
+  {
+    "id": "mod_depth",
+    "label": "Motion depth",
+    "low": -1,
+    "high": 1,
+    "default": 0,
+    "step": 0
+  },
+  {
+    "id": "mod_target",
+    "label": "Motion destination",
+    "low": 0,
+    "high": 4,
+    "default": 0,
+    "step": 1
+  },
+  {
+    "id": "crush_bits",
+    "label": "Bit depth",
+    "low": 4,
+    "high": 16,
+    "default": 16,
+    "step": 1
+  },
+  {
+    "id": "crush_mix",
+    "label": "Crush mix",
+    "low": 0,
+    "high": 1,
+    "default": 0,
+    "step": 0
+  },
+  {
+    "id": "trem_rate",
+    "label": "Tremolo rate",
+    "low": 0.03,
+    "high": 12,
+    "default": 2,
+    "step": 0
+  },
+  {
+    "id": "trem_depth",
+    "label": "Tremolo depth",
+    "low": 0,
+    "high": 1,
+    "default": 0,
+    "step": 0
   }
 ]

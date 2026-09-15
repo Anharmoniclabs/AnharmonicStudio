@@ -20,6 +20,8 @@ MAX_AUTOMATION_POINTS = 100_000
 def _project_value(project, target: str) -> float:
     if target == "master":
         return float(project.master)
+    if target.startswith("prism:"):
+        return float(project.plugins.get("instrument", {}).get("parameters", {}).get(target.split(":")[1], 0))
     _track, raw_index, parameter = target.split(":", 2)
     track = project.tracks[int(raw_index)]
     return float(getattr(track, parameter))
