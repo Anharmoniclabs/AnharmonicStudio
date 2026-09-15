@@ -1,4 +1,5 @@
 """Shared expression scheduling for live playback and offline rendering."""
+
 from __future__ import annotations
 
 import math
@@ -26,14 +27,18 @@ def controls_in_range(project, mode, start, end):
                     continue
                 pattern = next((p for p in project.patterns if p.id == clip.ref), None)
                 if pattern:
-                    placements.append((pattern, clip.start_beat, clip.start_beat + clip.length_beats))
+                    placements.append(
+                        (pattern, clip.start_beat, clip.start_beat + clip.length_beats)
+                    )
     result = []
     for pattern, origin, limit in placements:
         length = pattern.length_beats
         if not pattern.midi_controls or length <= 0 or limit <= start or origin >= end:
             continue
-        for cycle in range(max(0, math.floor((start - origin) / length)),
-                           max(0, math.ceil((min(end, limit) - origin) / length))):
+        for cycle in range(
+            max(0, math.floor((start - origin) / length)),
+            max(0, math.ceil((min(end, limit) - origin) / length)),
+        ):
             base = origin + cycle * length
             for control in pattern.midi_controls:
                 at = base + control.beat
@@ -48,9 +53,17 @@ def sustained_duration(pattern, note):
     sustain = False
     sostenuto = False
     sostenuto_held = False
-    controls = sorted((c for c in pattern.midi_controls if c.pad == note.pad and c.instrument == note.instrument
-                       and c.message[0] == 0xB0 | note.channel and c.message[1] in (64, 66)),
-                      key=lambda c: c.beat)
+    controls = sorted(
+        (
+            c
+            for c in pattern.midi_controls
+            if c.pad == note.pad
+            and c.instrument == note.instrument
+            and c.message[0] == 0xB0 | note.channel
+            and c.message[1] in (64, 66)
+        ),
+        key=lambda c: c.beat,
+    )
     for control in controls:
         if control.beat > end and not sustain and not sostenuto_held:
             break
@@ -65,14 +78,21 @@ def sustained_duration(pattern, note):
             sostenuto = value >= 64
         if control.beat >= end and not sustain and not sostenuto_held:
             return max(note.duration, control.beat - note.start)
-    return max(note.duration, pattern.length_beats - note.start) if sustain or sostenuto_held else note.duration
+    return (
+        max(note.duration, pattern.length_beats - note.start)
+        if sustain or sostenuto_held
+        else note.duration
+    )
 
 
 def apply_expression(voices, control):
     message = control.message
     kind, channel = message[0] & 0xF0, message[0] & 15
     for voice in voices:
-        if voice.instrument_id != control.instrument or getattr(voice, "midi_channel", 0) != channel:
+        if (
+            voice.instrument_id != control.instrument
+            or getattr(voice, "midi_channel", 0) != channel
+        ):
             continue
         if kind == 0xE0:
             voice.pitch_bend = ((message[1] | message[2] << 7) - 8192) / 8192 * 2
@@ -93,8 +113,12 @@ def apply_state(voice, controls, at):
 
 def remember_control(state, control):
     kind = control.message[0] & 0xF0
-    key = (control.instrument, control.pad, control.message[0],
-           control.message[1] if kind in (0xA0, 0xB0) else 0)
+    key = (
+        control.instrument,
+        control.pad,
+        control.message[0],
+        control.message[1] if kind in (0xA0, 0xB0) else 0,
+    )
     state[key] = control
 
 

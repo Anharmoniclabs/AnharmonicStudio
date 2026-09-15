@@ -25,7 +25,10 @@ def transcribed_project(project, result, *, parts=None, bpm=None, start_beat=0):
     if len(project.instruments) + len(active) > MAX_INSTRUMENTS:
         raise ValueError("Not enough instrument slots for these parts. Select fewer parts.")
     chunks = math.ceil(bars / 64)
-    if len(project.patterns) + chunks * len(active) > 1024 or len(project.rows) + len(active) > 4096:
+    if (
+        len(project.patterns) + chunks * len(active) > 1024
+        or len(project.rows) + len(active) > 4096
+    ):
         raise ValueError("This transcription exceeds the project's pattern or arrangement limits.")
     if sum(len(part.notes) for part in active) > MAX_NOTES:
         raise ValueError("Too many notes to import.")
@@ -37,36 +40,59 @@ def transcribed_project(project, result, *, parts=None, bpm=None, start_beat=0):
     for part in active:
         if not part.name.strip() or len(part.name) > 180:
             raise ValueError("Part names must contain 1–180 characters.")
-        patch = SynthPatch(name=part.name, track=min(2, len(candidate.tracks) - 1),
-                           osc1="sine", osc2="sine", noise=1 if part.percussion else 0,
-                           attack=.002 if part.percussion else .01,
-                           decay=.1, sustain=0 if part.percussion else .65,
-                           release=.06 if part.percussion else .2)
+        patch = SynthPatch(
+            name=part.name,
+            track=min(2, len(candidate.tracks) - 1),
+            osc1="sine",
+            osc2="sine",
+            noise=1 if part.percussion else 0,
+            attack=0.002 if part.percussion else 0.01,
+            decay=0.1,
+            sustain=0 if part.percussion else 0.65,
+            release=0.06 if part.percussion else 0.2,
+        )
         instrument = candidate.add_instrument(part.name, patch)
         row = Row(name=f"Score · {part.name}", mute=True)
         patterns = []
         for chunk in range(chunks):
-            pattern = Pattern(name=f"{result.title[:80]} · {part.name} · {chunk + 1}",
-                              bars=min(64, bars - chunk * 64))
+            pattern = Pattern(
+                name=f"{result.title[:80]} · {part.name} · {chunk + 1}",
+                bars=min(64, bars - chunk * 64),
+            )
             patterns.append(pattern)
             candidate.patterns.append(pattern)
-            row.clips.append(Clip(ref=pattern.id, start_beat=start_beat + chunk * 256,
-                                  length_beats=pattern.length_beats))
+            row.clips.append(
+                Clip(
+                    ref=pattern.id,
+                    start_beat=start_beat + chunk * 256,
+                    length_beats=pattern.length_beats,
+                )
+            )
             first_pattern = first_pattern or pattern.id
         for note in part.notes:
-            if (not 0 <= note.pitch <= 127 or not all(math.isfinite(v) for v in
-                    (note.start, note.end, note.confidence)) or note.start < 0 or
-                    note.end <= note.start or note.end > result.duration + .001):
+            if (
+                not 0 <= note.pitch <= 127
+                or not all(math.isfinite(v) for v in (note.start, note.end, note.confidence))
+                or note.start < 0
+                or note.end <= note.start
+                or note.end > result.duration + 0.001
+            ):
                 raise ValueError("The transcription contains invalid note timings or pitches.")
-            start = min(bars * 4 - .25, max(0, round(note.start * bpm / 60 * 4) / 4))
-            end = min(bars * 4, max(start + .25, round(note.end * bpm / 60 * 4) / 4))
+            start = min(bars * 4 - 0.25, max(0, round(note.start * bpm / 60 * 4) / 4))
+            end = min(bars * 4, max(start + 0.25, round(note.end * bpm / 60 * 4) / 4))
             while start < end:
                 index = int(start // 256)
                 stop = min(end, (index + 1) * 256)
-                patterns[index].notes.append(Note(
-                    pitch=note.pitch, start=start - index * 256, duration=stop - start,
-                    velocity=max(.15, min(1, note.confidence)), instrument=instrument.id,
-                    channel=9 if part.percussion else 0))
+                patterns[index].notes.append(
+                    Note(
+                        pitch=note.pitch,
+                        start=start - index * 256,
+                        duration=stop - start,
+                        velocity=max(0.15, min(1, note.confidence)),
+                        instrument=instrument.id,
+                        channel=9 if part.percussion else 0,
+                    )
+                )
                 start = stop
         candidate.rows.append(row)
     candidate.current_pattern = first_pattern

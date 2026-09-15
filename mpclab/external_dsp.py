@@ -161,7 +161,9 @@ class OfflinePlugins:
                 for event in synth_events:
                     at, note, velocity, gate = event[:4]
                     channel = event[4] if len(event) > 4 else 1
-                    self.events.append((at, [0x90 | channel, note, max(1, min(127, round(velocity * 127)))]))
+                    self.events.append(
+                        (at, [0x90 | channel, note, max(1, min(127, round(velocity * 127)))])
+                    )
                     self.events.append((at + gate, [0x80 | channel, note, 0]))
                 self.events.sort(key=lambda item: (item[0], item[1][0]))
         except Exception:

@@ -11,7 +11,14 @@ import uuid
 from dataclasses import dataclass, field, asdict, replace
 from pathlib import Path
 
-from .music import Note, MidiControl, AutomationLane, read_notes, read_automation, read_midi_controls
+from .music import (
+    Note,
+    MidiControl,
+    AutomationLane,
+    read_notes,
+    read_automation,
+    read_midi_controls,
+)
 from .plugin_registry import validate_project_plugins
 from .project_migrations import legacy_mixer_track_id, migrate_project_document
 
@@ -458,7 +465,12 @@ class VocalRecordSettings:
     mixer_track: int = 3
 
     def __post_init__(self):
-        if not isinstance(self.input_channels, list) or not 1 <= len(self.input_channels) <= 64 or any(type(c) is not int or not 0 <= c < 64 for c in self.input_channels) or len(set(self.input_channels)) != len(self.input_channels):
+        if (
+            not isinstance(self.input_channels, list)
+            or not 1 <= len(self.input_channels) <= 64
+            or any(type(c) is not int or not 0 <= c < 64 for c in self.input_channels)
+            or len(set(self.input_channels)) != len(self.input_channels)
+        ):
             raise ValueError("Recording inputs must be distinct channel numbers from 1 to 64")
         if type(self.split_inputs) is not bool:
             raise ValueError("Separate-input recording must be enabled or disabled")

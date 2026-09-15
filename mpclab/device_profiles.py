@@ -14,7 +14,11 @@ def connection_help(profile, system):
             "MPC: choose the MIDI port exposed by your model and mode. Use MIDI Learn for pad banks and Q-Link controls. "
             "Enable clock on one input only, or send clock to one output. "
             "To record the MPC's sound, select its supported USB audio channels or connect its audio outputs to an interface. "
-            + ("Vendor controller-mode support on Linux must be verified for your model. " if system == "Linux" else "Install the model's required vendor driver when applicable. ")
+            + (
+                "Vendor controller-mode support on Linux must be verified for your model. "
+                if system == "Linux"
+                else "Install the model's required vendor driver when applicable. "
+            )
             + "This generic mapping does not control proprietary screens or LEDs."
         )
     return "Connect USB MIDI or a DIN-MIDI interface, select a sound, and play. MIDI carries notes; use an audio input to record your piano's own sound."

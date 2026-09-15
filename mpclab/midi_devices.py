@@ -11,7 +11,15 @@ import time
 
 from .model import MAX_TRACKS
 
-CONTROL_TARGETS = {"play", "stop", "record", "master", "bank_next", "bank_previous", *(f"track:{i}" for i in range(MAX_TRACKS))}
+CONTROL_TARGETS = {
+    "play",
+    "stop",
+    "record",
+    "master",
+    "bank_next",
+    "bank_previous",
+    *(f"track:{i}" for i in range(MAX_TRACKS)),
+}
 
 
 def controller_settings(value):
@@ -57,10 +65,18 @@ def controller_settings(value):
         for field, default, low, high in (("transpose", 0, -48, 48), ("channel", -1, -1, 15)):
             v = config.get(field, default)
             valid[field] = v if type(v) is int and low <= v <= high else default
-        valid["velocity_curve"] = config.get("velocity_curve", "linear") if config.get("velocity_curve", "linear") in ("linear", "soft", "hard", "fixed") else "linear"
+        valid["velocity_curve"] = (
+            config.get("velocity_curve", "linear")
+            if config.get("velocity_curve", "linear") in ("linear", "soft", "hard", "fixed")
+            else "linear"
+        )
         valid["clock"] = config.get("clock", False) is True
         valid["transport"] = config.get("transport", True) is True
-        valid["encoder"] = config.get("encoder", "absolute") if config.get("encoder", "absolute") in ("absolute", "relative") else "absolute"
+        valid["encoder"] = (
+            config.get("encoder", "absolute")
+            if config.get("encoder", "absolute") in ("absolute", "relative")
+            else "absolute"
+        )
         valid["soft_takeover"] = config.get("soft_takeover", False) is True
         result[key] = valid
     return result
@@ -128,7 +144,9 @@ class MidiService:
 
     def _emit(self, port_id, message, timestamp=None):
         try:
-            self.events.put_nowait((port_id, tuple(message), time.monotonic() if timestamp is None else timestamp))
+            self.events.put_nowait(
+                (port_id, tuple(message), time.monotonic() if timestamp is None else timestamp)
+            )
         except queue.Full:
             self.overflow = True
 
@@ -230,7 +248,11 @@ class MidiService:
                                 port.open_port(match.index, "Anharmonic Studio input")
                                 if hasattr(port, "set_callback"):
                                     # Timestamp at backend delivery, before any UI processing.
-                                    port.set_callback(lambda event, _data=None, key=p.id: self._emit(key, event[0]))
+                                    port.set_callback(
+                                        lambda event, _data=None, key=p.id: self._emit(
+                                            key, event[0]
+                                        )
+                                    )
                                     self.callback_ports.add(p.id)
                                 opened[p.id] = port
                                 addresses[p.id] = current_names[match.index]
@@ -305,7 +327,11 @@ class MidiRouter:
                 self._release(key)
         self.pedals = {key for key in self.pedals if port_id is not None and key[0] != port_id}
         for name in ("sostenuto", "sostenuto_notes", "soft", "takeover"):
-            setattr(self, name, {key for key in getattr(self, name) if port_id is not None and key[0] != port_id})
+            setattr(
+                self,
+                name,
+                {key for key in getattr(self, name) if port_id is not None and key[0] != port_id},
+            )
         self.control_values = {
             key: value
             for key, value in self.control_values.items()
@@ -346,7 +372,9 @@ class MidiRouter:
         if settings.get("channel", -1) not in (-1, channel):
             return
         needed = 2 if kind in (0xC0, 0xD0) else 3
-        if len(message) != needed or any(type(v) is not int or not 0 <= v < 128 for v in message[1:]):
+        if len(message) != needed or any(
+            type(v) is not int or not 0 <= v < 128 for v in message[1:]
+        ):
             return
         if kind in (0xA0, 0xC0, 0xD0):
             self.expression(list(message))
@@ -392,7 +420,9 @@ class MidiRouter:
                     return
                 destination = ("pad", self.bank() * 16 + local)
             else:
-                destination = self.resolve_note(min(127, max(0, number + settings.get("transpose", 0))), port_id, channel)
+                destination = self.resolve_note(
+                    min(127, max(0, number + settings.get("transpose", 0))), port_id, channel
+                )
             already_held = destination in self.held.values()
             self.held[key] = destination
             if not already_held:
@@ -415,7 +445,9 @@ class MidiRouter:
                 pedal = (port_id, channel)
                 if value >= 64 and pedal not in self.sostenuto:
                     self.sostenuto.add(pedal)
-                    self.sostenuto_notes.update(k for k in self.held if k[:2] == pedal and k not in self.sustained)
+                    self.sostenuto_notes.update(
+                        k for k in self.held if k[:2] == pedal and k not in self.sustained
+                    )
                 elif value < 64:
                     self.sostenuto.discard(pedal)
                     keys = [k for k in self.sostenuto_notes if k[:2] == pedal]
@@ -436,11 +468,21 @@ class MidiRouter:
                 elif settings.get("encoder") == "relative":
                     delta = value if value < 64 else value - 128
                     current = self.current_values(target)
-                    self.control(target, max(0, min(127, (current if current is not None else previous) + delta)))
+                    self.control(
+                        target,
+                        max(0, min(127, (current if current is not None else previous) + delta)),
+                    )
                 else:
                     current = self.current_values(target)
-                    if settings.get("soft_takeover") and key not in self.takeover and current is not None:
-                        if min(previous, value) <= current <= max(previous, value) or abs(current - value) <= 2:
+                    if (
+                        settings.get("soft_takeover")
+                        and key not in self.takeover
+                        and current is not None
+                    ):
+                        if (
+                            min(previous, value) <= current <= max(previous, value)
+                            or abs(current - value) <= 2
+                        ):
                             self.takeover.add(key)
                         else:
                             return
@@ -452,5 +494,13 @@ class MidiRouter:
     def velocity(value, settings, soft=False):
         curve = settings.get("velocity_curve", "linear")
         v = value / 127.0
-        v = v ** 0.6 if curve == "soft" else v ** 1.6 if curve == "hard" else 1.0 if curve == "fixed" else v
+        v = (
+            v**0.6
+            if curve == "soft"
+            else v**1.6
+            if curve == "hard"
+            else 1.0
+            if curve == "fixed"
+            else v
+        )
         return max(1 / 127, v * (0.7 if soft else 1.0))

@@ -151,14 +151,23 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
     midi_controls = []
     if engine.playing:
         bps = proj.bpm / 60 / engine.sr
-        midi_controls = [(round((beat - start_beat) / bps), control)
-                         for beat, control in controls_in_range(proj, engine.mode, start_beat, start_beat + frames * bps)]
+        midi_controls = [
+            (round((beat - start_beat) / bps), control)
+            for beat, control in controls_in_range(
+                proj, engine.mode, start_beat, start_beat + frames * bps
+            )
+        ]
     for frame, control in midi_controls:
         if control.instrument is None and control.pad is None:
             engine.external.events.append((control.message, max(0, frame)))
     for voice in engine.synth_voices:
-        render_expressive_voice(voice, tbuf[voice.track], voice_patch(proj, voice),
-                                engine.midi_playback_state, midi_controls)
+        render_expressive_voice(
+            voice,
+            tbuf[voice.track],
+            voice_patch(proj, voice),
+            engine.midi_playback_state,
+            midi_controls,
+        )
     for _, control in midi_controls:
         remember_control(engine.midi_playback_state, control)
     for index in range(len(engine.synth_voices) - 1, -1, -1):

@@ -434,11 +434,21 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         try:
             channels = json.loads(str(self.settings.value("audio/input_channels", "[0]")))
             outputs = json.loads(str(self.settings.value("audio/output_channels", "[0, 1]")))
-            if isinstance(channels, list) and 1 <= len(channels) <= 64 and all(type(c) is int and 0 <= c < 64 for c in channels):
+            if (
+                isinstance(channels, list)
+                and 1 <= len(channels) <= 64
+                and all(type(c) is int and 0 <= c < 64 for c in channels)
+            ):
                 self.project.vocal_record.input_channels = channels
-            if isinstance(outputs, list) and len(outputs) == 2 and all(type(c) is int and 0 <= c < 64 for c in outputs):
+            if (
+                isinstance(outputs, list)
+                and len(outputs) == 2
+                and all(type(c) is int and 0 <= c < 64 for c in outputs)
+            ):
                 self.engine.output_channels = tuple(outputs)
-            self.project.vocal_record.split_inputs = str(self.settings.value("audio/split_inputs", "false")).lower() == "true"
+            self.project.vocal_record.split_inputs = (
+                str(self.settings.value("audio/split_inputs", "false")).lower() == "true"
+            )
         except (ValueError, TypeError):
             pass
         self._audio_output_key = str(self.settings.value("audio/output_device", "") or "")
@@ -612,7 +622,9 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             str(self.settings.value("audio/workflow", "build") or "build"),
         )
         rec = self.project.vocal_record
-        dialog.select_channels(rec.input_channels, self.engine.output_channels, rec.split_inputs, rec.monitor)
+        dialog.select_channels(
+            rec.input_channels, self.engine.output_channels, rec.split_inputs, rec.monitor
+        )
         dialog.accepted.connect(lambda: self._apply_audio_setup(dialog))
         dialog.finished.connect(lambda _result: self._audio_setup_closed(dialog))
         dialog.open()
@@ -679,9 +691,19 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             dialog = self._audio_setup_dialog
             frames = dialog.recommended_frames if dialog else self.engine.blocksize
             selected, _split = dialog.input_channels.currentData() if dialog else ((0,), False)
-            outputs = tuple(dialog.output_channels.currentData()) if dialog else self.engine.output_channels
-            return run_loopback_calibration(input_device, output_device, self.engine.sr,
-                                            blocksize=frames, input_channel=selected[0], output_channels=outputs)
+            outputs = (
+                tuple(dialog.output_channels.currentData())
+                if dialog
+                else self.engine.output_channels
+            )
+            return run_loopback_calibration(
+                input_device,
+                output_device,
+                self.engine.sr,
+                blocksize=frames,
+                input_channel=selected[0],
+                output_channels=outputs,
+            )
         finally:
             if was_running:
                 try:

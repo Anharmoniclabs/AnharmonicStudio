@@ -909,7 +909,11 @@ class PianoRollPanel(WindowClient, QWidget):
                 self.app.project.selected_instrument = self.target_instrument
                 self.app.synth_panel.sync()
         if hasattr(self.app.engine, "midi"):
-            self.app.engine.midi.route = (self.target_pad, self.target_instrument, self.app.pads.bank)
+            self.app.engine.midi.route = (
+                self.target_pad,
+                self.target_instrument,
+                self.app.pads.bank,
+            )
         self.canvas.selected.clear()
         if self.canvas.drag and self.canvas.drag[0] == "audition":
             self.app.release_selected_note(self.canvas.drag[1])

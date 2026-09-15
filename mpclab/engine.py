@@ -175,6 +175,7 @@ class Engine:
         self._click_plain = _make_click(sample_rate, False)
         self._click_accent = _make_click(sample_rate, True)
         from .midi_performance import MidiPerformance
+
         self.midi = MidiPerformance(self)
         self._lock_realtime_working_set()
 
@@ -241,8 +242,8 @@ class Engine:
         self.monitor_dropped_frames += len(chunk) - take
         start = write % len(ring)
         first = min(take, len(ring) - start)
-        np.multiply(chunk[:first], np.float32(gain), out=ring[start:start + first])
-        np.multiply(chunk[first:take], np.float32(gain), out=ring[:take - first])
+        np.multiply(chunk[:first], np.float32(gain), out=ring[start : start + first])
+        np.multiply(chunk[first:take], np.float32(gain), out=ring[: take - first])
         self._monitor_write = write + take
 
     def read_monitor(self, frames):
@@ -256,8 +257,8 @@ class Engine:
         count = min(frames, write - read)
         start = read % len(ring)
         first = min(count, len(ring) - start)
-        out[:first] = ring[start:start + first]
-        out[first:count] = ring[:count - first]
+        out[:first] = ring[start : start + first]
+        out[first:count] = ring[: count - first]
         self._monitor_read = read + count
         if count:
             self.monitor_missing_frames += frames - count
@@ -352,7 +353,11 @@ class Engine:
                 voice.render(warm, self.project.synth)
         native_output = NATIVE is not None and hasattr(sd, "_StreamBase")
         stream_factory = (
-            (lambda **options: NativeOutputStream(sd, NATIVE, output_channels=self.output_channels, **options))
+            (
+                lambda **options: NativeOutputStream(
+                    sd, NATIVE, output_channels=self.output_channels, **options
+                )
+            )
             if native_output
             else sd.OutputStream
         )
@@ -364,11 +369,13 @@ class Engine:
                 raise ValueError("Select a valid stereo output pair")
             output_count = max(mapping) + 1
             scratch = np.zeros((self.blocksize, 2), np.float32)
+
             def output_callback(out, frames, timing, status):
                 self._callback(scratch[:frames], frames, timing, status)
                 out.fill(0)
                 out[:, mapping[0]] += scratch[:frames, 0]
                 out[:, mapping[1]] += scratch[:frames, 1]
+
         stream = stream_factory(
             samplerate=self.sr,
             blocksize=self.blocksize,
@@ -780,7 +787,9 @@ class Engine:
             and voices is self.synth_voices
             and self.external.instrument is not None
         ):
-            self.external.note_on(note, velocity, offset, gate_frames, live_trigger, channel=midi_channel)
+            self.external.note_on(
+                note, velocity, offset, gate_frames, live_trigger, channel=midi_channel
+            )
             return
         patch = self.project.instrument_patch(instrument_id)
         # Retrigger within the same performance source. Playing along must not
@@ -837,7 +846,9 @@ class Engine:
             )
         )
 
-    def _release_synth(self, note: int, instrument_id=None, midi_owner=None, midi_channel=0) -> None:
+    def _release_synth(
+        self, note: int, instrument_id=None, midi_owner=None, midi_channel=0
+    ) -> None:
         if instrument_id is None and self.external.instrument is not None:
             self.external.note_off(note)
         for voice in self.synth_voices:
@@ -1003,7 +1014,9 @@ class Engine:
         if presentation is None:
             dac = getattr(time_info, "outputBufferDacTime", None)
             current = getattr(time_info, "currentTime", None)
-            presentation = now + (dac - current if dac is not None and current is not None else self.latency_ms / 1000)
+            presentation = now + (
+                dac - current if dac is not None and current is not None else self.latency_ms / 1000
+            )
         self.audio_clock = (presentation, self.beat, self.project.bpm, self.playing)
         if self.capture_anchor_requested and self.playing:
             self.capture_anchor = self.audio_clock

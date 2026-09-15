@@ -15,9 +15,13 @@ from mpclab.ui.scoring import ScoringPanel
 def project_with_parts():
     project = Project()
     project.instruments = [Instrument(name="Strings & brass")]
-    project.pattern().notes = [Note(60, 0, 1), Note(64, 0, 1), Note(67, .5, 2),
-                               Note(48, 3.5, 3, instrument=project.instruments[0].id)]
-    project.pattern().set(0, 0, .8)
+    project.pattern().notes = [
+        Note(60, 0, 1),
+        Note(64, 0, 1),
+        Note(67, 0.5, 2),
+        Note(48, 3.5, 3, instrument=project.instruments[0].id),
+    ]
+    project.pattern().set(0, 0, 0.8)
     return project
 
 
@@ -50,8 +54,14 @@ def test_arrangement_repeats_trims_and_preserves_empty_bars():
     pattern = project.pattern()
     pattern.bars = 1
     pattern.notes = [Note(60, 0, 8)]
-    project.rows = [Row(clips=[Clip(ref=pattern.id, start_beat=4, length_beats=6),
-                               Clip(kind="audio", start_beat=12, length_beats=4)])]
+    project.rows = [
+        Row(
+            clips=[
+                Clip(ref=pattern.id, start_beat=4, length_beats=6),
+                Clip(kind="audio", start_beat=12, length_beats=4),
+            ]
+        )
+    ]
     score = collect_score(project, song=True)
     assert score.bars == 4
     assert score.audio_clips == 1
@@ -64,8 +74,10 @@ def test_part_identity_and_rounding_at_final_barline():
     project = Project()
     project.instruments = [Instrument(name=project.synth.name)]
     project.pattern().bars = 1
-    project.pattern().notes = [Note(60, 3.99, .01),
-                               Note(72, 0, 1, instrument=project.instruments[0].id)]
+    project.pattern().notes = [
+        Note(60, 3.99, 0.01),
+        Note(72, 0, 1, instrument=project.instruments[0].id),
+    ]
     score = collect_score(project)
     assert len(score.parts) == 2
     root = ET.fromstring(musicxml(score, score.parts[0].key))
@@ -81,7 +93,7 @@ def test_empty_score_does_not_invent_notes():
 def test_real_engraver_renders_notes_and_multiple_pages():
     project = project_with_parts()
     project.pattern().bars = 32
-    project.pattern().notes += [Note(72, beat, .25) for beat in range(128)]
+    project.pattern().notes += [Note(72, beat, 0.25) for beat in range(128)]
     toolkit = verovio.toolkit()
     toolkit.setOptions({"pageWidth": 2100, "pageHeight": 2970, "scale": 40})
     assert toolkit.loadData(musicxml(collect_score(project)))
@@ -96,9 +108,12 @@ def test_panel_composition_and_exports(tmp_path):
     project = project_with_parts()
     snapshots = []
     dirty = []
-    app = SimpleNamespace(project=project, snapshot=lambda: snapshots.append(project.to_dict()),
-                          _set_dirty=dirty.append,
-                          piano_roll=SimpleNamespace(canvas=SimpleNamespace(refresh=lambda: None)))
+    app = SimpleNamespace(
+        project=project,
+        snapshot=lambda: snapshots.append(project.to_dict()),
+        _set_dirty=dirty.append,
+        piano_roll=SimpleNamespace(canvas=SimpleNamespace(refresh=lambda: None)),
+    )
     panel = ScoringPanel(app)
     panel.refresh()
     assert panel.page_count > 0
@@ -108,8 +123,9 @@ def test_panel_composition_and_exports(tmp_path):
     painter = QPainter(image)
     panel.paper.renderer().render(painter)
     painter.end()
-    ink = sum(image.pixelColor(x, y).lightness() < 100
-              for x in range(0, 840, 2) for y in range(0, 500, 2))
+    ink = sum(
+        image.pixelColor(x, y).lightness() < 100 for x in range(0, 840, 2) for y in range(0, 500, 2)
+    )
     assert ink > 200, "The rendered sheet must contain visible notation, not a blank SVG viewport"
     initial = len(project.pattern().notes)
     panel.pitch.setValue(74)

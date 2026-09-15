@@ -204,8 +204,10 @@ def _build_menus(window):
         (
             "View",
             tuple(
-                (window.tabs.tabText(i) + (f"\tCtrl+{i + 1}" if i < 9 else ""),
-                 lambda index=i: window.show_tab(index))
+                (
+                    window.tabs.tabText(i) + (f"\tCtrl+{i + 1}" if i < 9 else ""),
+                    lambda index=i: window.show_tab(index),
+                )
                 for i in range(window.tabs.count())
             )
             + (

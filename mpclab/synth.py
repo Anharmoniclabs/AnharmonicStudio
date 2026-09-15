@@ -724,7 +724,12 @@ class SynthVoice:
                 )
             envelope = self._envelope(n, patch)
             audio = self._orchestra.render(n, patch)
-            gain = envelope * min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume) * self.expression_gain
+            gain = (
+                envelope
+                * min(1.0, max(0.0, self.velocity))
+                * max(0.0, patch.volume)
+                * self.expression_gain
+            )
             dest[offset:] += (audio * gain[:, None]).astype(np.float32)
             self.age += n
             if self._orchestra.finished:
@@ -811,7 +816,9 @@ class SynthVoice:
         filtered_r = filtered_r * (1.0 - high_blend) + right_half * high_blend
         filtered_l = np.repeat(filtered_l, 2)[:n]
         filtered_r = np.repeat(filtered_r, 2)[:n]
-        gain = env * min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume) * self.expression_gain
+        gain = (
+            env * min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume) * self.expression_gain
+        )
         dest[offset:, 0] += (filtered_l * gain).astype(np.float32)
         dest[offset:, 1] += (filtered_r * gain).astype(np.float32)
         self.age += n

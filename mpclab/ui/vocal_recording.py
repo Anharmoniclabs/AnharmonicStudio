@@ -193,7 +193,9 @@ def _start_capture(owner):
     )
     try:
         if rec.input_device and selected is None:
-            raise RuntimeError("Selected input is disconnected. Reconnect it or choose another input.")
+            raise RuntimeError(
+                "Selected input is disconnected. Reconnect it or choose another input."
+            )
         owner.recorder.engine = owner.app.engine
         owner.recorder.sample_rate = owner.app.engine.sr
         owner.recorder.blocksize = owner.app.engine.blocksize

@@ -95,7 +95,13 @@ def pattern_events(
                         if note.pad is None
                         else NPADS + note.pad * 128 + note.pitch
                     )
-                    out.append(ScheduledNote((beat, destination, note.velocity, gate, sequence_id), note.channel, note.release_velocity))
+                    out.append(
+                        ScheduledNote(
+                            (beat, destination, note.velocity, gate, sequence_id),
+                            note.channel,
+                            note.release_velocity,
+                        )
+                    )
     sd_ = 1.0 / pat.div
     total = pat.total_steps
     if total <= 0:

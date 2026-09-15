@@ -275,21 +275,43 @@ class TrackCapture(WindowClient, QObject):
                 split = self.settings.split_inputs or audio.shape[1] > 2
                 sources = []
                 for channel in range(len(self.settings.input_channels) if split else 1):
-                    block = np.repeat(audio[:, channel:channel + 1], 2, axis=1) if split else audio
-                    label = f"{name} · Input {self.settings.input_channels[channel] + 1}" if split else name
+                    block = (
+                        np.repeat(audio[:, channel : channel + 1], 2, axis=1) if split else audio
+                    )
+                    label = (
+                        f"{name} · Input {self.settings.input_channels[channel] + 1}"
+                        if split
+                        else name
+                    )
                     sources.append(app.library.add_audio(block, label, kind="recording"))
                 for channel, source in enumerate(sources):
-                    beat, trim, length = take_placement(self.start_beat, source.duration, app.project.bpm,
-                        self.settings.input_latency_ms, first_capture=self.recorder.first_capture_monotonic,
-                        anchor=app.engine.capture_anchor)
-                    placed = Clip(kind="audio", ref=source.id, start_beat=beat, offset=trim,
-                                  length_beats=max(1 / app.engine.sr, length), source_length=source.duration,
-                                  track=min(len(app.project.tracks) - 1, self.target.record_track + channel))
+                    beat, trim, length = take_placement(
+                        self.start_beat,
+                        source.duration,
+                        app.project.bpm,
+                        self.settings.input_latency_ms,
+                        first_capture=self.recorder.first_capture_monotonic,
+                        anchor=app.engine.capture_anchor,
+                    )
+                    placed = Clip(
+                        kind="audio",
+                        ref=source.id,
+                        start_beat=beat,
+                        offset=trim,
+                        length_beats=max(1 / app.engine.sr, length),
+                        source_length=source.duration,
+                        track=min(len(app.project.tracks) - 1, self.target.record_track + channel),
+                    )
                     if channel == 0:
                         clip = placed
                     else:
-                        additional_rows.append(Row(name=f"{self.target.name} · Input {self.settings.input_channels[channel] + 1}",
-                                                   clips=[placed], record_track=placed.track))
+                        additional_rows.append(
+                            Row(
+                                name=f"{self.target.name} · Input {self.settings.input_channels[channel] + 1}",
+                                clips=[placed],
+                                record_track=placed.track,
+                            )
+                        )
             else:
                 length = max(n.start + n.duration for n in notes)
                 pattern = Pattern(name=name, bars=max(1, math.ceil(length / 4)))
