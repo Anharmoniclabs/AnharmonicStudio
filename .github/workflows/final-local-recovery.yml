@@ -25,13 +25,15 @@ jobs:
         with:
           version: '0.12.12'
 
-      - name: Install Qt runtime libraries
+      - name: Install test runtime libraries
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libegl1 libgl1 libopengl0 libxkbcommon0
+          sudo apt-get install --no-install-recommends -y ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0
 
       - name: Reconcile recovered DAW and Prism behavior
-        run: python scripts/reconcile_local_recovery.py
+        run: |
+          python scripts/reconcile_local_recovery.py
+          python scripts/recovery_followup_fixes.py
 
       - name: Resolve lockfile and install validation environment
         run: |
