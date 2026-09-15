@@ -79,3 +79,6 @@ Thumbs.db
 
 # Public certificate used to encrypt paid release artifacts (contains no private key)
 !/packaging/release-recipient.pem
+
+# Locally built first-party plugin binaries
+/plugins/bundled/

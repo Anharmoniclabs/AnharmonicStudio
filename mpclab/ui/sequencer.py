@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from .window_client import WindowClient
 
-from PySide6.QtCore import Qt, QRectF, QSize, Signal, QTimer
-from PySide6.QtGui import QPainter, QPen, QColor, QFont, QFontMetrics
+from PySide6.QtCore import Qt, QRectF, QSize, Signal, QTimer, QPoint
+from PySide6.QtGui import QContextMenuEvent, QPainter, QPen, QColor, QFont, QFontMetrics
 from PySide6.QtWidgets import QWidget, QMenu
 
-from ..model import PADS_PER_BANK, PAD_KEYS
+from ..model import PADS_PER_BANK, PAD_KEYS, remap_step_lane
 from .theme import q, TRACK_COLORS
 from .sample_drag import SoundDropFilter
 
@@ -52,7 +52,25 @@ class StepGrid(WindowClient, QWidget):
         self._paint_vel = None  # velocity being dragged in
         self._last_cell = None
         self._hover = None
+        # This is deliberately a pad index rather than a row index.  Rows can
+        # move (or disappear) when "loaded pads only" is enabled, whereas a
+        # pad and musical step remains a meaningful keyboard target.
+        self._keyboard_cell: tuple[int, int] | None = None
         self._clipboard: dict[int, float] | None = None
+        self._clipboard_div = 4
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAccessibleName("Step sequencer")
+        self.setAccessibleDescription(
+            "16-step pattern editor. Arrow keys choose a pad lane and step; "
+            "Space or Enter toggles the selected step; Delete clears it; "
+            "Home and End move to the first and last step; Menu or Shift+F10 "
+            "opens actions for the selected lane."
+        )
+        self.setToolTip(
+            "Click to program · right-drag or Delete clears · wheel changes velocity\n"
+            "Keyboard: arrows select · Space/Enter toggle · Delete clears · "
+            "Home/End jump · Menu/Shift+F10 lane actions"
+        )
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(33)
@@ -99,8 +117,40 @@ class StepGrid(WindowClient, QWidget):
         return self._wanted(self.pattern())
 
     def refresh(self):
+        self._ensure_keyboard_cell()
         self.updateGeometry()
         self.resize(self.minimumSizeHint())
+        self.update()
+
+    def _ensure_keyboard_cell(self) -> tuple[int, int]:
+        """Return a valid visible target, repairing it after lane filtering."""
+        lanes = self.lanes()
+        total = max(1, self.pattern().total_steps)
+        gi, step = self._keyboard_cell or (lanes[0], 0)
+        if gi not in lanes:
+            gi = lanes[0]
+        self._keyboard_cell = (gi, max(0, min(total - 1, step)))
+        return self._keyboard_cell
+
+    def _describe_keyboard_cell(self) -> None:
+        gi, step = self._ensure_keyboard_cell()
+        velocity = self.pattern().get(gi, step)
+        local = gi % PADS_PER_BANK + 1
+        state = "on" if velocity else "off"
+        if velocity:
+            state += f", velocity {round(velocity * 100)} percent"
+        self.setAccessibleDescription(
+            f"Step sequencer. Selected pad {local}, step {step + 1}, {state}. "
+            "Arrow keys choose a pad lane and step; Space or Enter toggles the selected "
+            "step; Delete clears it; Home and End move to the first and last step."
+        )
+
+    def _set_keyboard_cell(self, gi: int, step: int, *, select_pad: bool = True) -> None:
+        total = max(1, self.pattern().total_steps)
+        self._keyboard_cell = (gi, max(0, min(total - 1, step)))
+        if select_pad and gi != self.app.pads.selected:
+            self.padSelected.emit(gi)
+        self._describe_keyboard_cell()
         self.update()
 
     def _row_at(self, y: float) -> int | None:
@@ -136,12 +186,14 @@ class StepGrid(WindowClient, QWidget):
     def mousePressEvent(self, ev):
         pat = self.pattern()
         pos = ev.position()
+        self.setFocus(Qt.MouseFocusReason)
 
         if pos.x() < LABEL_W and pos.y() >= RULER_H:
             row = self._row_at(pos.y())
             if row is None:
                 return
             gi = self._pad_for_row(row)
+            self._set_keyboard_cell(gi, self._ensure_keyboard_cell()[1])
             if ev.modifiers() & Qt.ShiftModifier:
                 self.app.snapshot()
                 pat.steps.pop(gi, None)
@@ -156,6 +208,7 @@ class StepGrid(WindowClient, QWidget):
         if row is None:
             return
         gi = self._pad_for_row(row)
+        self._set_keyboard_cell(gi, col)
         self.app.snapshot()
         current = pat.get(gi, col)
         if ev.button() == Qt.RightButton:
@@ -197,6 +250,67 @@ class StepGrid(WindowClient, QWidget):
         self._hover = None
         self.update()
 
+    def focusInEvent(self, ev):
+        self._describe_keyboard_cell()
+        self.update()
+        super().focusInEvent(ev)
+
+    def _reveal_keyboard_cell(self):
+        gi, step = self._ensure_keyboard_cell()
+        center = QPoint(
+            LABEL_W + step * (CELL_W + GAP) + CELL_W // 2,
+            RULER_H + self.lanes().index(gi) * (ROW_H + GAP) + ROW_H // 2,
+        )
+        self.app.seq_scroll.ensureVisible(center.x(), center.y(), CELL_W + GAP, ROW_H + GAP)
+        return center
+
+    def keyPressEvent(self, ev):
+        """Operate the painted grid without needing a mouse-only hit target."""
+        key = ev.key()
+        gi, step = self._ensure_keyboard_cell()
+        lanes = self.lanes()
+        row = lanes.index(gi)
+
+        if key == Qt.Key_Menu or (key == Qt.Key_F10 and ev.modifiers() == Qt.ShiftModifier):
+            self._open_lane_menu(gi, self.mapToGlobal(self._reveal_keyboard_cell()))
+        elif key == Qt.Key_Left:
+            self._set_keyboard_cell(gi, step - 1)
+        elif key == Qt.Key_Right:
+            self._set_keyboard_cell(gi, step + 1)
+        elif key == Qt.Key_Up:
+            self._set_keyboard_cell(lanes[max(0, row - 1)], step)
+        elif key == Qt.Key_Down:
+            self._set_keyboard_cell(lanes[min(len(lanes) - 1, row + 1)], step)
+        elif key == Qt.Key_PageUp:
+            self._set_keyboard_cell(lanes[max(0, row - 4)], step)
+        elif key == Qt.Key_PageDown:
+            self._set_keyboard_cell(lanes[min(len(lanes) - 1, row + 4)], step)
+        elif key == Qt.Key_Home:
+            self._set_keyboard_cell(gi, 0)
+        elif key == Qt.Key_End:
+            self._set_keyboard_cell(gi, self.pattern().total_steps - 1)
+        elif key in (Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter):
+            current = self.pattern().get(gi, step)
+            self.app.snapshot()
+            self.pattern().set(gi, step, None if current else 1.0)
+            if not current and not self.app.engine.playing:
+                self.padAuditioned.emit(gi)
+            self._commit()
+            self._describe_keyboard_cell()
+        elif key in (Qt.Key_Delete, Qt.Key_Backspace):
+            if self.pattern().get(gi, step) is not None:
+                self.app.snapshot()
+                self.pattern().set(gi, step, None)
+                self._commit()
+                self._describe_keyboard_cell()
+        else:
+            super().keyPressEvent(ev)
+            return
+        # Keyboard editing must reveal its target even when playback FOLLOW is
+        # disabled. Mouse selection should not move the view under the pointer.
+        self._reveal_keyboard_cell()
+        ev.accept()
+
     def wheelEvent(self, ev):
         row, col = self._cell_at(ev.position())
         if row is None:
@@ -217,12 +331,28 @@ class StepGrid(WindowClient, QWidget):
     # ── lane menu ────────────────────────────────────────────
     def contextMenuEvent(self, ev):
         pos = ev.pos()
-        if pos.x() >= LABEL_W or pos.y() < RULER_H:
-            return  # the grid itself erases on right-drag
-        row = self._row_at(pos.y())
-        if row is None:
-            return
-        gi = self._pad_for_row(row)
+        if pos.x() < LABEL_W and pos.y() >= RULER_H:
+            row = self._row_at(pos.y())
+            if row is None:
+                return
+            gi = self._pad_for_row(row)
+            self._set_keyboard_cell(gi, self._ensure_keyboard_cell()[1])
+        else:
+            # Keyboard context-menu events do not have a meaningful mouse
+            # position.  Use the active lane so every lane action is usable
+            # without a pointer; mouse right-drags on cells still erase.
+            if ev.reason() != QContextMenuEvent.Keyboard:
+                return
+            gi, _step = self._ensure_keyboard_cell()
+        menu_pos = (
+            self.mapToGlobal(self._reveal_keyboard_cell())
+            if ev.reason() == QContextMenuEvent.Keyboard
+            else ev.globalPos()
+        )
+        self._open_lane_menu(gi, menu_pos)
+
+    def _open_lane_menu(self, gi: int, global_pos) -> None:
+        """Show lane actions for a pad from mouse or keyboard affordances."""
         pad = self.app.project.pads[gi]
 
         menu = QMenu(self)
@@ -248,7 +378,7 @@ class StepGrid(WindowClient, QWidget):
         paste = menu.addAction("Paste lane", lambda: self._paste(gi))
         paste.setEnabled(self._clipboard is not None)
         menu.addAction("Clear lane", lambda: self._clear_lane(gi))
-        menu.exec(ev.globalPos())
+        menu.exec(global_pos)
 
     def _commit(self):
         self.stepEdited.emit()
@@ -292,12 +422,18 @@ class StepGrid(WindowClient, QWidget):
 
     def _copy(self, gi: int):
         self._clipboard = dict(self.pattern().steps.get(gi, {}))
+        self._clipboard_div = self.pattern().div
 
     def _paste(self, gi: int):
         if self._clipboard is None:
             return
         self.app.snapshot()
-        self.pattern().steps[gi] = dict(self._clipboard)
+        pat = self.pattern()
+        lane = remap_step_lane(self._clipboard, self._clipboard_div, pat.div, pat.total_steps)
+        if lane:
+            pat.steps[gi] = lane
+        else:
+            pat.steps.pop(gi, None)
         self._commit()
 
     def _clear_lane(self, gi: int):
@@ -368,6 +504,19 @@ class StepGrid(WindowClient, QWidget):
                 f"{(step // div) % 4 + 1}",
             )
 
+        # Continuous bar/beat guides connect the ruler with every sound lane.
+        for step in range(total + 1):
+            x = LABEL_W + step * (CELL_W + GAP) - 1
+            bar_start = step % steps_per_bar == 0
+            beat_start = step % div == 0
+            p.setPen(
+                QPen(
+                    q("cell_bar" if bar_start else "hover_line" if beat_start else "line"),
+                    2 if bar_start else 1,
+                )
+            )
+            p.drawLine(x, RULER_H, x, RULER_H + grid_h)
+
         fm = QFontMetrics(tiny)
         p.setFont(tiny)
         for row, gi in enumerate(lanes):
@@ -423,6 +572,10 @@ class StepGrid(WindowClient, QWidget):
                     p.setBrush(Qt.NoBrush)
                     p.setPen(QPen(q("accent2"), 1))
                     p.drawRoundedRect(cell, 3, 3)
+                if self.hasFocus() and self._keyboard_cell == (gi, step):
+                    p.setBrush(Qt.NoBrush)
+                    p.setPen(QPen(q("fg"), 2))
+                    p.drawRoundedRect(cell.adjusted(1, 1, -1, -1), 3, 3)
 
         footer = QRectF(3, RULER_H + grid_h + 3, min(self.width() - 6, 440), ROW_H - 2)
         p.setPen(

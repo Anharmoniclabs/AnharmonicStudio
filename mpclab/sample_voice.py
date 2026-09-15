@@ -65,6 +65,8 @@ class PadVoice:
     pad_index: int
     loop: bool
     live_trigger: bool = False  # manual MPC performance, separate from sequenced pad voices
+    event_source: object = None
+    trigger_id: object = None
     sequence_id: str | None = None  # pattern audition or individual arrangement placement
     note: int | None = None  # chromatic performance, distinct from drum-pad triggers
     gated: bool = False  # remember release behavior even after the source is replaced

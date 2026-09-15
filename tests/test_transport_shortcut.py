@@ -51,6 +51,45 @@ class SpaceTransportTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(self.window.proj_name.text(), "my ")
 
+    def test_double_space_restarts_song_and_pattern_at_zero(self):
+        self.window.playlist.setFocus()
+        for mode in ("song", "pattern"):
+            self.window.engine.mode = mode
+            self.window.engine.beat = 7.0
+            self.window.engine.playing = True
+            self.window._last_transport_space = None
+            with patch("mpclab.ui.window_transport.time.monotonic", return_value=10.0) as clock:
+                QTest.keyClick(self.window.playlist, Qt.Key_Space)
+                self.window.engine._process_commands()
+                self.assertFalse(self.window.engine.playing)
+                self.assertEqual(self.window.engine.beat, 7.0)
+                clock.return_value = 10.2
+                QTest.keyClick(self.window.playlist, Qt.Key_Space)
+                self.window.engine._process_commands()
+                self.assertTrue(self.window.engine.playing)
+                self.assertEqual(self.window.engine.beat, 0.0)
+
+    def test_slow_space_resumes_and_typing_breaks_double_tap(self):
+        self.window.playlist.setFocus()
+        self.window.engine.beat = 7.0
+        self.window.engine.playing = True
+        with patch("mpclab.ui.window_transport.time.monotonic", return_value=10.0) as clock:
+            QTest.keyClick(self.window.playlist, Qt.Key_Space)
+            self.window.engine._process_commands()
+            clock.return_value = 10.5
+            QTest.keyClick(self.window.playlist, Qt.Key_Space)
+            self.window.engine._process_commands()
+            self.assertTrue(self.window.engine.playing)
+            self.assertEqual(self.window.engine.beat, 7.0)
+            self.window.proj_name.setFocus()
+            QTest.keyClick(self.window.proj_name, Qt.Key_Space)
+            self.window.playlist.setFocus()
+            clock.return_value = 10.6
+            QTest.keyClick(self.window.playlist, Qt.Key_Space)
+            self.window.engine._process_commands()
+            self.assertFalse(self.window.engine.playing)
+            self.assertEqual(self.window.engine.beat, 7.0)
+
     def test_playlist_bar_control_sets_playlist_loop_length(self):
         self.window.loop_start_box.setValue(8.0)
         self.window.playlist_loop_bars.setValue(7)
@@ -67,14 +106,18 @@ class SpaceTransportTests(unittest.TestCase):
         self.assertTrue(self.window.browser_frame.isHidden())
         self.assertTrue(self.window.pad_side.isHidden())
         self.assertTrue(self.window.zoom.isHidden())
-        self.assertFalse(self.window.btn_theme.isHidden())
-        self.assertFalse(self.window.btn_color.isHidden())
+        self.assertFalse(self.window.appearance_button.isHidden())
+        self.assertFalse(self.window.appearance_button.isHidden())
         self.assertFalse(self.window.place_box.isHidden())
         self.assertFalse(self.window.snap_box.isHidden())
+        self.assertEqual(self.window.btn_workspace_focus.text(), "EXIT FOCUS")
+        self.assertTrue(self.window.btn_workspace_focus.isChecked())
         self.window.set_playlist_focus(False)
         self.assertFalse(self.window.browser_frame.isHidden())
         self.assertFalse(self.window.pad_side.isHidden())
-        self.assertFalse(self.window.btn_theme.isHidden())
+        self.assertFalse(self.window.appearance_button.isHidden())
+        self.assertEqual(self.window.btn_workspace_focus.text(), "ARRANGE")
+        self.assertFalse(self.window.btn_workspace_focus.isChecked())
 
     def test_the_window_fits_beside_another_one_in_either_mode(self):
         # What decides whether the window can sit beside another one is the
@@ -124,6 +167,22 @@ class SpaceTransportTests(unittest.TestCase):
         clip = self.window.playlist._place_clip(0, 0.0)
         self.window.playlist.select_clip(clip)
         self.assertFalse(self.window.playlist_clip_tools.isHidden())
+
+    def test_playlist_glyph_tools_expose_names_and_selected_mode(self):
+        self.window.set_playlist_tool("slice")
+        slice_tool = self.window.playlist_tool_buttons["slice"]
+        draw_tool = self.window.playlist_tool_buttons["draw"]
+
+        self.assertEqual(slice_tool.accessibleName(), "Playlist tool: Scissors")
+        self.assertIn("Split a clip", slice_tool.accessibleDescription())
+        self.assertIn("Selected editing mode", slice_tool.accessibleDescription())
+        self.assertEqual(draw_tool.accessibleName(), "Playlist tool: Draw")
+        self.assertIn("Not selected", draw_tool.accessibleDescription())
+        self.assertEqual(self.window.playlist_tool_mode_label.text(), "MODE · SCISSORS")
+        self.assertEqual(
+            self.window.playlist_tool_mode_label.accessibleDescription(),
+            "Playlist editing mode: Scissors.",
+        )
 
     def test_dirty_session_is_autosaved(self):
         self.window.snapshot()

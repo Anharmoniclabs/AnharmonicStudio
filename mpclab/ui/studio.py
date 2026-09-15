@@ -84,14 +84,11 @@ class StudioPanel(QWidget):
             (2, "Song"),
             (1, "Beats"),
             (6, "Notes"),
-            (9, "Scoring"),
             (0, "Sampler"),
             (4, "Instruments"),
             (5, "Autotune"),
             (3, "Mix"),
         ):
-            if index >= tabs.count():
-                continue
             button = QPushButton(title)
             button.setCheckable(True)
             button.setObjectName("workspaceTab")
@@ -213,7 +210,7 @@ class StudioPanel(QWidget):
         self.stack = QStackedWidget()
         self.stack.setMinimumWidth(0)
         layout.addWidget(self.stack, 1)
-        for index in (*range(8), *((9,) if tabs.count() > 9 else ())):
+        for index in range(8):
             page, title = tabs.widget(index), tabs.tabText(index)
             tabs.removeTab(index)
             holder = mount()
@@ -356,7 +353,7 @@ class StudioPanel(QWidget):
         self._master_view = False
         if hasattr(self, "visuals"):
             self.visuals.header.set_page(index)
-        self.stack.setCurrentWidget(self.docks[index])
+        self.stack.setCurrentIndex(index)
         for key, button in self.buttons.items():
             button.setChecked(key == index)
         self.beat_tools.setVisible(index == 1)
@@ -374,7 +371,6 @@ class StudioPanel(QWidget):
                 3: "Mix · balance tracks, effects, sends and the master output.",
                 5: "Autotune · shape the pitch of an existing recording. Record dry vocals in Song.",
                 7: "Automation · draw song-level movement for gain and pan.",
-                9: "Scoring · read instrument parts, compose notes and export sheet music.",
             }[index]
         )
 

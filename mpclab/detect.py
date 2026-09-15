@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .dsp import SR, HOP, WIN, detect_bpm, onset_envelope, detect_onsets, pick_peaks
+from .dsp import SR, HOP, WIN, detect_bpm, onset_envelope, pick_peaks, tempo_from_envelope
 
 # Band edges in Hz. Deliberately coarse — these separate drum families, they are
 # not a filterbank.
@@ -401,9 +401,7 @@ def find_hits(
     n = len(spec.rms)
     duration = x.size / sr
     if onsets is None:
-        onsets = merge_times(
-            detect_onsets(x, sr, sensitivity=sensitivity) + family_onsets(spec, sensitivity)
-        )
+        onsets = _audible_onsets(x, sr, spec, sensitivity)
     if not onsets:
         return []
     loudest = float(spec.rms.max()) + 1e-9
@@ -414,7 +412,9 @@ def find_hits(
         end = min(t + max_length, nxt if nxt > t + 0.02 else t + max_length, duration)
         if end - t < 0.02:
             continue
-        f0, f1 = _frame(t, fps, n), _frame(end, fps, n)
+        # Spectral windows are left-aligned; their attack flux precedes the
+        # waveform boundary. Classify there while keeping sample-accurate cuts.
+        f0, f1 = _frame(max(0, t - WIN / (2 * sr)), fps, n), _frame(end, fps, n)
         profile = attack_profile(spec, f0)
         if not profile.any():
             continue
@@ -444,7 +444,7 @@ def find_hits(
         out.append(
             Candidate(
                 start=round(t, 5),
-                end=round(max(t + 0.05, tail), 5),
+                end=round(min(end, max(t + 0.05, tail)), 5),
                 kind=kind,
                 score=round(score, 4),
                 detail={
@@ -507,18 +507,20 @@ def find_loops(
     n_beats = int((duration - phase) / beat)
     if n_beats < 8:
         return []
-    # One normalised feature vector per beat: loudness contour plus timbre.
-    feats = np.zeros((n_beats, len(BANDS) + 1), dtype=np.float32)
-    for b in range(n_beats):
-        f0 = _frame(phase + b * beat, spec.fps, len(spec.rms))
-        f1 = _frame(phase + (b + 1) * beat, spec.fps, len(spec.rms))
+    # Sixteenth-note resolution retains breaks and syncopation. Normalizing
+    # each beat used to make different rhythms with similar timbre look alike.
+    subdivisions = 4
+    feats = np.zeros((n_beats * subdivisions, len(BANDS) + 1), dtype=np.float32)
+    for b in range(len(feats)):
+        f0 = _frame(phase + b * beat / subdivisions, spec.fps, len(spec.rms))
+        f1 = _frame(phase + (b + 1) * beat / subdivisions, spec.fps, len(spec.rms))
         f1 = max(f1, f0 + 1)
         feats[b, : len(BANDS)] = np.sqrt(spec.bands[f0:f1].mean(axis=0))
         feats[b, -1] = spec.rms[f0:f1].mean()
-    norm = np.linalg.norm(feats, axis=1, keepdims=True) + 1e-9
-    unit = feats / norm
-    energy = feats[:, -1]
+    energy = feats[:, -1].reshape(n_beats, subdivisions).mean(axis=1)
     loud = energy / (energy.max() + 1e-9)
+    # Equalize band scales across the file, retaining the phrase's dynamics.
+    unit = feats / _band_scale(feats)
 
     out: list[Candidate] = []
     for bar_len in bars:
@@ -527,7 +529,8 @@ def find_loops(
         if blocks < 2:
             continue
         # Flattened signature per block, compared block against block.
-        sig = np.stack([unit[i * span : (i + 1) * span].ravel() for i in range(blocks)])
+        cells = span * subdivisions
+        sig = np.stack([unit[i * cells : (i + 1) * cells].ravel() for i in range(blocks)])
         sig /= np.linalg.norm(sig, axis=1, keepdims=True) + 1e-9
         sim = sig @ sig.T
         np.fill_diagonal(sim, 0.0)
@@ -685,15 +688,42 @@ def analysis_mono(audio: np.ndarray) -> np.ndarray:
 
 def _audible_onsets(x, sr, spec, sensitivity):
     times = merge_times(
-        detect_onsets(x, sr, sensitivity=sensitivity) + family_onsets(spec, sensitivity)
+        [max(0.0, p / spec.fps - 0.006) for p in pick_peaks(spec.flux, spec.fps, sensitivity)]
+        + family_onsets(spec, sensitivity)
     )
-    # detect_onsets supplies a zero marker for manual slicing even when the
-    # file opens in silence. Auto Chop should start at actual audio instead.
-    return [
-        t
-        for t in times
-        if np.max(np.abs(x[int(t * sr) : min(x.size, int((t + 0.05) * sr))]), initial=0) > 1e-6
-    ]
+    if not times or times[0] > 0.05:
+        times.insert(0, 0.0)
+    return merge_times(refine_attacks(x, sr, times), min_gap_ms=20)
+
+
+def refine_attacks(x, sr, times):
+    """Backtrack local energy rises to the attack, with a short pre-roll.
+
+    Work only in small neighborhoods of spectral candidates. A half-millisecond
+    envelope locates the rising edge without snapping swung playing to a grid.
+    """
+    out = []
+    width = max(1, round(sr * 0.0005))
+    for t in times:
+        start = max(0, int(t * sr) - width * 4)
+        stop = min(len(x), int(t * sr) + WIN + width * 4)
+        segment = np.abs(x[start:stop])
+        if segment.size < width or segment.max(initial=0) <= 1e-6:
+            continue
+        count = segment.size // width
+        level = np.sqrt(np.mean(segment[: count * width].reshape(count, width) ** 2, axis=1))
+        # Compare adjacent 2ms windows to avoid following individual oscillations.
+        smooth = np.convolve(np.pad(level, (4, 4), mode="edge"), np.ones(4) / 4, "valid")
+        rise = smooth[4:] - smooth[:-4]
+        peak = min(len(level) - 1, int(np.argmax(rise)) + 2)
+        baseline = float(np.min(level[: peak + 1]))
+        threshold = baseline + 0.12 * max(0.0, float(level[peak]) - baseline)
+        boundary = peak
+        while boundary > 0 and level[boundary - 1] > threshold:
+            boundary -= 1
+        sample = max(0, start + boundary * width - width)
+        out.append(sample / sr)
+    return out
 
 
 def scan(
@@ -702,16 +732,55 @@ def scan(
     bpm: float | None = None,
     sensitivity: float = 1.0,
     per_kind: int = 4,
+    source_kind: str | None = None,
 ) -> dict:
     """Full pass: tempo, grid, classified hits, loops and drops."""
     x = np.asarray(x, dtype=np.float32)
     spec = spectra(x, sr)
-    env = onset_envelope(x, sr)
-    bpm = bpm or detect_bpm(x, sr)
+    env = spec.flux
+    bpm = bpm or tempo_from_envelope(env, spec.fps)
     phase, downbeat = beat_grid(env, spec.fps, bpm, accent=spec.band_envelope(SUB, LOW))
 
     onsets = _audible_onsets(x, sr, spec, sensitivity)
+    # Move the spectral grid onto waveform attacks without quantizing chops.
+    beat = 60.0 / bpm
+    offsets = (np.asarray(onsets) - phase + beat / 2) % beat - beat / 2
+    nearby = offsets[np.abs(offsets) < 0.06]
+    if nearby.size:
+        correction = float(np.median(nearby))
+        phase = (phase + correction) % beat
+        downbeat = (downbeat + correction) % (4 * beat)
+        if min(phase, beat - phase) < 0.002:
+            phase = 0.0
+        if min(downbeat, 4 * beat - downbeat) < 0.002:
+            downbeat = 0.0
     hits = find_hits(x, sr, spec=spec, onsets=onsets)
+    # Separation supplies trustworthy instrument context that broadband
+    # attack heuristics cannot recover from every bass or piano articulation.
+    if source_kind in ("bass", "other", "piano", "guitar", "vocals"):
+        for hit in hits:
+            hit.kind = "bass" if source_kind == "bass" else "tonal"
+    loops = find_loops(x, sr, bpm=bpm, spec=spec, phase=downbeat)
+    for loop in loops:
+        members = [hit for hit in hits if loop.start <= hit.start < loop.end]
+        drums = sum(hit.kind in ("kick", "snare", "clap", "hat", "perc") for hit in members)
+        bass = sum(hit.kind == "bass" for hit in members)
+        f0 = _frame(loop.start, spec.fps, len(spec.rms))
+        f1 = max(f0 + 1, _frame(loop.end, spec.fps, len(spec.rms)))
+        levels = spec.rms[f0:f1]
+        sustain = float(np.percentile(levels, 35) / (np.percentile(levels, 90) + 1e-9))
+        loop.detail["content"] = (
+            "drum break"
+            if source_kind == "drums" or (drums >= max(4, len(members) * 0.9) and sustain < 0.15)
+            else "vocal phrase"
+            if source_kind == "vocals"
+            else "bass phrase"
+            if source_kind == "bass" or bass > len(members) * 0.6
+            else "instrument phrase"
+            if source_kind in ("other", "piano", "guitar")
+            or (members and drums < len(members) * 0.3)
+            else "mixed loop"
+        )
     return {
         "bpm": bpm,
         "phase": phase,
@@ -719,7 +788,7 @@ def scan(
         "onsets": onsets,
         "hits": hits,
         "by_kind": best_hits(hits, per_kind=per_kind),
-        "loops": find_loops(x, sr, bpm=bpm, spec=spec, phase=downbeat),
+        "loops": loops,
         "drops": find_drops(x, sr, bpm=bpm, spec=spec, phase=downbeat),
     }
 

@@ -22,6 +22,30 @@ def _record_toggled(window, enabled):
     window._record_count_deadline = None
     window.record_count_label.hide()
     capture = window.track_capture
+    # In sequencing workspaces Record always means a pattern performance.
+    # A separately armed audio lane remains armed for a later take; it
+    # must not open a microphone or vocal capture from here.
+    # The outer QTabWidget always returns to its Studio host after a page
+    # selection, so the StudioPanel is the durable source of workspace
+    # intent (including keyboard/F-key navigation).
+    pattern_workspace = window.studio.selected in {
+        window.TAB_SEQ,
+        window.TAB_PIANO,
+        window.TAB_SYNTH,
+    }
+    if enabled and pattern_workspace:
+        if window.engine.mode != "pattern":
+            window.engine.mode = "pattern"
+            window.btn_pattern.setChecked(True)
+            window.btn_song.setChecked(False)
+            window._refresh_transport_scope_visual()
+        if window.engine.playing:
+            window._snapshot_recording_take()
+            window.engine.recording = True
+            window.status.showMessage(
+                "Recording · selected pattern · pads and notes stay independent", 3500
+            )
+            return
     if enabled and capture.armed_id is None and window.engine.mode == "song":
         window.btn_rec.blockSignals(True)
         window.btn_rec.setChecked(False)
@@ -33,7 +57,7 @@ def _record_toggled(window, enabled):
     if not enabled and (capture.active or capture.pending):
         capture.finish()
         return
-    if enabled and capture.armed_id is not None:
+    if enabled and not pattern_workspace and capture.armed_id is not None:
         if not capture.prepare():
             window.btn_rec.blockSignals(True)
             window.btn_rec.setChecked(False)
@@ -61,7 +85,19 @@ def _record_toggled(window, enabled):
             window.sample_workflow.note_off(note)
         for note in list(window._recorded_notes):
             window.release_synth_note(note)
+        window._finish_recorded_pad_notes()
         window.engine.recording = False
+        window._recording_take_snapshot = False
+        return
+    # During the Beats workflow the common intent is to overdub the
+    # pattern that is already running.  Restarting transport for a
+    # count-in here makes it impossible to record against the groove the
+    # player is hearing.  A stopped transport still takes the familiar
+    # three-beat count-in below.
+    if window.engine.playing and window.engine.mode == "pattern":
+        window._snapshot_recording_take()
+        window.engine.recording = True
+        window.status.showMessage("Recording · pattern overdub · Record or Stop ends", 3500)
         return
     window.engine.recording = False
     window.engine.stop_transport(rewind=False)
@@ -89,7 +125,7 @@ def _advance_record_count(window):
     if window.track_capture.pending:
         window.track_capture.start()
         return
-    window.snapshot()
+    window._snapshot_recording_take()
     window.engine.recording = True
     window.engine.play()
     window.status.showMessage("Recording", 2500)
@@ -100,6 +136,19 @@ def _cancel_record_count(window):
         window.btn_rec.setChecked(False)
 
 
+def space_transport(window):
+    """Single Space pauses/resumes; two distinct taps restart from beat zero."""
+    now = time.monotonic()
+    previous = getattr(window, "_last_transport_space", None)
+    window._last_transport_space = now
+    if previous is not None and 0 <= now - previous <= 0.35:
+        window._last_transport_space = None
+        window.stop_all()
+        window.engine.play(0.0)
+    else:
+        window.toggle_play()
+
+
 def toggle_play(window):
     if window.track_capture.active:
         window.btn_rec.setChecked(False)
@@ -107,6 +156,11 @@ def toggle_play(window):
     if window._record_count_deadline is not None:
         window._cancel_record_count()
         return
+    if window.engine.playing and window.engine.recording:
+        if window.btn_rec.isChecked():
+            window.btn_rec.setChecked(False)
+        else:
+            window._record_toggled(False)
     window.engine.toggle_play()
 
 
@@ -121,7 +175,9 @@ def release_selected_note(window, note: int):
 SELECTED_INSTRUMENT = object()
 
 
-def play_synth_note(window, note: int, velocity: float = 1.0, *, instrument_id=SELECTED_INSTRUMENT, channel=0):
+def play_synth_note(
+    window, note: int, velocity: float = 1.0, *, instrument_id=SELECTED_INSTRUMENT, channel=0
+):
     if instrument_id is SELECTED_INSTRUMENT:
         instrument_id = window.project.selected_instrument
     use_arp = instrument_id is None and window.project.arp.enabled
@@ -138,7 +194,7 @@ def play_synth_note(window, note: int, velocity: float = 1.0, *, instrument_id=S
         and window.engine.mode == "pattern"
     ):
         if key not in window._recorded_notes:
-            window.snapshot()
+            window._snapshot_recording_take()
             window._recorded_notes[key] = (
                 window.project.pattern().id,
                 window.engine.beat,
@@ -146,9 +202,11 @@ def play_synth_note(window, note: int, velocity: float = 1.0, *, instrument_id=S
                 channel,
             )
     if instrument_id is None:
-        window.engine.synth_note_on(note, velocity)
+        token = window.engine.synth_note_on(note, velocity)
     else:
-        window.engine.synth_note_on(note, velocity, instrument_id=instrument_id)
+        token = window.engine.synth_note_on(note, velocity, instrument_id=instrument_id)
+    if key in window._recorded_notes:
+        window._recorded_notes[key] = (*window._recorded_notes[key][:4], token)
     window.synth_panel.keyboard.set_note_active(note, True)
     if window.typing_keyboard is not None:
         window.typing_keyboard.keyboard.set_note_active(note, True)
@@ -171,8 +229,18 @@ def release_synth_note(window, note: int, *, instrument_id=SELECTED_INSTRUMENT):
         if pattern:
             beat = start % pattern.length_beats
             duration = min(max(0.03125, window.engine.beat - start), pattern.length_beats - beat)
-            pattern.notes.append(Note(note, beat, duration, velocity, instrument=instrument_id,
-                                      channel=channels[0] if channels else 0))
+            captured = Note(
+                note,
+                beat,
+                duration,
+                velocity,
+                instrument=instrument_id,
+                channel=channels[0] if channels else 0,
+            )
+            pattern.notes.append(captured)
+            window.engine.bind_recorded_note(
+                pattern, captured, channels[1] if len(channels) > 1 else None
+            )
             window._set_dirty(True)
             window.piano_roll.canvas.refresh()
     if instrument_id is None:
@@ -197,12 +265,18 @@ def panic_synth(window):
 
 
 def stop_all(window):
-    if window.track_capture.active or window.track_capture.pending:
-        window.btn_rec.setChecked(False)
+    if window.track_capture.active or window.track_capture.pending or window.engine.recording:
+        if window.btn_rec.isChecked():
+            window.btn_rec.setChecked(False)
+        else:
+            # Keep the engine and toolbar coherent even if an audio-thread
+            # state update reached us before the next UI tick.
+            window._record_toggled(False)
     window.sample_workflow.panic()
     window._cancel_record_count()
     for note in list(window._recorded_notes):
         window.release_synth_note(note)
+    window._finish_recorded_pad_notes()
     window.engine.stop_transport(rewind=True)
     window.engine.panic()
     window._held_pads.clear()
@@ -219,12 +293,19 @@ def set_mode(window, mode: str):
             return
         window.btn_rec.setChecked(False)
     window.sample_workflow.panic()
+    if window.engine.recording:
+        if window.btn_rec.isChecked():
+            window.btn_rec.setChecked(False)
+        else:
+            window._record_toggled(False)
     window._cancel_record_count()
     for note in list(window._recorded_notes):
         window.release_synth_note(note)
+    window._finish_recorded_pad_notes()
     window.engine.mode = mode
     window.btn_pattern.setChecked(mode == "pattern")
     window.btn_song.setChecked(mode == "song")
+    window._refresh_transport_scope_visual()
     window.engine.stop_transport(rewind=True)
     if mode == "song":
         window.tabs.setCurrentIndex(2)
@@ -438,3 +519,10 @@ def _retry_audio(window):
         return
     window._audio_start_error = None
     window.status.showMessage(f"audio online · {window.engine.blocksize} frames", 4000)
+
+
+def _snapshot_recording_take(window):
+    """Create exactly one undo point for a live pattern performance."""
+    if not window._recording_take_snapshot:
+        window.snapshot()
+        window._recording_take_snapshot = True

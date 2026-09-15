@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass, field, asdict, replace
 from pathlib import Path
 
-from .music import Note, MidiControl, AutomationLane, read_notes, read_automation, read_midi_controls
+from .music import Note, AutomationLane, read_notes, read_automation
 from .plugin_registry import validate_project_plugins
 from .project_migrations import legacy_mixer_track_id, migrate_project_document
 
@@ -186,6 +186,20 @@ class Instrument:
         validate_patch(self.patch)
 
 
+def remap_step_lane(steps, source_div: int, target_div: int, total_steps: int):
+    """Keep beat positions on the destination grid and discard out-of-range hits.
+
+    A coarser grid snaps to its nearest step. If hits coincide, retain the
+    strongest velocity rather than making the result depend on dict order.
+    """
+    result = {}
+    for step, velocity in steps.items():
+        target = int(math.floor(step * target_div / source_div + 0.5))
+        if 0 <= target < total_steps:
+            result[target] = max(result.get(target, 0.0), velocity)
+    return result
+
+
 @dataclass
 class Pattern:
     id: str = field(default_factory=uid)
@@ -193,7 +207,6 @@ class Pattern:
     bars: int = 2
     div: int = 4  # steps per beat
     notes: list[Note] = field(default_factory=list)
-    midi_controls: list[MidiControl] = field(default_factory=list)
     # pad index -> {step index: velocity}
     steps: dict[int, dict[int, float]] = field(default_factory=dict)
 
@@ -327,7 +340,9 @@ class VocalSettings:
     humanize: float = 0.15  # preserve longer-note movement
     mix: float = 1.0  # corrected / original blend
     transpose: int = 0  # target scale transposition, semitones
-    formant: float = 0.75  # original-body preservation blend
+    formant: float = 0.75  # V2 spectral-envelope preservation; legacy body blend
+    backend: str = "legacy"
+    pitch_edits: dict = field(default_factory=dict)  # source clip ID -> note regions
     low_note: int = 36  # C2
     high_note: int = 84  # C6
     gate_db: float = -55.0
@@ -337,14 +352,99 @@ class VocalSettings:
     presence_db: float = 1.5
     output_db: float = 0.0
 
+    def __post_init__(self):
+        """Reject malformed persisted tuning state before it reaches DSP/UI."""
+        if self.backend not in ("legacy", "v2"):
+            raise ValueError("vocal backend must be legacy or v2")
+        if not isinstance(self.pitch_edits, dict) or len(self.pitch_edits) > 10000:
+            raise ValueError("invalid vocal pitch edits")
+        for source, notes in self.pitch_edits.items():
+            if not isinstance(source, str) or not isinstance(notes, list) or len(notes) > 100000:
+                raise ValueError("invalid vocal pitch edit source")
+            previous_end = 0.0
+            for note in notes:
+                if not isinstance(note, dict):
+                    raise ValueError("invalid vocal pitch region")
+                for key in ("start", "end", "target", "strength"):
+                    value = note.get(key, 1.0 if key == "strength" else None)
+                    if (
+                        isinstance(value, bool)
+                        or not isinstance(value, (int, float))
+                        or not math.isfinite(value)
+                    ):
+                        raise ValueError("invalid vocal pitch region number")
+                if not (
+                    previous_end <= note["start"] < note["end"]
+                    and 0 <= note["target"] <= 127
+                    and 0 <= note.get("strength", 1.0) <= 1.0
+                    and type(note.get("bypass", False)) is bool
+                ):
+                    raise ValueError("invalid vocal pitch region bounds")
+                previous_end = note["end"]
+        if type(self.enabled) is not bool:
+            raise ValueError("vocal enabled must be a boolean")
+        if type(self.key) is not str or self.key not in (
+            "C",
+            "C#",
+            "D",
+            "D#",
+            "E",
+            "F",
+            "F#",
+            "G",
+            "G#",
+            "A",
+            "A#",
+            "B",
+        ):
+            raise ValueError("vocal key must be one of the twelve note names")
+        if type(self.scale) is not str or self.scale not in (
+            "chromatic",
+            "major",
+            "minor",
+            "pentatonic",
+        ):
+            raise ValueError("vocal scale must be chromatic, major, minor, or pentatonic")
+
+        def bounded(name: str, low: float, high: float):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"vocal {name} must be a finite number")
+            try:
+                finite = math.isfinite(value)
+            except OverflowError as exc:
+                raise ValueError(f"vocal {name} must be a finite number") from exc
+            if not finite or not low <= value <= high:
+                raise ValueError(f"vocal {name} must be between {low:g} and {high:g}")
+
+        for name in ("strength", "humanize", "mix", "formant", "deesser", "compression"):
+            bounded(name, 0.0, 1.0)
+        bounded("retune_ms", 0.0, 250.0)
+        bounded("transpose", -12.0, 12.0)
+        bounded("gate_db", -80.0, -20.0)
+        bounded("highpass_hz", 20.0, 300.0)
+        bounded("presence_db", -6.0, 9.0)
+        bounded("output_db", -18.0, 12.0)
+        for name in ("transpose", "low_note", "high_note"):
+            value = getattr(self, name)
+            if type(value) is not int:
+                raise ValueError(f"vocal {name} must be an integer")
+        if not -12 <= self.transpose <= 12:
+            raise ValueError("vocal transpose must be an integer between -12 and 12")
+        for name in ("low_note", "high_note"):
+            value = getattr(self, name)
+            if not 0 <= value <= 127:
+                raise ValueError(f"vocal {name} must be an integer from 0 to 127")
+        if self.low_note > self.high_note:
+            raise ValueError("vocal low_note must not exceed high_note")
+
 
 @dataclass
 class VocalRecordSettings:
     """Project-local defaults for the vocal capture deck."""
 
+    corrected_monitor: bool = False
     input_device: str = ""  # stable ``host/name`` key; empty = default
-    input_channels: list[int] = field(default_factory=lambda: [0])
-    split_inputs: bool = False
     input_gain_db: float = 0.0
     input_latency_ms: float = 0.0  # measured input/loopback placement offset
     monitor: bool = False
@@ -355,10 +455,42 @@ class VocalRecordSettings:
     mixer_track: int = 3
 
     def __post_init__(self):
-        if not isinstance(self.input_channels, list) or not 1 <= len(self.input_channels) <= 64 or any(type(c) is not int or not 0 <= c < 64 for c in self.input_channels) or len(set(self.input_channels)) != len(self.input_channels):
-            raise ValueError("Recording inputs must be distinct channel numbers from 1 to 64")
-        if type(self.split_inputs) is not bool:
-            raise ValueError("Separate-input recording must be enabled or disabled")
+        """Validate persisted capture defaults before applying them to controls."""
+        if type(self.input_device) is not str:
+            raise ValueError("vocal record input_device must be a string")
+        if type(self.monitor) is not bool:
+            raise ValueError("vocal record monitor must be a boolean")
+        if type(self.corrected_monitor) is not bool:
+            raise ValueError("corrected monitor must be a boolean")
+        if type(self.auto_place) is not bool:
+            raise ValueError("vocal record auto_place must be a boolean")
+
+        def bounded(name: str, low: float, high: float):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"vocal record {name} must be a finite number")
+            try:
+                finite = math.isfinite(value)
+            except OverflowError as exc:
+                raise ValueError(f"vocal record {name} must be a finite number") from exc
+            if not finite or not low <= value <= high:
+                raise ValueError(f"vocal record {name} must be between {low:g} and {high:g}")
+
+        bounded("input_gain_db", -24.0, 24.0)
+        bounded("input_latency_ms", 0.0, 500.0)
+        bounded("monitor_gain", 0.0, 1.5)
+        for name in ("count_in_bars", "playlist_row", "mixer_track"):
+            value = getattr(self, name)
+            if type(value) is not int:
+                raise ValueError(f"vocal record {name} must be an integer")
+        if not 0 <= self.count_in_bars <= 4:
+            raise ValueError("vocal record count_in_bars must be an integer from 0 to 4")
+        if not 0 <= self.playlist_row < 128:
+            raise ValueError("vocal record playlist_row must be an integer from 0 to 127")
+        if not 0 <= self.mixer_track < MAX_TRACKS:
+            raise ValueError(
+                f"vocal record mixer_track must be an integer from 0 to {MAX_TRACKS - 1}"
+            )
 
 
 @dataclass
@@ -509,7 +641,7 @@ class Project:
     loop_start: float = 0.0
     loop_end: float = 16.0
     loop_enabled: bool = False
-    accent_color: str = "#d5a354"
+    accent_color: str = "#c692a4"
     delay_fx: DelayFX = field(default_factory=DelayFX)
     reverb_fx: ReverbFX = field(default_factory=ReverbFX)
     master_fx: MasterFX = field(default_factory=MasterFX)
@@ -772,7 +904,7 @@ class Project:
             loop_start=number("loop_start", 0.0, 0, 1_000_000),
             loop_end=number("loop_end", 16.0, 0, 1_000_000),
             loop_enabled=boolean("loop_enabled"),
-            accent_color=str(d.get("accent_color", "#d5a354")),
+            accent_color=str(d.get("accent_color", "#c692a4")),
             delay_fx=_from_dict(DelayFX, mapping("delay_fx")),
             reverb_fx=_from_dict(ReverbFX, mapping("reverb_fx")),
             master_fx=_from_dict(MasterFX, mapping("master_fx")),
@@ -927,7 +1059,6 @@ class Project:
                     div=div,
                     steps=steps,
                     notes=read_notes(p.get("notes", [])),
-                    midi_controls=read_midi_controls(p.get("midi_controls", [])),
                 )
             )
         proj.patterns = pats or [Pattern()]

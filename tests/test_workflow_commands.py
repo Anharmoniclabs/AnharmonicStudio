@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+
+import pytest
+
+from mpclab import workflow_commands
 from mpclab.workflow_commands import CommandRegistry, CommandSpec, PRESET_BINDINGS
 
 
@@ -68,3 +73,41 @@ def test_command_search_uses_title_id_and_keywords():
 
     assert [item.id for item in registry.search("freeze")] == ["clip.freeze"]
     assert [item.id for item in registry.search("cpu")] == ["clip.freeze"]
+
+
+def test_keymap_file_is_bounded_before_json_parse(tmp_path, monkeypatch):
+    path = tmp_path / "keys.json"
+    path.write_bytes(b"{" + b" " * 64)
+    monkeypatch.setattr(workflow_commands, "MAX_BINDING_FILE_BYTES", 16)
+
+    with pytest.raises(ValueError, match="exceeds the 1 MiB safety limit"):
+        CommandRegistry(path)
+
+
+def test_keymap_file_reports_invalid_utf8_and_json(tmp_path):
+    path = tmp_path / "keys.json"
+    path.write_bytes(b"{\xff}")
+    with pytest.raises(ValueError, match="must be UTF-8 JSON"):
+        CommandRegistry(path)
+
+    path.write_text('{"version":1,,}', encoding="utf-8")
+    with pytest.raises(ValueError, match=r"not valid JSON \(line 1, column"):
+        CommandRegistry(path)
+
+
+def test_atomic_keymap_save_keeps_previous_file_if_replace_fails(tmp_path, monkeypatch):
+    path = tmp_path / "keys.json"
+    path.write_text(json.dumps({"version": 1, "preset": "Custom", "bindings": {}, "macros": {}}))
+    previous = path.read_bytes()
+    registry = CommandRegistry(path)
+    registry.register(CommandSpec("one", "One", lambda: None))
+
+    def fail_replace(_source, _destination):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(workflow_commands.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated replace failure"):
+        registry.bind("one", "Ctrl+1")
+
+    assert path.read_bytes() == previous
+    assert not list(tmp_path.glob(".keys.json.*.tmp"))

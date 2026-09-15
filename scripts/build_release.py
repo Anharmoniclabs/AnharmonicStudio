@@ -32,8 +32,6 @@ PACKAGES = (
     "pycparser",
     "python-rtmidi",
     "pedalboard",
-    "verovio",
-    "onnxruntime",
 )
 
 
@@ -86,6 +84,10 @@ def check(executable, directory, report):
 
 
 def notices(bundle):
+    shutil.copytree(ROOT / "native/vendor/rubberband", bundle / "notices/rubberband-4.0.0-source")
+    shutil.copy2(
+        ROOT / "native/vendor/CMakeLists.txt", bundle / "notices/rubberband-CMakeLists.txt"
+    )
     shutil.copy2(ROOT / "packaging/INSTALLATION.txt", bundle / "INSTALLATION.txt")
     for name in ("LICENSE", "THIRD_PARTY.md"):
         shutil.copy2(ROOT / name, bundle / name)
@@ -108,10 +110,19 @@ def notices(bundle):
                     shutil.copy2(source, destination)
 
 
-def make_spec(stage, native, ffmpeg, ffprobe):
+def make_spec(stage, native, ffmpeg, ffprobe, pitch_engine=None):
     windows, mac = sys.platform == "win32", sys.platform == "darwin"
     binaries = [(str(native), ".native"), (str(ffmpeg), "tools"), (str(ffprobe), "tools")]
     datas = [(str(ROOT / "assets"), "assets"), (str(ROOT / "mpclab/native"), "mpclab/native")]
+    datas.extend(
+        (str(ROOT / "mpclab" / name), "mpclab")
+        for name in ("prism_expansion.json", "prism_arps.json", "prism_parameters.json")
+    )
+    if (ROOT / "plugins/bundled").is_dir():
+        datas.append((str(ROOT / "plugins/bundled"), "plugins/bundled"))
+    if pitch_engine is not None:
+        binaries.append((str(pitch_engine), "."))
+    datas.append((str(ROOT / "mpclab/companion"), "mpclab/companion"))
     excluded = [
         "torch",
         "torchaudio",
@@ -127,7 +138,7 @@ def make_spec(stage, native, ffmpeg, ffprobe):
 from PyInstaller.utils.hooks import copy_metadata, collect_all
 metadata = []
 plugin_data, plugin_binaries, plugin_imports = [], [], []
-for module in ("pedalboard", "rtmidi", "verovio", "onnxruntime"):
+for module in ("pedalboard", "rtmidi"):
     data, binaries, hidden = collect_all(module)
     plugin_data += data
     plugin_binaries += binaries
@@ -240,6 +251,8 @@ def main():
     if metadata.version("pyinstaller") != "6.16.0":
         parser.error("Install requirements-build.txt in the build environment")
     output = args.output.resolve()
+    if not (ROOT / "plugins/bundled/Anharmonic Prism.vst3").is_dir():
+        parser.error("Build the bundled instrument first with scripts/build_prism.py")
     if output.exists():
         parser.error(f"Output already exists: {output}")
     try:
@@ -247,6 +260,9 @@ def main():
     except ValueError as exc:
         parser.error(str(exc))
     native = build()
+    from scripts.build_rubberband import build as build_pitch
+
+    pitch_engine = build_pitch()
     media = [shutil.which(name) for name in ("ffmpeg", "ffprobe")]
     if not all(media):
         parser.error("Install FFmpeg and ffprobe on the build runner")
@@ -255,7 +271,7 @@ def main():
         stage = Path(temporary)
         ready = stage / "ready"
         ready.mkdir()
-        spec = make_spec(stage, native, *media)
+        spec = make_spec(stage, native, *media, pitch_engine=pitch_engine)
         run(
             [
                 sys.executable,

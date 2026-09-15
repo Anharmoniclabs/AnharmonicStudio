@@ -47,15 +47,13 @@ def test_midi_records_song_notes_and_unplug_finishes_them(window):
     window.engine._process_commands()
     window.engine.beat = 0.125
     controller.service._emit("keyboard", [0x90, 60, 80])
-    window.engine.midi.process(128, time.monotonic())
     controller._tick()
     window.engine.beat = 0.625
     controller.service._emit("keyboard", [])
-    window.engine.midi.process(128, time.monotonic())
     controller._tick()
     window.stop_all()
     pattern = next(p for p in window.project.patterns if p.id == row.clips[0].ref)
-    assert [(n.pitch, n.start, n.duration) for n in pattern.notes] == [(60, pytest.approx(0.125, abs=0.002), pytest.approx(0.5, abs=0.002))]
+    assert [(n.pitch, n.start, n.duration) for n in pattern.notes] == [(60, 0.125, 0.5)]
     assert pattern.notes[0].velocity == pytest.approx(80 / 127)
 
 
@@ -71,7 +69,6 @@ def test_dialog_learn_release_button_and_remembered_settings(window):
     controller.router.handle("mpk", [0x90, 72, 110])
     assert controller.router.held
     next(b for b in dialog.findChildren(QPushButton) if b.text() == "Release held notes").click()
-    window.engine.midi.process(128, time.monotonic())
     assert not controller.router.held
     dialog.mode.setCurrentText("Pads")
     dialog.base_note.setValue(48)

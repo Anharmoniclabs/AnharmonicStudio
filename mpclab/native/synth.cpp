@@ -23,7 +23,7 @@ MPC_EXPORT void mpc_onepole(float *block, size_t frames, size_t channels,
     }
 }
 
-MPC_EXPORT int mpc_dsp_abi(void) { return 1; }
+MPC_EXPORT int mpc_dsp_abi(void) { return 2; }
 
 #define PI 3.14159265358979323846264338327950288
 
@@ -64,82 +64,94 @@ static double oscillator(int kind, double phase, double step, double pw) {
  * release_frames, osc1, osc2, mix, spread, pulse_width, sub, noise,
  * lfo_pitch, lfo_filter, filter_env, cutoff, resonance_k, drive, gain, norm.
  * state: 3 oscillator phases, lfo phase, envelope, stage, release step,
- * dead, and four filter integrators. Noise comes from the reference RNG.
- * Half-rate filtering and pair hold match the existing patch sound exactly.
+ * dead, four filter integrators, then half-rate pair/hold state:
+ * pending, pending left/right/envelope/LFO and held left/right.
+ * Noise comes from the reference RNG as interleaved stereo frames.
+ *
+ * Each filter calculation consumes two adjacent source frames.  The first
+ * frame is retained across calls and the resulting filtered value is emitted
+ * at the second frame, then held for the following first frame.  That is a
+ * one-frame causal latency and, unlike restarting pairs at every callback,
+ * is invariant to arbitrary render partitioning.
  */
 MPC_EXPORT void mpc_synth(float *out, size_t n, const double *noise, const double *p,
                double *s, int64_t age, int64_t gate) {
     double sr = p[0], sums[3] = {0.0, 0.0, 0.0};
     double env = s[4], release = s[6];
     int stage = (int)s[5], dead = (int)s[7];
-    for (size_t start = 0; start < n; start += 2) {
-        size_t take = n - start < 2 ? 1 : 2;
-        double left = 0.0, right = 0.0, envelopes[2], first_lfo = 0.0;
-        for (size_t j = 0; j < take; ++j) {
-            size_t i = start + j;
-            double lfo_phase = wrap_phase(s[3] + (double)i * p[3] / sr);
-            double lfo = sin(2.0 * PI * lfo_phase);
-            if (j == 0) first_lfo = lfo;
-            double pitch = exp2(lfo * p[15] / 1200.0);
-            double steps[3] = {fmin(0.45, p[1] * pitch / sr),
-                               fmin(0.45, p[2] * pitch / sr),
-                               fmin(0.45, p[1] * 0.5 * pitch / sr)};
-            double phases[3];
-            for (int c = 0; c < 3; ++c) {
-                phases[c] = wrap_phase(s[c] + sums[c]);
-                sums[c] += steps[c];
-            }
-            double osc1 = oscillator((int)p[8], phases[0], steps[0], p[12]);
-            double osc2 = oscillator((int)p[9], phases[1], steps[1], p[12]);
-            double sub = sin(2.0 * PI * phases[2]);
-            left += ((osc1 * (1.0 - p[10]) * (1.0 + p[11]) +
-                      osc2 * p[10] * (1.0 - p[11])) +
-                     (sub * p[13] + noise[i] * p[14])) * p[22];
-            right += ((osc1 * (1.0 - p[10]) * (1.0 - p[11]) +
-                       osc2 * p[10] * (1.0 + p[11])) +
-                      (sub * p[13] + noise[n - 1 - i] * p[14])) * p[22];
-            if (gate >= 0 && age + (int64_t)i >= gate && stage != 3 && !dead) {
-                stage = 3; release = fmax(1e-9, env / p[7]);
-            }
-            if (stage == 0) {
-                env += p[4];
-                if (env >= 1.0) { env = 1.0; stage = 1; }
-            } else if (stage == 1) {
-                env -= p[5];
-                if (env <= p[6]) { env = p[6]; stage = 2; }
-            } else if (stage == 2) {
-                env = p[6];
-            } else {
-                env = fmax(0.0, env - release);
-                if (env <= 0.0) dead = 1;
-            }
-            envelopes[j] = env;
+    int pending = (int)s[12];
+    double pending_l = s[13], pending_r = s[14], pending_env = s[15], pending_lfo = s[16];
+    double held_l = s[17], held_r = s[18];
+    for (size_t i = 0; i < n; ++i) {
+        double lfo_phase = wrap_phase(s[3] + (double)i * p[3] / sr);
+        double lfo = sin(2.0 * PI * lfo_phase);
+        double pitch = exp2(lfo * p[15] / 1200.0);
+        double steps[3] = {fmin(0.45, p[1] * pitch / sr),
+                           fmin(0.45, p[2] * pitch / sr),
+                           fmin(0.45, p[1] * 0.5 * pitch / sr)};
+        double phases[3];
+        for (int c = 0; c < 3; ++c) {
+            phases[c] = wrap_phase(s[c] + sums[c]);
+            sums[c] += steps[c];
         }
-        left = tanh(left / (double)take * p[20]);
-        right = tanh(right / (double)take * p[20]);
-        double filter_rate = sr * 0.5;
-        double cutoff = p[18] * exp2(p[17] * envelopes[0] * 4.5 + p[16] * first_lfo * 3.0);
-        cutoff = fmin(filter_rate * 0.44, fmax(30.0, cutoff));
-        double blend = fmin(1.0, fmax(0.0, (cutoff - filter_rate * 0.28) / (filter_rate * 0.16)));
-        double g = tan(PI * cutoff / filter_rate);
-        double a1 = 1.0 / (1.0 + g * (g + p[19]));
-        double a2 = g * a1, a3 = g * a2;
-        double v3 = left - s[9], v1 = a1 * s[8] + a2 * v3;
-        double v2_l = s[9] + a2 * s[8] + a3 * v3;
-        s[8] = 2.0 * v1 - s[8]; s[9] = 2.0 * v2_l - s[9];
-        v3 = right - s[11]; v1 = a1 * s[10] + a2 * v3;
-        double v2_r = s[11] + a2 * s[10] + a3 * v3;
-        s[10] = 2.0 * v1 - s[10]; s[11] = 2.0 * v2_r - s[11];
-        double filtered_l = v2_l * (1.0 - blend) + left * blend;
-        double filtered_r = v2_r * (1.0 - blend) + right * blend;
-        for (size_t j = 0; j < take; ++j) {
-            out[(start + j) * 2] += (float)(filtered_l * envelopes[j] * p[21]);
-            out[(start + j) * 2 + 1] += (float)(filtered_r * envelopes[j] * p[21]);
+        double osc1 = oscillator((int)p[8], phases[0], steps[0], p[12]);
+        double osc2 = oscillator((int)p[9], phases[1], steps[1], p[12]);
+        double sub = sin(2.0 * PI * phases[2]);
+        double left = ((osc1 * (1.0 - p[10]) * (1.0 + p[11]) +
+                        osc2 * p[10] * (1.0 - p[11])) +
+                       (sub * p[13] + noise[i * 2] * p[14])) * p[22];
+        double right = ((osc1 * (1.0 - p[10]) * (1.0 - p[11]) +
+                         osc2 * p[10] * (1.0 + p[11])) +
+                        (sub * p[13] + noise[i * 2 + 1] * p[14])) * p[22];
+        if (gate >= 0 && age + (int64_t)i >= gate && stage != 3 && !dead) {
+            stage = 3; release = fmax(1e-9, env / p[7]);
         }
+        if (stage == 0) {
+            env += p[4];
+            if (env >= 1.0) { env = 1.0; stage = 1; }
+        } else if (stage == 1) {
+            env -= p[5];
+            if (env <= p[6]) { env = p[6]; stage = 2; }
+        } else if (stage == 2) {
+            env = p[6];
+        } else {
+            env = fmax(0.0, env - release);
+            if (env <= 0.0) dead = 1;
+        }
+
+        if (pending) {
+            double pair_l = tanh((pending_l + left) * 0.5 * p[20]);
+            double pair_r = tanh((pending_r + right) * 0.5 * p[20]);
+            double filter_rate = sr * 0.5;
+            double cutoff = p[18] * exp2(p[17] * pending_env * 4.5 + p[16] * pending_lfo * 3.0);
+            cutoff = fmin(filter_rate * 0.44, fmax(30.0, cutoff));
+            double blend = fmin(1.0, fmax(0.0, (cutoff - filter_rate * 0.28) / (filter_rate * 0.16)));
+            double g = tan(PI * cutoff / filter_rate);
+            double a1 = 1.0 / (1.0 + g * (g + p[19]));
+            double a2 = g * a1, a3 = g * a2;
+            double v3 = pair_l - s[9], v1 = a1 * s[8] + a2 * v3;
+            double v2_l = s[9] + a2 * s[8] + a3 * v3;
+            s[8] = 2.0 * v1 - s[8]; s[9] = 2.0 * v2_l - s[9];
+            v3 = pair_r - s[11]; v1 = a1 * s[10] + a2 * v3;
+            double v2_r = s[11] + a2 * s[10] + a3 * v3;
+            s[10] = 2.0 * v1 - s[10]; s[11] = 2.0 * v2_r - s[11];
+            held_l = v2_l * (1.0 - blend) + pair_l * blend;
+            held_r = v2_r * (1.0 - blend) + pair_r * blend;
+            pending = 0;
+        } else {
+            pending = 1;
+            pending_l = left; pending_r = right;
+            pending_env = env; pending_lfo = lfo;
+        }
+        out[i * 2] += (float)(held_l * env * p[21]);
+        out[i * 2 + 1] += (float)(held_r * env * p[21]);
     }
     for (int c = 0; c < 3; ++c) s[c] = wrap_phase(s[c] + sums[c]);
-    s[3] = wrap_phase(s[3] + (double)n * p[3] / sr);
+    s[3] = fmod(s[3] + (double)n * p[3] / sr, 1.0);
     s[4] = env; s[5] = stage; s[6] = release; s[7] = dead;
+    s[12] = pending; s[13] = pending_l; s[14] = pending_r;
+    s[15] = pending_env; s[16] = pending_lfo;
+    s[17] = held_l; s[18] = held_r;
 }
 
 /* state: envelope, stage (attack/decay/sustain/release), release step, dead */

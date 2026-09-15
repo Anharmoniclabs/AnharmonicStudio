@@ -41,6 +41,23 @@ def test_untrusted_collection_sizes_are_bounded_before_construction():
         Project.from_dict(payload)
 
 
+@pytest.mark.parametrize(
+    ("steps", "message"),
+    [
+        ({"0": []}, r"patterns\[0\]\.steps\[0\] must be an object"),
+        ({"kick": {"0": 1}}, r"steps pad keys must be integers"),
+        ({"0": {"bad": 1}}, r"step keys must be integers"),
+        ({"0": {"0": []}}, r"velocities must be finite numbers"),
+        ({"0": {"0": float("inf")}}, r"velocities must be finite numbers"),
+    ],
+)
+def test_pattern_step_corruption_fails_before_internal_conversion(steps, message):
+    payload = Project().to_dict()
+    payload["patterns"][0]["steps"] = steps
+    with pytest.raises(ValueError, match=message):
+        Project.from_dict(payload)
+
+
 def test_seeded_single_field_fuzz_never_leaks_internal_exception_types():
     source = Project().to_dict()
     rng = random.Random(0xA11D10)
@@ -54,6 +71,32 @@ def test_seeded_single_field_fuzz_never_leaks_internal_exception_types():
             Project.from_dict(payload)
         except Exception as exc:  # the loader contract is a user-facing ValueError
             assert isinstance(exc, ValueError), type(exc).__name__
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value", "message"),
+    [
+        ("vocal", "enabled", "yes", "vocal enabled"),
+        ("vocal", "key", "H", "vocal key"),
+        ("vocal", "strength", float("nan"), "vocal strength"),
+        ("vocal", "output_db", 10**400, "vocal output_db"),
+        ("vocal", "transpose", 1.5, "vocal transpose"),
+        ("vocal", "high_note", 128, "vocal high_note"),
+        ("vocal", "low_note", 90, "vocal low_note must not exceed"),
+        ("vocal_record", "monitor", 1, "vocal record monitor"),
+        ("vocal_record", "input_gain_db", float("inf"), "vocal record input_gain_db"),
+        ("vocal_record", "input_latency_ms", 10**400, "vocal record input_latency_ms"),
+        ("vocal_record", "count_in_bars", 5, "vocal record count_in_bars"),
+        ("vocal_record", "mixer_track", MAX_TRACKS, "vocal record mixer_track"),
+    ],
+)
+def test_corrupt_vocal_settings_fail_before_ui_application(section, field, value, message):
+    payload = Project().to_dict()
+    payload[section][field] = value
+    if section == "vocal" and field == "low_note":
+        payload[section]["high_note"] = 84
+    with pytest.raises(ValueError, match=message):
+        Project.from_dict(payload)
 
 
 @pytest.mark.parametrize(
@@ -95,3 +138,17 @@ def test_every_saved_project_uses_the_current_schema_even_without_instruments():
 
     assert payload["format_version"] == 6
     assert payload["instruments"] == []
+
+
+def test_seeded_pattern_step_fuzz_never_leaks_internal_exception_types():
+    source = Project().to_dict()
+    rng = random.Random(0x57E55)
+    rows = [None, [], "bad", {"x": []}, {"-1": 1}, {"0": float("nan")}, {"0": {}}]
+
+    for _ in range(100):
+        payload = copy.deepcopy(source)
+        payload["patterns"][0]["steps"] = {str(rng.randrange(4)): rng.choice(rows)}
+        try:
+            Project.from_dict(payload)
+        except Exception as exc:
+            assert isinstance(exc, ValueError), type(exc).__name__

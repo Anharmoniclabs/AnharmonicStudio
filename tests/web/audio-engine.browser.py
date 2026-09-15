@@ -230,6 +230,62 @@ def main():
                 assert(all.filter(voice => voice.end > .1).length === LIMITS.voices, 'too many voices survive at scheduled start');
                 engine.stop(); assert(all.every(voice => voice.end === 0), 'pending cancellations escaped Stop'); assert(!engine.retiringVoices.size, 'retired voices retained after Stop');
               });
+              await test('releasing a played note or pad does not cancel matching arranged voices', async () => {
+                const { project, engine, context } = factory();
+                const graph = { trackBuses: project.tracks.map(() => ({ input: context.destination })), sync() {} };
+                engine.context = context; engine.graph = graph;
+                project.pads[0].mode = 'gate'; project.synth.release = .01;
+                const arrangedNote = engine.synthVoice(60, { when: 0, duration: .7, sequence: 'song' }, context, graph, engine.voices);
+                const arrangedPad = engine.padVoice(0, { when: 0, duration: .7, sequence: 'song' }, context, graph, engine.voices);
+                const liveNote = engine.triggerNote(60, { duration: .7 });
+                const livePad = engine.triggerPad(0, { duration: .7 });
+                engine.releaseNote(60); engine.releasePad(0);
+                assert(liveNote.end <= .011 && livePad.end <= .021, 'manual release did not work');
+                assert(arrangedNote.end >= .7 && arrangedPad.end >= .7, 'manual release cut arrangement');
+                await context.startRendering();
+              });
+              await test('no-overlap replaces pads and piano with a bounded fade while song voices survive', async () => {
+                const { project, engine, context } = factory();
+                const graph = { trackBuses: project.tracks.map(() => ({ input: context.destination })), sync() {} };
+                engine.context = context; engine.graph = graph;
+                project.synth.release = 5;
+                engine.setSingleTrigger(true);
+                const arranged = engine.synthVoice(48, { when: 0, duration: .8, sequence: 'song' }, context, graph, engine.voices);
+                const pad = engine.triggerPad(0);
+                const suspended = context.suspend(.1); const rendered = context.startRendering();
+                await suspended;
+                const piano = engine.triggerNote(60, { duration: .5 });
+                assert(pad.end <= context.currentTime + .006, 'pad kept sounding under piano');
+                const secondPause = context.suspend(.2); await context.resume(); await secondPause;
+                const replacement = engine.triggerPad(0, { start: .2, end: .6 });
+                assert(piano.end <= context.currentTime + .006, 'long piano release kept layering');
+                assert(arranged.end > .8, 'manual retrigger cut scheduled song audio');
+                assert(replacement.live && replacement.end > context.currentTime, 'replacement did not play');
+                await context.resume(); await rendered;
+              });
+              await test('no-overlap stops existing layers when enabled and polyphony returns when disabled', async () => {
+                const { project, engine, context } = factory();
+                engine.context = context; engine.graph = { trackBuses: project.tracks.map(() => ({ input: context.destination })), sync() {} };
+                const one = engine.triggerPad(0), two = engine.triggerNote(60, { duration: .5 });
+                assert(one.end > .4 && two.end > .4, 'normal polyphony was lost');
+                engine.setSingleTrigger(true);
+                assert(one.end <= .005 && two.end <= .005, 'existing layers survived enabling no-overlap');
+                engine.setSingleTrigger(false);
+                const three = engine.triggerNote(60, { duration: .5 }), four = engine.triggerNote(64, { duration: .5 });
+                assert(three.end > .4 && four.end > .4, 'chords did not return');
+                await context.startRendering();
+              });
+              await test('chromatic sample notes and library preview share the no-overlap trigger boundary', async () => {
+                const { project, engine, context } = factory();
+                engine.context = context; engine.graph = { trackBuses: project.tracks.map(() => ({ input: context.destination })), sync() {} };
+                let previewsStopped = 0; engine.onLiveTrigger = () => { previewsStopped += 1; };
+                engine.setSingleTrigger(true);
+                const one = engine.triggerNote(60, { pad: 0 }), two = engine.triggerNote(67, { pad: 0 });
+                assert(one.end <= .005 && two.live, 'sample piano voices stacked');
+                engine.beginLiveTrigger();
+                assert(two.end <= .005 && previewsStopped === 4, 'library preview bypassed retrigger policy');
+                await context.startRendering();
+              });
               await test('offline synth voices share one deterministic noise buffer per context', async () => {
                 const { project, engine, context } = factory(); Object.assign(project.synth, { osc1: 'noise', osc2: 'noise', noise: .2, sub: 0, lfo_pitch: 0, release: .01 });
                 const createBuffer = context.createBuffer.bind(context); let allocated = 0; context.createBuffer = (...args) => { allocated += 1; return createBuffer(...args); };

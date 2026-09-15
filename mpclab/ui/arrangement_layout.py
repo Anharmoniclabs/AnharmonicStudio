@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QButtonGroup,
     QSizePolicy,
+    QMenu,
 )
 from .playlist import PlaylistView
 from .layout_helpers import scrolling_bar, small, yielding
@@ -69,24 +70,53 @@ def _build_song(window) -> QWidget:
     window.playlist_tool_group = QButtonGroup(window)
     window.playlist_tool_group.setExclusive(True)
     window.playlist_tool_buttons = {}
-    for tool, label, tip in (
-        ("select", "↖", "Select, box-select and move clips  (E, or 1)"),
-        ("draw", "✎", "Draw and resize a block  (P, or 2)"),
-        ("paint", "▦", "Paint repeated blocks  (B, or 3)"),
-        ("slice", "✂", "Split a clip where you click  (C, or 4)"),
-        ("mute", "M", "Mute clips or tracks  (T, or 5)"),
-        ("erase", "⌫", "Delete clips where you click  (D, or 6)"),
+    window._playlist_tool_details = {}
+    for tool, label, name, tip in (
+        ("select", "↖", "Select", "Select, box-select and move clips  (E, or 1)"),
+        ("draw", "✎", "Draw", "Draw and resize a block  (P, or 2)"),
+        ("paint", "▦", "Paint", "Paint repeated blocks  (B, or 3)"),
+        ("slice", "✂", "Scissors", "Split a clip where you click  (C, or 4)"),
+        ("mute", "M", "Mute", "Mute clips or tracks  (T, or 5)"),
+        ("erase", "⌫", "Erase", "Delete clips where you click  (D, or 6)"),
     ):
-        button = QPushButton(label)
-        button.setObjectName("mini")
+        shortcut = {
+            "select": "E",
+            "draw": "P",
+            "paint": "B",
+            "slice": "C",
+            "mute": "T",
+            "erase": "D",
+        }[tool]
+        button = QPushButton(f"{label}  {name}  {shortcut}")
+        button.setObjectName("editTool")
         button.setCheckable(True)
-        button.setFixedWidth(30)
+        button.setMinimumHeight(32)
         button.setToolTip(tip)
+        # The visible glyphs keep the compact MPC-style toolbar, while a
+        # complete name lets screen readers distinguish every edit mode.
+        button.setAccessibleName(f"Playlist tool: {name}")
         button.clicked.connect(lambda _=False, name=tool: window.set_playlist_tool(name))
         window.playlist_tool_group.addButton(button)
         window.playlist_tool_buttons[tool] = button
+        window._playlist_tool_details[tool] = (name, tip)
         tl.addWidget(button)
     window.playlist_tool_buttons["draw"].setChecked(True)
+
+    window.playlist_tool_selector = QComboBox()
+    window.playlist_tool_selector.setAccessibleName("Arrangement editing tool")
+    for tool, (name, _tip) in window._playlist_tool_details.items():
+        window.playlist_tool_selector.addItem(name, tool)
+    window.playlist_tool_selector.setCurrentIndex(window.playlist_tool_selector.findData("draw"))
+    window.playlist_tool_selector.currentIndexChanged.connect(
+        lambda index: window.set_playlist_tool(window.playlist_tool_selector.itemData(index))
+    )
+    tl.insertWidget(0, window.playlist_tool_selector)
+    window.playlist_tool_selector.hide()
+
+    window.playlist_tool_mode_label = small("MODE · DRAW")
+    window.playlist_tool_mode_label.setAccessibleName("Current Playlist editing tool")
+    tl.addWidget(window.playlist_tool_mode_label)
+    window._sync_playlist_tool_accessibility("draw")
 
     window.playlist_place_label = small("PLACE")
     tl.addWidget(window.playlist_place_label)
@@ -113,11 +143,27 @@ def _build_song(window) -> QWidget:
     window.playlist_zoom_label = small("ZOOM")
     tl.addWidget(window.playlist_zoom_label)
     window.zoom = QSlider(Qt.Horizontal)
-    window.zoom.setRange(6, 90)
+    window.zoom.setRange(2, 512)
     window.zoom.setValue(26)
     window.zoom.setFixedWidth(110)
-    window.zoom.valueChanged.connect(window._zoom_changed)
+    window.zoom.valueChanged.connect(
+        lambda value: window.playlist.zoom_time(value / window.playlist.px_per_beat)
+    )
     tl.addWidget(window.zoom)
+    window.track_zoom_button = QPushButton("Zoom")
+    window.track_zoom_button.setToolTip("Ctrl+wheel or pinch: time · Alt+wheel: track height")
+    zoom_menu = QMenu(window.track_zoom_button)
+    for text, callback in (
+        ("Time zoom in", lambda: window.playlist.zoom_time(1.25)),
+        ("Time zoom out", lambda: window.playlist.zoom_time(0.8)),
+        ("Taller tracks", lambda: window.playlist.zoom_height(1.25)),
+        ("Shorter tracks", lambda: window.playlist.zoom_height(0.8)),
+        ("Fit song", lambda: window.playlist.fit_song()),
+        ("Reset time and height", lambda: window.playlist.reset_zoom()),
+    ):
+        zoom_menu.addAction(text, callback)
+    window.track_zoom_button.setMenu(zoom_menu)
+    tl.addWidget(window.track_zoom_button)
 
     tl.addStretch(1)
     window.btn_song_loop = QPushButton("⟳ SONG LOOP")
@@ -157,6 +203,25 @@ def _build_song(window) -> QWidget:
     window.loop_end_box.valueChanged.connect(window._loop_boxes_changed)
     for control in (window.playlist_loop_bars, window.loop_start_box, window.loop_end_box):
         control.hide()
+    # Give pointer tools their own readable rack instead of crowding
+    # placement, snap and loop controls into the same horizontal strip.
+    tool_rack = QWidget()
+    tool_rack.setObjectName("toolbar")
+    tool_rack.setAttribute(Qt.WA_StyledBackground, True)
+    tool_layout = QHBoxLayout(tool_rack)
+    tool_layout.setContentsMargins(10, 5, 10, 5)
+    tool_layout.setSpacing(5)
+    for button in window.playlist_tool_buttons.values():
+        tl.removeWidget(button)
+        tool_layout.addWidget(button)
+    tl.removeWidget(window.playlist_tool_mode_label)
+    window.playlist_tool_mode_label.hide()
+    tool_layout.addStretch(1)
+    edge_hint = small("Edges: trim start · stretch end · Shift+end: trim")
+    tool_layout.addWidget(edge_hint)
+    window.playlist_tool_scroll = scrolling_bar(tool_rack)
+    window.playlist_placement_layout = tl
+    lay.addWidget(window.playlist_tool_scroll)
     lay.addWidget(scrolling_bar(tools))
 
     window.playlist_clip_tools = QWidget()
@@ -202,6 +267,19 @@ def _build_song(window) -> QWidget:
         window.clip_track.addItem(str(i + 1), i)
     window.clip_track.currentIndexChanged.connect(window._selected_clip_track)
     cl.addWidget(window.clip_track)
+    cl.addWidget(small("LENGTH"))
+    window.clip_length = QDoubleSpinBox()
+    window.clip_length.setRange(0.03125, 4096.0)
+    window.clip_length.setDecimals(3)
+    window.clip_length.setSingleStep(0.25)
+    window.clip_length.setSuffix(" b")
+    window.clip_length.setKeyboardTracking(False)
+    window.clip_length.setToolTip(
+        "Non-destructive time stretch. Set the audio clip's musical duration; "
+        "its source trim is preserved. LOOP repeats at natural speed instead."
+    )
+    window.clip_length.valueChanged.connect(window._selected_clip_length)
+    cl.addWidget(window.clip_length)
     window.btn_clip_unique = QPushButton("MAKE UNIQUE")
     window.btn_clip_unique.setObjectName("mini")
     window.btn_clip_unique.setToolTip(
@@ -228,7 +306,7 @@ def _build_song(window) -> QWidget:
         cl.addWidget(button)
     cl.addStretch(1)
     window.playlist_hint = small(
-        "pick clip → draw/paint copies · double-click = edit notes · "
+        "drag an audio clip's right edge = stretch · left edge = trim · "
         "Alt-drag = copy · F1 for every key"
     )
     cl.addWidget(yielding(window.playlist_hint))
@@ -238,6 +316,7 @@ def _build_song(window) -> QWidget:
         window.clip_crossfade,
         window.clip_gain,
         window.clip_track,
+        window.clip_length,
     ]
     window.playlist_clip_scroll = scrolling_bar(window.playlist_clip_tools)
     lay.addWidget(window.playlist_clip_scroll)

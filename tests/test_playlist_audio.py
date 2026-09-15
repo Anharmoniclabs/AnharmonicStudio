@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
+from PySide6.QtGui import QImage, QPainter
 
 from mpclab.engine import Engine
 from mpclab.model import Clip, Project
+from mpclab.ui import playlist_rendering as playlist_module
+from mpclab.ui.playlist import PlaylistView, audio_stretch_label
 
 
 class MemoryLibrary:
@@ -69,6 +74,69 @@ class PlaylistAudioTests(unittest.TestCase):
         self.assertEqual((voice.s0, voice.s1), (5, 15))
         self.assertEqual(voice.length, 40)
         self.assertTrue(voice.loop)
+
+    def test_audio_block_stretches_its_trim_to_the_arranged_length(self):
+        clip = Clip(kind="audio", ref="wav", length_beats=4.0, offset=0.25, source_length=0.5)
+        self.engine._spawn_audio_clip(clip, 0)
+
+        voice = self.engine.voices[-1]
+        # Ten source frames are stretched over four seconds (80 output frames)
+        # without mutating the trim range.
+        self.assertEqual((voice.s0, voice.s1, voice.length), (5, 15, 80))
+        self.assertEqual(voice.rate, 0.125)
+
+    def test_stretch_badge_describes_arranged_time_without_affecting_loops(self):
+        # At 120 BPM, one second naturally occupies two beats.
+        stretched = Clip(kind="audio", ref="wav", length_beats=8.0, source_length=1.0)
+        compressed = Clip(kind="audio", ref="wav", length_beats=1.0, source_length=1.0)
+        natural = Clip(kind="audio", ref="wav", length_beats=2.0, source_length=1.0)
+        looped = Clip(kind="audio", ref="wav", length_beats=8.0, source_length=1.0, loop=True)
+
+        self.assertEqual(audio_stretch_label(stretched, 120.0), "STRETCH ×4")
+        self.assertEqual(audio_stretch_label(compressed, 120.0), "COMPRESS ×0.5")
+        self.assertIsNone(audio_stretch_label(natural, 120.0))
+        self.assertIsNone(audio_stretch_label(looped, 120.0))
+
+    def test_non_loop_waveform_always_draws_the_complete_source_selection(self):
+        """Compressed and stretched clips display the same selected source."""
+
+        meta = SimpleNamespace(name="Take", duration=1.0)
+        library = SimpleNamespace(
+            peaks=lambda _ref: np.zeros((16, 2), dtype=np.float32),
+            clips={"wav": meta},
+        )
+        app = SimpleNamespace(project=Project(bpm=120.0), library=library)
+        view = SimpleNamespace(
+            app=app,
+            selected_clips=[],
+            _hover_clip=None,
+            px_per_beat=26.0,
+            beat_to_x=lambda beat: beat * 26.0,
+        )
+        image = QImage(400, 80, QImage.Format_ARGB32)
+        painter = QPainter(image)
+        try:
+            with patch.object(playlist_module, "draw_peaks") as draw:
+                for length_beats in (0.5, 8.0):  # compressed, then stretched
+                    PlaylistView._draw_clip(
+                        view,
+                        painter,
+                        Clip(
+                            kind="audio",
+                            ref="wav",
+                            length_beats=length_beats,
+                            offset=0.25,
+                            source_length=0.5,
+                        ),
+                        3,
+                        40,
+                        False,
+                    )
+                self.assertEqual(draw.call_count, 2)
+                for call in draw.call_args_list:
+                    self.assertEqual(call.args[3:5], (0.25, 0.75))
+        finally:
+            painter.end()
 
     def test_reverse_keeps_the_same_source_trim(self):
         clip = Clip(kind="audio", ref="wav", offset=0.25, source_length=0.5, reverse=True)

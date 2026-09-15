@@ -100,6 +100,34 @@ class PremiumWorkflowController(QObject):
     def eventFilter(self, watched, event):
         if event.type() != QEvent.KeyPress or event.isAutoRepeat():
             return False
+        # The painted step editor owns its navigation and toggle keys. The
+        # application command filter runs before widget keyPressEvent, so it
+        # must yield these events instead of triggering transport/rewind.
+        grid = getattr(self.window, "step_grid", None)
+        if watched is grid and (
+            (
+                event.modifiers() == Qt.NoModifier
+                and event.key()
+                in (
+                    Qt.Key_Left,
+                    Qt.Key_Right,
+                    Qt.Key_Up,
+                    Qt.Key_Down,
+                    Qt.Key_Home,
+                    Qt.Key_End,
+                    Qt.Key_PageUp,
+                    Qt.Key_PageDown,
+                    Qt.Key_Space,
+                    Qt.Key_Return,
+                    Qt.Key_Enter,
+                    Qt.Key_Delete,
+                    Qt.Key_Backspace,
+                    Qt.Key_Menu,
+                )
+            )
+            or (event.key() == Qt.Key_F10 and event.modifiers() == Qt.ShiftModifier)
+        ):
+            return False
         try:
             sequence = QKeySequence(event.keyCombination()).toString(QKeySequence.PortableText)
         except AttributeError:

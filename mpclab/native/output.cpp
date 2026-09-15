@@ -25,18 +25,9 @@ public:
         const auto count = std::min<std::uint64_t>(write - read, frames);
         const auto start = read % capacity_;
         const auto first = std::min<std::uint64_t>(count, capacity_ - start);
-        if (channels_ == 2 && left_ == 0 && right_ == 1) {
-            std::memcpy(destination, audio_.data() + start * 2, first * 2 * sizeof(float));
-            std::memcpy(destination + first * 2, audio_.data(), (count - first) * 2 * sizeof(float));
-            if (count < frames) std::fill(destination + count * 2, destination + frames * 2, 0.0f);
-        } else {
-            std::fill(destination, destination + frames * channels_, 0.0f);
-            for (std::size_t frame = 0; frame < count; ++frame) {
-                const auto at = ((start + frame) % capacity_) * 2;
-                destination[frame * channels_ + left_] += audio_[at];
-                destination[frame * channels_ + right_] += audio_[at + 1];
-            }
-        }
+        std::memcpy(destination, audio_.data() + start * 2, first * 2 * sizeof(float));
+        std::memcpy(destination + first * 2, audio_.data(), (count - first) * 2 * sizeof(float));
+        if (count < frames) std::fill(destination + count * 2, destination + frames * 2, 0.0f);
         // Never wait for a producer or replay stale audio on starvation.
         if (count < frames || (flags & 4UL)) underruns_.fetch_add(1, std::memory_order_relaxed);
         read_.store(read + count, std::memory_order_release);
@@ -50,11 +41,6 @@ public:
     }
     std::uint64_t underruns() const noexcept { return underruns_.load(std::memory_order_relaxed); }
     void reset_stats() noexcept { underruns_.store(0, std::memory_order_relaxed); }
-    bool channels(std::size_t channels, std::size_t left, std::size_t right) noexcept {
-        if (!channels || channels > 64 || left >= channels || right >= channels) return false;
-        channels_ = channels; left_ = left; right_ = right;
-        return true;
-    }
 private:
     void copy_in(const float* source, std::size_t start, std::size_t frames) noexcept {
         const auto first = std::min(frames, capacity_ - start);
@@ -62,7 +48,6 @@ private:
         std::memcpy(audio_.data(), source + first * 2, (frames - first) * 2 * sizeof(float));
     }
     std::size_t capacity_;
-    std::size_t channels_{2}, left_{0}, right_{1};
     std::vector<float> audio_;
     alignas(64) std::atomic<std::uint64_t> write_{0};
     alignas(64) std::atomic<std::uint64_t> read_{0};
@@ -87,9 +72,6 @@ ANH_API std::uint64_t anh_output_underruns(void* handle) noexcept {
 }
 ANH_API void anh_output_reset_stats(void* handle) noexcept {
     if (handle) static_cast<Output*>(handle)->reset_stats();
-}
-ANH_API int anh_output_channels(void* handle, std::size_t channels, std::size_t left, std::size_t right) noexcept {
-    return handle && static_cast<Output*>(handle)->channels(channels, left, right) ? 0 : -1;
 }
 ANH_API int anh_output_callback(const void*, void* output, unsigned long frames,
                                const void*, unsigned long flags, void* userdata) noexcept {

@@ -6,7 +6,7 @@ import numpy as np
 from .window_client import WindowClient
 
 from PySide6.QtCore import Qt, QRectF, Signal, QTimer
-from PySide6.QtGui import QPainter, QLinearGradient
+from PySide6.QtGui import QPainter, QLinearGradient, QPen
 from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
@@ -27,9 +27,18 @@ from .theme import q, TRACK_COLORS
 
 
 class VUMeter(QWidget):
+    """A compact channel meter with a readable dBFS reference scale."""
+
+    _REFERENCE_DB = (0, -12, -24, -48)
+    _BAR_WIDTH = 7
+    _LABEL_GAP = 5
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(9)
+        # A small label gutter makes the scale useful without materially
+        # widening a mixer strip.  It still has to fit the widest ``-48``
+        # reference at the application's normal UI font.
+        self.setFixedWidth(35)
         self.level = 0.0
         self.peak = 0.0
 
@@ -45,19 +54,50 @@ class VUMeter(QWidget):
         db = 20.0 * np.log10(max(1e-6, float(linear)))
         return float(np.clip((db + 60.0) / 60.0, 0.0, 1.0))
 
+    @staticmethod
+    def _db_position(db: float) -> float:
+        """Return a dBFS reference position using the meter's -60..0 scale."""
+        return float(np.clip((float(db) + 60.0) / 60.0, 0.0, 1.0))
+
+    @staticmethod
+    def _clip_active(peak: float) -> bool:
+        """A held peak at or above full scale keeps the clip cue visible."""
+        return float(peak) >= 1.0
+
     def paintEvent(self, ev):
         p = QPainter(self)
         p.fillRect(self.rect(), q("canvas"))
         h = self.height()
+        bar_width = self._BAR_WIDTH
         v = self._position(self.level)
         grad = QLinearGradient(0, h, 0, 0)
         grad.setColorAt(0.0, q("ok"))
         grad.setColorAt(0.75, q("meter_mid"))
         grad.setColorAt(1.0, q("rec"))
-        p.fillRect(QRectF(0, h * (1 - v), self.width(), h * v), grad)
+        p.fillRect(QRectF(0, h * (1 - v), bar_width, h * v), grad)
         pk = self._position(self.peak)
         if pk > 0.01:
-            p.fillRect(QRectF(0, h * (1 - pk) - 1, self.width(), 2), q("fg", 170))
+            peak_colour = q("rec") if self._clip_active(self.peak) else q("fg", 170)
+            p.fillRect(QRectF(0, h * (1 - pk) - 1, bar_width, 2), peak_colour)
+
+        # These references make the familiar colour ramp actionable: a user
+        # can immediately distinguish healthy headroom from a near-clip.
+        for db in self._REFERENCE_DB:
+            y = h * (1 - self._db_position(db))
+            p.setPen(QPen(q("dim2"), 1))
+            p.drawLine(bar_width + 1, round(y), bar_width + 3, round(y))
+            if h >= 80:
+                label = "0" if db == 0 else str(db)
+                p.drawText(
+                    QRectF(
+                        bar_width + self._LABEL_GAP,
+                        y - 6,
+                        self.width() - bar_width - self._LABEL_GAP,
+                        12,
+                    ),
+                    Qt.AlignLeft | Qt.AlignVCenter,
+                    label,
+                )
 
 
 class _TrackLabel(QLabel):

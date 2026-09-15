@@ -288,6 +288,38 @@ def test_piano_mouse_draw_resize_and_delete(window):
     assert window.project.pattern().notes == []
 
 
+def test_piano_keyboard_moves_selected_notes_in_time_and_pitch(window):
+    window.show_tab(window.TAB_PIANO)
+    panel = window.piano_roll
+    canvas = panel.canvas
+    pattern = window.project.pattern()
+    pattern.notes = [Note(60, 1, 0.5), Note(64, 2, 0.5)]
+    canvas.selected = {0, 1}
+
+    QTest.keyClick(canvas, Qt.Key_Right)
+    assert [note.start for note in pattern.notes] == [1.25, 2.25]
+    QTest.keyClick(canvas, Qt.Key_Left, Qt.ShiftModifier)
+    assert [note.start for note in pattern.notes] == [0.25, 1.25]
+    QTest.keyClick(canvas, Qt.Key_Up)
+    assert [note.pitch for note in pattern.notes] == [61, 65]
+    QTest.keyClick(canvas, Qt.Key_Down, Qt.ShiftModifier)
+    assert [note.pitch for note in pattern.notes] == [49, 53]
+
+
+def test_piano_keyboard_time_move_stops_cleanly_at_pattern_boundary(window):
+    window.show_tab(window.TAB_PIANO)
+    canvas = window.piano_roll.canvas
+    pattern = window.project.pattern()
+    pattern.bars = 1
+    pattern.notes = [Note(60, 3.5, 0.5)]
+    canvas.selected = {0}
+
+    QTest.keyClick(canvas, Qt.Key_Right)
+    assert pattern.notes[0].start == 3.5
+    QTest.keyClick(canvas, Qt.Key_Left, Qt.ShiftModifier)
+    assert pattern.notes[0].start == 2.5
+
+
 def test_automation_undo_and_mixer_read_indication(window):
     panel = window.automation_panel
     panel.value.setValue(0.4)

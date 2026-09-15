@@ -237,3 +237,79 @@ def test_scan_shows_every_cut_without_trimming_phrases_to_hit_tails(window):
     assert len(window.hits_for(window.current_clip)) == 24
     assert window.wave.slice_bounds(0) == pytest.approx((1, 1.25))
     assert len(window._scans[window.current_clip]["by_kind"]["tonal"]) == 4
+
+
+def test_many_chops_render_in_pages_and_keep_global_slice_selection(window, monkeypatch):
+    from mpclab.ui import sample_analysis
+
+    window.wave.markers = [i / 100 for i in range(1000)]
+    window.wave.selected = 0
+    window._rebuild_chips()
+    assert len(window._slice_buttons) == 64
+    calls = []
+    monkeypatch.setattr(window.engine, "audition", lambda *args, **kwargs: calls.append(args))
+    sample_analysis._rebuild_chips(window, page=10)
+    window._slice_buttons[3].pressed.emit()
+    assert window.wave.selected == 643
+    assert calls[-1][1:] == pytest.approx((6.43, 6.44))
+    window.wave.selected = 999
+    window._highlight_chip(999)
+    assert len(window._slice_buttons) <= 64
+    assert window._slice_button_map[999].isChecked()
+
+
+def test_detected_loop_mapping_retains_musical_length(window):
+    candidate = detect.Candidate(
+        1, 9, "loop", 0.9, {"bars": 4, "bpm": 120, "content": "drum break"}
+    )
+    window._place_candidate(0, candidate, "Source")
+    pad = window.project.pads[0]
+    assert pad.sync_beats == 16
+    assert (pad.start, pad.end) == (1, 9)
+    assert "drum break" in pad.name
+    window._place_candidate(0, detect.Candidate(1, 1.2, "kick"), "Source")
+    assert pad.sync_beats == 0
+
+
+def test_scan_decodes_on_worker_and_failure_restores_controls(window, monkeypatch):
+    import threading
+    from PySide6.QtTest import QTest
+
+    entered, release = threading.Event(), threading.Event()
+    threads = []
+
+    def blocked_decode(clip_id):
+        threads.append(threading.get_ident())
+        entered.set()
+        release.wait(2)
+        raise ValueError("test decode failure")
+
+    monkeypatch.setattr(window.library, "audio", blocked_decode)
+    try:
+        window.auto_chop()
+        assert entered.wait(1)
+        assert threads == [threads[0]] and threads[0] != threading.get_ident()
+        assert not window.btn_scan.isEnabled()
+    finally:
+        release.set()
+    for _ in range(100):
+        QTest.qWait(10)
+        if not window._scanning:
+            break
+    assert not window._scanning
+    assert window.btn_scan.isEnabled()
+    assert "test decode failure" in window.status.currentMessage()
+
+
+def test_tempo_only_scan_preserves_manual_chops(window):
+    window.wave.markers = [1.1, 2.3, 3.7]
+    window.project.slices[window.current_clip] = list(window.wave.markers)
+    window._scan_project = window.project
+    window._scan_set_tempo = True
+    window._scan_finished(
+        window.current_clip,
+        {"bpm": 98.5, "onsets": [0, 0.5], "hits": [], "by_kind": {}, "loops": [], "drops": []},
+    )
+    assert window.project.bpm == 98.5
+    assert window.wave.markers == [1.1, 2.3, 3.7]
+    assert window.project.slices[window.current_clip] == [1.1, 2.3, 3.7]

@@ -6,9 +6,9 @@ from dataclasses import replace
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QInputDialog
 
-from ..model import Pattern, Clip, Row, uid
+from ..model import Pattern, Clip, Row, uid, remap_step_lane
 from ..workflow import pattern_arrangement_target
-from .playlist import ROW_H, RULER_H
+from .playlist import RULER_H
 
 
 class PatternActionsMixin:
@@ -40,8 +40,6 @@ class PatternActionsMixin:
         self.step_grid.refresh()
         if hasattr(self, "piano_roll"):
             self.piano_roll.sync()
-        if hasattr(self, "scoring_panel") and self.scoring_panel.isVisible():
-            self.scoring_panel.refresh()
 
     def _pattern_picked(self, idx):
         if idx < 0:
@@ -136,11 +134,27 @@ class PatternActionsMixin:
             for n in self.project.pattern().notes
             if n.start < length
         ]
+        pat = self.project.pattern()
+        lanes = {
+            pad: remap_step_lane(steps, pat.div, pat.div, pat.total_steps)
+            for pad, steps in pat.steps.items()
+        }
+        pat.steps = {pad: steps for pad, steps in lanes.items() if steps}
         self._sync_pattern_controls()
 
     def _div_changed(self, idx):
+        division = self.grid_box.itemData(idx)
+        pat = self.project.pattern()
+        if not isinstance(division, int) or division <= 0 or division == pat.div:
+            return
         self.snapshot()
-        self.project.pattern().div = self.grid_box.itemData(idx)
+        total = pat.bars * 4 * division
+        lanes = {
+            pad: remap_step_lane(steps, pat.div, division, total)
+            for pad, steps in pat.steps.items()
+        }
+        pat.steps = {pad: steps for pad, steps in lanes.items() if steps}
+        pat.div = division
         self.step_grid.refresh()
 
     # ── playlist ─────────────────────────────────────────────
@@ -169,9 +183,9 @@ class PatternActionsMixin:
         self.playlist.setFocus(Qt.OtherFocusReason)
         self.song_scroll.ensureVisible(
             int(self.playlist.beat_to_x(start) + 20),
-            int(RULER_H + (row_index + 0.5) * ROW_H),
+            int(RULER_H + (row_index + 0.5) * self.playlist.row_height),
             40,
-            ROW_H,
+            int(self.playlist.row_height),
         )
         self.status.showMessage(
             f"{pattern.name} added to {self.project.rows[row_index].name} "
@@ -264,6 +278,11 @@ class PatternActionsMixin:
                 if self.place_box.itemData(idx) == current:
                     self.place_box.setCurrentIndex(idx)
                     break
+        elif self.project.patterns:
+            # A new project must be drawable in Arrange immediately.  Leaving
+            # this unset makes the cursor look like a draw tool while every
+            # click is a no-op, and also hides the contextual clip controls.
+            self._choose_pattern_to_place(self.project.current_pattern)
         self.place_box.blockSignals(False)
         self.playlist.place = current if sample_selected else self.place_box.currentData()
         self.playlist.refresh()

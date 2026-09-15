@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
     QFrame,
     QApplication,
     QSizePolicy,
+    QMenu,
+    QDoubleSpinBox,
 )
 from ..model import (
     BANKS,
@@ -30,7 +32,6 @@ from .sample_drag import ArrangeDropFilter
 from .padgrid import PadGrid, PadInspector
 from .piano_roll import PianoRollPanel
 from .automation import AutomationPanel
-from .scoring import ScoringPanel
 from .mixer import MixerPanel
 from .synth import SynthPanel
 from .vocals import VocalPanel
@@ -64,16 +65,37 @@ def _build(window):
         project_layout.addWidget(widget)
         if widget is window.logo:
             project_layout.addStretch()
-    window.proj_name.setFixedWidth(200)
+    # Keep frequent Save direct; group file actions and appearance controls.
+    window.project_menu_button = QPushButton("Project")
+    project_menu = QMenu(window.project_menu_button)
+    for label, callback in (
+        ("New", window.new_project),
+        ("Open…", window.load_project),
+        ("Save as…", window.save_project_as),
+        ("Export audio…", window.export_dialog),
+    ):
+        project_menu.addAction(label, callback)
+    window.project_menu_button.setMenu(project_menu)
+    for name in ("load", "export"):
+        button = window.project_action_buttons[name]
+        project_layout.removeWidget(button)
+        button.hide()
+    project_layout.addWidget(window.project_menu_button)
+    window.proj_name.setFixedWidth(180)
     header = QWidget()
     header_layout = QHBoxLayout(header)
     header_layout.setContentsMargins(0, 0, 8, 0)
     header_layout.addWidget(scrolling_bar(project_bar), 1)
     header_layout.addWidget(window.transport_meters)
-    # Appearance stays reachable at the top right even in a narrow window.
+    window.appearance_button = QPushButton("Appearance")
+    appearance = QMenu(window.appearance_button)
+    appearance.addAction("Color wheel…", window.pick_accent_color)
+    appearance.addAction("Light / dark theme", window.toggle_theme)
+    window.appearance_button.setMenu(appearance)
     for widget in (window.btn_theme, window.btn_color, window.btn_help):
         project_layout.removeWidget(widget)
-        header_layout.addWidget(widget)
+        widget.hide()
+    header_layout.addWidget(window.appearance_button)
     outer.addWidget(header)
     outer.addWidget(scrolling_bar(transport))
 
@@ -117,6 +139,7 @@ def _build(window):
     outer.addWidget(window.main_splitter, 1)
 
     window.setCentralWidget(central)
+    window._build_agent_harness()
     # Put the single navigation row across the workspace, above both panels.
     window.studio.layout().removeWidget(window.studio.mode_scroll)
     outer.insertWidget(2, window.studio.mode_scroll)
@@ -126,14 +149,17 @@ def _build(window):
     for text, callback in (
         ("Browser", window.toggle_browser),
         ("Pads", window.toggle_pads),
-        ("Focus", lambda: window.btn_playlist_focus.toggle()),
+        ("Arrange", lambda: window.btn_playlist_focus.toggle()),
     ):
         button = QPushButton(text)
         button.setObjectName("mini")
         button.clicked.connect(callback)
         panel_controls.addWidget(button)
-        if text == "Focus":
+        if text == "Arrange":
             button.setCheckable(True)
+            button.setToolTip("Give Song Arrange the full workspace; press F11 to leave focus mode")
+            button.setAccessibleName("Arrange focus")
+            window.btn_workspace_focus = button
             window.btn_playlist_focus.toggled.connect(button.setChecked)
     project_layout.addWidget(window.panel_controls)
     project_bar.setMinimumWidth(project_bar.sizeHint().width())
@@ -177,8 +203,7 @@ def _build_menus(window):
         (
             "View",
             tuple(
-                (window.tabs.tabText(i) + (f"\tCtrl+{i + 1}" if i < 9 else ""),
-                 lambda index=i: window.show_tab(index))
+                (window.tabs.tabText(i) + f"\tCtrl+{i + 1}", lambda index=i: window.show_tab(index))
                 for i in range(window.tabs.count())
             )
             + (
@@ -187,6 +212,7 @@ def _build_menus(window):
                 ("Toggle pads\tShift+F8", window.toggle_pads),
                 ("Musical typing\tCtrl+T", window.toggle_typing_keyboard),
                 ("Light / dark theme\tCtrl+Shift+T", window.toggle_theme),
+                ("Color wheel…", window.pick_accent_color),
             ),
         ),
         (
@@ -203,6 +229,7 @@ def _build_menus(window):
             (
                 ("Add pattern to arrangement", window.append_pattern_to_arrangement),
                 ("Print synth to pad", window.print_synth_to_pad),
+                ("Agent swarm harness…", window.show_agent_harness),
                 ("Audio setup…", window.show_audio_setup),
                 ("Devices & Plugins…", window.show_devices),
             ),
@@ -235,14 +262,8 @@ def _build_stage(window) -> QWidget:
     window.tabs.addTab(window.piano_roll, "Piano Roll")
     window.automation_panel = AutomationPanel(window)
     window.tabs.addTab(window.automation_panel, "Automation")
-    studio_placeholder = QWidget()
-    window.tabs.addTab(studio_placeholder, "Studio")
-    window.scoring_panel = ScoringPanel(window)
-    window.tabs.addTab(window.scoring_panel, "Scoring")
     window.studio = StudioPanel(window.tabs)
-    window.tabs.removeTab(8)
-    studio_placeholder.deleteLater()
-    window.tabs.insertTab(8, window.studio, "Studio")
+    window.tabs.addTab(window.studio, "Studio")
     window._arrange_drop_filter = ArrangeDropFilter(window)
     window.tabs.currentChanged.connect(window._stage_changed)
     for index, tip in enumerate(
@@ -256,7 +277,6 @@ def _build_stage(window) -> QWidget:
             "Compose sample and synth notes  (F12 / Ctrl+7)",
             "Draw arrangement levels and pan  (Ctrl+8)",
             "Docked Playlist, channel rack and mix console  (Ctrl+9)",
-            "Sheet music, instrument parts, composition and score export",
         )
     ):
         window.tabs.setTabToolTip(index, tip)
@@ -368,6 +388,27 @@ def _build_view_bar(window) -> QWidget:
     fit.setToolTip("Show the whole sample  (0)")
     fit.clicked.connect(window.wave.fit)
     lay.addWidget(fit)
+    lay.addWidget(small("HEIGHT"))
+    window.wave_height = QDoubleSpinBox()
+    window.wave_height.setRange(0.25, 24)
+    window.wave_height.setValue(1)
+    window.wave_height.setSingleStep(0.25)
+    window.wave_height.setSuffix("×")
+    window.wave_height.setAccessibleName("Waveform display height")
+    window.wave_height.setToolTip("Visual amplitude only; does not change audio volume · Alt+wheel")
+    window.wave_height.valueChanged.connect(window.wave.set_amplitude)
+
+    def sync_amplitude(value):
+        window.wave_height.blockSignals(True)
+        window.wave_height.setValue(value)
+        window.wave_height.blockSignals(False)
+
+    window.wave.amplitudeChanged.connect(sync_amplitude)
+    lay.addWidget(window.wave_height)
+    reset = QPushButton("Reset")
+    reset.clicked.connect(window.wave.reset_view)
+    reset.setToolTip("Reset time zoom and waveform height")
+    lay.addWidget(reset)
 
     window.zoom_readout = QLabel("—")
     window.zoom_readout.setObjectName("readout")

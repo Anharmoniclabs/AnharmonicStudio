@@ -23,6 +23,7 @@ def _record_settings_changed(owner, *_):
     rec.input_gain_db = owner.input_gain.value()
     rec.input_latency_ms = owner.input_latency.value()
     rec.monitor = owner.monitor.isChecked()
+    rec.corrected_monitor = owner.corrected_monitor.isChecked()
     rec.monitor_gain = owner.monitor_gain.value() / 100.0
     rec.count_in_bars = int(owner.count_in.currentData() or 0)
     rec.auto_place = owner.auto_place.isChecked()
@@ -38,6 +39,7 @@ def _tune_settings_changed(owner, *_):
         owner.app.snapshot()
     tune = owner.app.project.vocal
     tune.enabled = owner.autotune_enabled.isChecked()
+    tune.backend = owner.tune_backend.currentData()
     tune.key = owner.key_box.currentText()
     tune.scale = owner.scale_box.currentText()
     tune.low_note, tune.high_note = owner.range_box.currentData() or (36, 84)
@@ -190,14 +192,31 @@ def _start_capture(owner):
         else None
     )
     try:
-        if rec.input_device and selected is None:
-            raise RuntimeError("Selected input is disconnected. Reconnect it or choose another input.")
-        owner.recorder.engine = owner.app.engine
-        owner.recorder.sample_rate = owner.app.engine.sr
-        owner.recorder.blocksize = owner.app.engine.blocksize
-        owner.recorder.input_channels = tuple(rec.input_channels[:2])
+        if rec.monitor and rec.corrected_monitor:
+            from ..autotune.live import LiveMonitor
+
+            owner._live_monitor = LiveMonitor(
+                owner.app.project.vocal, owner.recorder.sample_rate, monitor_callback
+            )
+            monitor_callback = owner._live_monitor.push
         owner.recorder.start(device, rec.input_gain_db, monitor_callback)
+        if (
+            getattr(owner, "_live_monitor", None)
+            and owner.recorder.sample_rate != owner._live_monitor.sr
+        ):
+            owner._live_monitor.close()
+            from ..autotune.live import LiveMonitor
+
+            owner._live_monitor = LiveMonitor(
+                owner.app.project.vocal,
+                owner.recorder.sample_rate,
+                lambda block: owner.app.engine.queue_monitor(block, rec.monitor_gain),
+            )
+            owner.recorder.monitor_callback = owner._live_monitor.push
     except Exception as exc:
+        if getattr(owner, "_live_monitor", None):
+            owner._live_monitor.close()
+            owner._live_monitor = None
         owner._restore_count_in_transport()
         owner.record_button.setEnabled(True)
         owner.record_button.setText("●  START VOCAL TAKE")
@@ -238,7 +257,12 @@ def stop_recording(owner):
     was_dirty = getattr(owner.app, "_dirty", False)
     owner.app.snapshot()
     try:
-        clip = owner.app.library.add_audio(audio, name, kind="vocal")
+        clip = owner.app.library.add_audio(
+            audio,
+            name,
+            kind="vocal",
+            source_sample_rate=owner.recorder.sample_rate,
+        )
     except Exception as exc:
         if hasattr(owner.app, "discard_snapshot"):
             owner.app.discard_snapshot()
@@ -274,6 +298,9 @@ def discard_recording(owner):
 
 
 def _finish_record_controls(owner):
+    if getattr(owner, "_live_monitor", None):
+        owner._live_monitor.close()
+        owner._live_monitor = None
     owner._counting = False
     owner.record_button.setEnabled(True)
     owner.record_button.setText("●  START VOCAL TAKE")

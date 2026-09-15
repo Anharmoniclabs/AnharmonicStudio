@@ -8,14 +8,16 @@ a cut by one millisecond with a mouse is nobody's idea of a good time.
 
 from __future__ import annotations
 
+import math
 import numpy as np
-from PySide6.QtCore import Qt, QRectF, Signal, QPointF, QMimeData, QPoint
+from PySide6.QtCore import Qt, QRectF, Signal, QPointF, QMimeData, QPoint, QEvent
 from PySide6.QtGui import (
     QPainter,
     QPen,
     QBrush,
     QColor,
     QFont,
+    QFontMetrics,
     QPolygonF,
     QDrag,
     QPixmap,
@@ -94,6 +96,19 @@ def format_time(seconds: float, decimals: int = 3) -> str:
     return f"{minutes}:{rest:0{3 + decimals}.{decimals}f}" if minutes else f"{rest:.{decimals}f}s"
 
 
+def range_endpoint_text(label: str, seconds: float) -> str:
+    """Compact, stable text for the two non-destructive trim points."""
+    return f"{label} {format_time(seconds)}"
+
+
+def range_duration_text(length: float, bpm: float | None = None) -> str:
+    """Show duration in both editor and musical units when tempo is known."""
+    text = format_time(length)
+    if bpm and bpm > 0:
+        text += f"  ·  {length * bpm / 60.0:.2f} beats"
+    return text
+
+
 class WaveformView(QWidget):
     """Zoomable waveform with slice markers and a freeform sample selection."""
 
@@ -104,7 +119,11 @@ class WaveformView(QWidget):
     selectionChanged = Signal(float, float)
     selectionFinished = Signal(float, float)
     viewChanged = Signal()
+    cutCursorChanged = Signal(float)
+    amplitudeChanged = Signal(float)
     playRequested = Signal()  # Enter / double-click on the ruler
+    sendRangeRequested = Signal()  # Ctrl+Enter while the waveform owns focus
+    mapRangeRequested = Signal()  # Ctrl+Shift+Enter while the waveform owns focus
     menuRequested = Signal(QPoint, float)  # global pos, time under the cursor
 
     def __init__(self, parent=None):
@@ -133,10 +152,12 @@ class WaveformView(QWidget):
         self.selection_start = 0.0
         self.selection_end = 0.0
         self.snap_mode = "zero crossing"
-        self.amp_zoom = 1.0  # vertical zoom, ctrl+wheel
+        self.amp_zoom = 1.0  # display amplitude, Alt+wheel
         self._hover_x: float | None = None
         self._drag_marker = -1
         self.cut_mode = False
+        self.cut_cursor = 0.0
+        self._bypass_cut_snap = False
         self._drag_selection: str | None = None
         self._panning: float | None = None
         self._scrubbing = False
@@ -155,6 +176,8 @@ class WaveformView(QWidget):
         self.bpm = bpm
         self.clip_id = clip_id
         self.selected = -1
+        self.cut_cursor = 0.0
+        self.cutCursorChanged.emit(0.0)
         self.slice_kinds = {}
         self.slice_ends = {}
         self.regions = []
@@ -173,7 +196,7 @@ class WaveformView(QWidget):
 
     # ── geometry ─────────────────────────────────────────────
     def _span(self) -> float:
-        return max(1e-9, self.view_b - self.view_a)
+        return max(1e-15, self.view_b - self.view_a)
 
     def wave_rect(self) -> QRectF:
         """The area the waveform itself occupies, below the ruler."""
@@ -272,7 +295,7 @@ class WaveformView(QWidget):
             return
         span = self._span()
         centre = focus if focus is not None else self.view_a + span / 2
-        new_span = min(1.0, max(0.0002, span * factor))
+        new_span = min(1.0, max(self.minimum_span(), span * factor))
         a = min(max(0.0, centre - (centre - self.view_a) * (new_span / span)), 1.0 - new_span)
         self.view_a, self.view_b = a, a + new_span
         self.viewChanged.emit()
@@ -299,13 +322,14 @@ class WaveformView(QWidget):
             return
         a = self.selection_start / self.duration
         b = self.selection_end / self.duration
-        pad = max(0.0001, (b - a) * max(0.0, padding))
+        minimum = self.minimum_span()
+        pad = (b - a) * max(0.0, padding)
         a, b = max(0.0, a - pad), min(1.0, b + pad)
-        if b - a < 0.0002:
+        if b - a < minimum:
             centre = (a + b) / 2
-            a = max(0.0, centre - 0.0001)
-            b = min(1.0, a + 0.0002)
-            a = max(0.0, b - 0.0002)
+            a = max(0.0, centre - minimum / 2)
+            b = min(1.0, a + minimum)
+            a = max(0.0, b - minimum)
         self.view_a, self.view_b = a, b
         self.viewChanged.emit()
         self.update()
@@ -385,22 +409,44 @@ class WaveformView(QWidget):
             self.set_selection(start, start + length)
 
     # ── interaction ──────────────────────────────────────────
+    def minimum_span(self):
+        return 1 / max(1, len(self.audio)) if self.audio is not None else 0.0002
+
+    def set_amplitude(self, value):
+        self.amp_zoom = min(24.0, max(0.25, float(value)))
+        self.amplitudeChanged.emit(self.amp_zoom)
+        self.update()
+
+    def reset_view(self):
+        self.set_amplitude(1.0)
+        self.fit()
+
+    def event(self, ev):
+        if ev.type() == QEvent.NativeGesture and ev.gestureType() == Qt.ZoomNativeGesture:
+            focus = self.view_a + ev.position().x() / max(1, self.width()) * self._span()
+            self.zoom_by(math.exp(-ev.value()), focus)
+            ev.accept()
+            return True
+        return super().event(ev)
+
     def wheelEvent(self, ev):
         if self.duration <= 0:
+            ev.ignore()
             return
-        delta = ev.angleDelta().y()
-        mods = ev.modifiers()
-        if mods & Qt.ControlModifier:
-            # Vertical zoom, as in every audio editor: makes a quiet passage
-            # readable without touching the time axis.
-            self.amp_zoom = float(np.clip(self.amp_zoom * (1.25 if delta > 0 else 0.8), 0.25, 24.0))
-            self.update()
-            return
-        if mods & Qt.ShiftModifier:
-            self.pan_by(0.15 * (-1 if delta > 0 else 1))
-            return
-        focus = self.view_a + (ev.position().x() / max(1, self.width())) * self._span()
-        self.zoom_by(0.8 if delta > 0 else 1.25, focus)
+        pixel, angle = ev.pixelDelta(), ev.angleDelta()
+        delta = pixel.y() / 240 if not pixel.isNull() else angle.y() / 540
+        if ev.modifiers() & Qt.AltModifier:
+            if delta:
+                self.set_amplitude(self.amp_zoom * math.exp(delta))
+        elif ev.modifiers() & Qt.ShiftModifier:
+            if delta:
+                self.pan_by(-delta)
+        elif delta:
+            focus = self.view_a + ev.position().x() / max(1, self.width()) * self._span()
+            self.zoom_by(math.exp(-delta), focus)
+        elif pixel.x() or angle.x():
+            self.pan_by(-(pixel.x() / max(1, self.width()) if pixel.x() else angle.x() / 800))
+        ev.accept()
 
     def mousePressEvent(self, ev):
         if self.duration <= 0:
@@ -438,7 +484,8 @@ class WaveformView(QWidget):
             return
 
         if mods & Qt.ShiftModifier or self.cut_mode:
-            self.add_marker(t)
+            self.set_cut_cursor(t, snap=not bool(mods & Qt.AltModifier))
+            self.add_marker(self.cut_cursor, snap=False)
             return
 
         near = self._marker_near(x)
@@ -493,6 +540,9 @@ class WaveformView(QWidget):
     def mouseMoveEvent(self, ev):
         self._hover_x = ev.position().x()
         y = ev.position().y()
+        self._bypass_cut_snap = bool(ev.modifiers() & Qt.AltModifier)
+        if self.cut_mode and self.duration > 0:
+            self.set_cut_cursor(self.x_to_time(self._hover_x), snap=not self._bypass_cut_snap)
         if self._panning is not None:
             delta = (self._panning - self._hover_x) / max(1, self.width())
             self.pan_by(delta)
@@ -578,9 +628,16 @@ class WaveformView(QWidget):
             return
         self.add_marker(self.x_to_time(ev.position().x()))
 
-    def add_marker(self, t: float) -> None:
-        t = min(max(0.0, self._snap_time(t)), self.duration)
-        t = round(t, 5)
+    def set_cut_cursor(self, seconds: float, *, snap: bool = False) -> None:
+        self.cut_cursor = min(
+            max(0.0, self._snap_time(seconds) if snap else seconds), self.duration
+        )
+        self.cutCursorChanged.emit(self.cut_cursor)
+        self.update()
+
+    def add_marker(self, t: float, *, snap: bool = True) -> None:
+        t = min(max(0.0, self._snap_time(t) if snap else t), self.duration)
+        t = round(t, 8)
         if self.duration <= 0 or t >= self.duration or t in self.markers:
             return
         self.markersAboutToChange.emit()
@@ -603,12 +660,33 @@ class WaveformView(QWidget):
             return
         key = ev.key()
         mods = ev.modifiers()
+        # Commit the visible range without taking focus away from the edit
+        # surface.  These exact chords are kept here (rather than as window
+        # shortcuts) so a producer never places audio while editing another
+        # workspace or typing a time into a range field.
+        if key in (Qt.Key_Return, Qt.Key_Enter):
+            if mods == Qt.ControlModifier:
+                self.sendRangeRequested.emit()
+                return
+            if mods == (Qt.ControlModifier | Qt.ShiftModifier):
+                self.mapRangeRequested.emit()
+                return
         # Fine with no modifier, coarse with shift, on the grid with ctrl.
         step = 0.001 if not mods & Qt.ShiftModifier else 0.02
         if mods & Qt.ControlModifier and self.bpm:
             step = (60.0 / self.bpm) / 4
         start, end = self.selection()
 
+        if self.cut_mode and key in (Qt.Key_Left, Qt.Key_Right):
+            # A sample at a time with Alt; milliseconds normally, larger moves with Shift.
+            if mods & Qt.AltModifier and self.audio is not None and len(self.audio):
+                step = self.duration / len(self.audio)
+            self.set_cut_cursor(self.cut_cursor + (-step if key == Qt.Key_Left else step))
+            self.centre_on(self.cut_cursor)
+            return
+        if self.cut_mode and key == Qt.Key_M:
+            self.add_marker(self.cut_cursor, snap=False)
+            return
         if key in (Qt.Key_Left, Qt.Key_Right):
             sign = -1.0 if key == Qt.Key_Left else 1.0
             if mods & Qt.AltModifier:  # move the whole range
@@ -718,13 +796,16 @@ class WaveformView(QWidget):
             p.setPen(QPen(q("ok"), 1.5))
             p.drawLine(int(x), int(RULER_H), int(x), int(full.height()))
 
-        if self._hover_x is not None:
+        if self._hover_x is not None or self.cut_mode:
             p.setPen(QPen(q("fg", 70)))
-            p.drawLine(int(self._hover_x), int(RULER_H), int(self._hover_x), int(full.height()))
+            cursor_x = self.time_to_x(self.cut_cursor) if self.cut_mode else self._hover_x
+            p.drawLine(int(cursor_x), int(RULER_H), int(cursor_x), int(full.height()))
             p.setPen(q("dim"))
             p.drawText(
-                QPointF(min(self._hover_x + 5, self.width() - 62), self.height() - BAND_H - 4),
-                format_time(self.x_to_time(self._hover_x)),
+                QPointF(min(cursor_x + 5, self.width() - 100), self.height() - BAND_H - 4),
+                f"{self.cut_cursor:.5f} s"
+                if self.cut_mode
+                else format_time(self.x_to_time(self._hover_x)),
             )
 
     def _prepare_traces(self, rect: QRectF) -> None:
@@ -944,17 +1025,57 @@ class WaveformView(QWidget):
         p.setPen(QPen(q("accent_hi"), 2))
         p.drawLine(int(sx0), int(r.top()), int(sx0), int(self.height()))
         p.drawLine(int(sx1), int(r.top()), int(sx1), int(self.height()))
-        for x, label in ((sx0, "S"), (sx1, "E")):
-            box_x = x if label == "S" else x - 18
-            p.fillRect(QRectF(box_x, band_y, 18, BAND_H), q("accent"))
+
+        # The caps are intentionally wider than their hit target. Their three
+        # fine grooves make it clear that this is a trim handle, not a marker.
+        handles = ((sx0, "S", "start"), (sx1, "E", "end"))
+        for x, label, mode in handles:
+            box_x = x - 9
+            active = self._drag_selection == mode
+            p.fillRect(QRectF(box_x, band_y, 18, BAND_H), q("accent_hi" if active else "accent"))
+            groove = q("on_accent", 210 if active else 150)
+            p.setPen(QPen(groove, 1))
+            for offset in (-3, 0, 3):
+                p.drawLine(int(x + offset), int(band_y + 3), int(x + offset), int(band_y + 7))
             p.setPen(q("on_accent"))
-            p.drawText(QRectF(box_x, band_y, 18, BAND_H), Qt.AlignCenter, label)
+            p.drawText(QRectF(box_x, band_y + 7, 18, BAND_H - 7), Qt.AlignCenter, label)
 
         length = self.selection_end - self.selection_start
-        if sx1 - sx0 > 90:
+        # Keep precision visible while trimming.  On narrow ranges only the
+        # active endpoint gets a badge, avoiding text that masks the waveform.
+        font = QFont(self.font())
+        font.setPointSizeF(7.0)
+        p.setFont(font)
+        metrics = QFontMetrics(font)
+        start_text = range_endpoint_text("START", self.selection_start)
+        end_text = range_endpoint_text("END", self.selection_end)
+        start_w = metrics.horizontalAdvance(start_text) + 10
+        end_w = metrics.horizontalAdvance(end_text) + 10
+        badge_y = max(r.top() + 2, band_y - 15)
+
+        def badge(text: str, x: float, width: float, active: bool = False) -> None:
+            x = min(max(1.0, x), max(1.0, self.width() - width - 1.0))
+            rect = QRectF(x, badge_y, width, 13)
+            p.setPen(Qt.NoPen)
+            p.setBrush(q("accent_hi" if active else "canvas", 238))
+            p.drawRoundedRect(rect, 2, 2)
+            p.setPen(q("on_accent") if active else q("accent_ink"))
+            p.drawText(rect, Qt.AlignCenter, text)
+
+        enough_room = sx1 - sx0 >= start_w + end_w + 18
+        if enough_room:
+            badge(start_text, sx0 + 11, start_w, self._drag_selection == "start")
+            badge(end_text, sx1 - end_w - 11, end_w, self._drag_selection == "end")
+        elif self._drag_selection == "start":
+            badge(start_text, sx0 + 11, start_w, True)
+        elif self._drag_selection == "end":
+            badge(end_text, sx1 - end_w - 11, end_w, True)
+
+        if sx1 - sx0 > 170:
+            duration_text = range_duration_text(length, self.bpm)
             p.setPen(q("on_accent"))
             p.drawText(
-                QRectF(sx0 + 20, band_y, sx1 - sx0 - 40, BAND_H), Qt.AlignCenter, f"{length:.3f}s"
+                QRectF(sx0 + 20, band_y, sx1 - sx0 - 40, BAND_H), Qt.AlignCenter, duration_text
             )
 
 

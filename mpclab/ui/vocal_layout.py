@@ -25,7 +25,8 @@ from ..vocal import (
     NOTE_NAMES,
     SCALES,
 )
-from .vocal_pitch import TuningDial, VocalPitchView
+from .vocal_pitch import TuningDial
+from .vocal_note_editor import VocalNoteEditor
 from .layout_helpers import small as _small
 
 
@@ -65,10 +66,16 @@ def _record_group(owner) -> QGroupBox:
         )
     owner.count_in.currentIndexChanged.connect(owner._record_settings_changed)
     grid.addWidget(owner.count_in, 2, 1)
-    owner.monitor = QCheckBox("DRY MONITOR")
+    owner.monitor = QCheckBox("MONITOR")
     owner.monitor.setToolTip("Low-latency software monitoring. Use headphones to prevent feedback.")
     owner.monitor.toggled.connect(owner._record_settings_changed)
     grid.addWidget(owner.monitor, 2, 2)
+    owner.corrected_monitor = QCheckBox("Corrected cue · V2")
+    owner.corrected_monitor.setToolTip(
+        "Worker-based pitch-corrected cue. Adds processing delay; dry recording is unchanged. Settings are captured when recording starts."
+    )
+    owner.corrected_monitor.toggled.connect(owner._record_settings_changed)
+    grid.addWidget(owner.corrected_monitor, 5, 0, 1, 3)
     owner.monitor_gain = QDoubleSpinBox()
     owner.monitor_gain.setRange(0, 150)
     owner.monitor_gain.setSuffix("% cue")
@@ -159,7 +166,21 @@ def _tune_group(owner) -> QWidget:
     source_row.addWidget(use_selected)
     layout.addLayout(source_row)
 
-    owner.pitch_view = VocalPitchView()
+    owner.pitch_view = VocalNoteEditor()
+
+    def save_pitch_edits(source_id, notes):
+        from copy import deepcopy
+
+        owner.app.snapshot()
+        settings = owner.app.project.vocal
+        if notes is None:
+            settings.pitch_edits.pop(source_id, None)
+        else:
+            settings.pitch_edits[source_id] = deepcopy(notes)
+        owner.pitch_view.set_settings(settings)
+        owner.app._set_dirty(True)
+
+    owner.pitch_view.editsChanged.connect(save_pitch_edits)
     owner.pitch_view.selectionChanged.connect(owner._listening_selection_changed)
     layout.addWidget(owner.pitch_view, 1)
     view_row = QHBoxLayout()
@@ -250,6 +271,12 @@ def _tune_group(owner) -> QWidget:
     owner.autotune_enabled = QCheckBox("Pitch correction on")
     owner.autotune_enabled.toggled.connect(owner._tune_settings_changed)
     options.addWidget(owner.autotune_enabled)
+    owner.tune_backend = QComboBox()
+    owner.tune_backend.setAccessibleName("Pitch correction engine")
+    owner.tune_backend.addItem("Autotune V2", "v2")
+    owner.tune_backend.addItem("Legacy", "legacy")
+    owner.tune_backend.currentIndexChanged.connect(owner._tune_settings_changed)
+    options.addWidget(owner.tune_backend)
     owner.detect_key_button = QPushButton("DETECT KEY")
     owner.detect_key_button.clicked.connect(owner.detect_source_key)
     options.addWidget(owner.detect_key_button)
@@ -260,7 +287,7 @@ def _tune_group(owner) -> QWidget:
     layout.addLayout(options)
     owner.tone_group = QGroupBox("Tone & cleanup")
     grid = QGridLayout(owner.tone_group)
-    owner.formant = owner._parameter(grid, 3, "FORMANT BODY", 0, 100, "%")
+    owner.formant = owner._parameter(grid, 3, "FORMANT PRESERVATION", 0, 100, "%")
     owner.transpose = owner._parameter(grid, 4, "TRANSPOSE", -12, 12, " st")
     owner.gate = owner._parameter(grid, 5, "NOISE GATE", -80, -20, " dB")
     owner.highpass = owner._parameter(grid, 6, "HIGH-PASS", 20, 300, " Hz")

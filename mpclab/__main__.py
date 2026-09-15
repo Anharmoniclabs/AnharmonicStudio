@@ -57,7 +57,17 @@ def main() -> int:
         type=Path,
         help="build a project from the newest separated song and exit",
     )
+    parser.add_argument(
+        "--browser-companion",
+        action="store_true",
+        help="serve the full workstation interface in a local browser",
+    )
+    parser.add_argument(
+        "--companion-port", type=int, default=0, help="loopback port; default chooses a free port"
+    )
     args, qt_args = parser.parse_known_args(sys.argv[1:])
+    if args.browser_companion:
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
     if args.install:
         if not getattr(sys, "frozen", False) or not sys.platform.startswith("linux"):
@@ -117,6 +127,10 @@ def main() -> int:
     install_application_runtime()
     from .ui.main_window import MainWindow
 
+    if args.browser_companion:
+        from PySide6.QtCore import Qt
+
+        QApplication.setAttribute(Qt.AA_DontUseNativeDialogs)
     app = QApplication([sys.argv[0], *qt_args])
     # Keep the durable internal key separate from changeable display branding;
     # future QSettings/XDG paths can safely use this value across copy changes.
@@ -130,6 +144,12 @@ def main() -> int:
     lock = QLockFile(str(root / ".anharmonic-studios.lock"))
     lock.setStaleLockTime(0)
     if not lock.tryLock(0):
+        if args.browser_companion:
+            print(
+                "Studio is already using this data directory. Start the browser companion from its File menu.",
+                file=sys.stderr,
+            )
+            return 1
         QMessageBox.information(
             None,
             APP_NAME,
@@ -144,6 +164,12 @@ def main() -> int:
         if not win.load_project_path(args.project, clear_session=False):
             return 2
     win.show()
+    from .companion.ui import install_companion_action, start_companion
+
+    install_companion_action(win)
+    if args.browser_companion:
+        companion = start_companion(win, args.companion_port)
+        print("Open this private link in a browser on this computer:\n" + companion.url, flush=True)
     return app.exec()
 
 

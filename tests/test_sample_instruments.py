@@ -452,3 +452,23 @@ def test_disarming_record_finishes_sample_note_at_disarm_time(window):
     window.release_selected_note(60)
     assert window.project.pattern().notes == [Note(60, 1, 0.5, 0.7, 0)]
     assert not window.sample_workflow.recorded
+
+
+def test_pattern_record_captures_each_pad_to_its_own_lane_without_track_arm(window):
+    first = window.sample_workflow.send(window.current_clip, destination="beats")
+    second = window.sample_workflow.send(window.current_clip, destination="beats")
+    assert (first, second) == (0, 1)
+    window.project.pads[0].root_note = 36
+    window.project.pads[1].root_note = 42
+    window.engine.mode = "pattern"
+    window.engine.playing = window.engine.recording = True
+    window.engine.beat = 0.5
+
+    window._pad_pressed(1, 0.8)
+    assert window.track_capture.armed_id is None
+    assert not window.track_capture.active
+    window.engine.beat = 1.25
+    window._pad_released(1)
+
+    assert window.project.pattern().notes == [Note(42, 0.5, 0.75, 0.8, 1)]
+    assert not window._recorded_pad_notes

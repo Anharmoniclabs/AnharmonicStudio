@@ -75,6 +75,7 @@ jobs:
         run: |
           uv sync --locked --group dev
           uv run --no-sync python scripts/build_native.py
+          uv run --no-sync python scripts/build_rubberband.py
       - name: Native and reference audio regressions
         run: >-
           uv run --no-sync python -m pytest -q

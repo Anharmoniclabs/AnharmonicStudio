@@ -47,6 +47,7 @@ class _Library:
             "dry": SimpleNamespace(id="dry", name="Dry vocal", kind="vocal", duration=2.0),
         }
         self._audio = np.zeros((96_000, 2), dtype=np.float32)
+        self.last_source_sample_rate = None
 
     def ordered(self):
         return list(self.clips.values())
@@ -54,7 +55,8 @@ class _Library:
     def audio(self, clip_id):
         return self._audio if clip_id in self.clips else None
 
-    def add_audio(self, audio, name, kind):
+    def add_audio(self, audio, name, kind, source_sample_rate=None):
+        self.last_source_sample_rate = source_sample_rate
         clip = SimpleNamespace(
             id=f"clip-{len(self.clips)}", name=name, kind=kind, duration=len(audio) / 48_000
         )
@@ -244,6 +246,21 @@ def test_measured_input_latency_is_applied_only_to_clip_placement(panel):
     assert placed.start_beat == pytest.approx(7.75)  # 125 ms at 120 BPM
     assert placed.source_length == pytest.approx(2.0)
     assert panel.app.snapshots == 1
+
+
+def test_vocal_capture_passes_the_negotiated_input_rate_to_the_library(monkeypatch, panel):
+    panel.auto_place.setChecked(False)
+    panel.recorder.sample_rate = 44_100
+    monkeypatch.setattr(
+        panel.recorder,
+        "stop",
+        lambda: np.full((4_410, 2), 0.1, dtype=np.float32),
+    )
+    monkeypatch.setattr(panel.recorder, "commit", lambda: None)
+
+    panel.stop_recording()
+
+    assert panel.app.library.last_source_sample_rate == 44_100
 
 
 def test_latency_compensation_clamps_at_song_start(panel):

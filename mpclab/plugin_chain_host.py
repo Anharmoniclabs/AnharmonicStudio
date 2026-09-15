@@ -56,8 +56,6 @@ def plugin_chain_worker(connection, specifications, sample_rate):
         if any(not isinstance(item, dict) for item in specifications):
             raise PluginError("Plugin chain entries must be objects")
 
-        # Native plugins may write directly to C stdout/stderr.  Keep that noise
-        # out of the parent/export protocol; failures still cross the bounded IPC.
         with open(os.devnull, "wb") as sink:
             os.dup2(sink.fileno(), 1)
             os.dup2(sink.fileno(), 2)
@@ -239,7 +237,11 @@ class IsolatedPluginChain:
             if not np.isfinite(result).all():
                 raise PluginError("Plugin chain returned nonfinite audio")
             return result
+        except PluginError:
+            self.close()
+            raise
         except (EOFError, BrokenPipeError, OSError) as exc:
+            self.close()
             raise PluginError("Plugin chain process closed unexpectedly") from exc
 
     def close(self):

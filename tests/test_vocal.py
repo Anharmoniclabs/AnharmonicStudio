@@ -11,6 +11,7 @@ from mpclab.model import Project, VocalSettings
 from mpclab.vocal import (
     ProcessingCancelled,
     VocalRecorder,
+    _quantize_pitch_curve,
     allowed_notes,
     analyze_pitch,
     detect_key,
@@ -60,6 +61,40 @@ def test_pitch_analysis_finds_a_sung_a_and_quantizes_an_out_of_key_note():
     assert set(np.rint(analysis.target_midi[voiced]).astype(int)) <= {65, 67}
 
 
+@pytest.mark.parametrize("midi", [36, 40, 45, 60, 72, 84])
+def test_pitch_analysis_is_accurate_across_the_supported_vocal_range(midi):
+    frequency = 440.0 * 2.0 ** ((midi - 69) / 12.0)
+    settings = VocalSettings(low_note=36, high_note=84)
+
+    analysis = analyze_pitch(_tone(frequency), settings)
+    voiced = analysis.confidence > 0.35
+
+    assert np.any(voiced)
+    assert np.nanmedian(analysis.detected_midi[voiced]) == pytest.approx(midi, abs=0.1)
+
+
+def test_pitch_analysis_does_not_cancel_an_antiphase_stereo_vocal():
+    source = _tone(220.0)
+    source[:, 1] *= -1.0
+
+    analysis = analyze_pitch(source, VocalSettings(low_note=36, high_note=84))
+    voiced = analysis.confidence > 0.35
+
+    assert np.any(voiced)
+    assert np.nanmedian(analysis.detected_midi[voiced]) == pytest.approx(57, abs=0.1)
+
+
+def test_scale_target_hysteresis_prevents_midpoint_chatter():
+    midi = np.array([65.99, 66.01, 65.98, 66.03, np.nan, np.nan, np.nan, 66.01])
+    voiced = np.isfinite(midi)
+    choices = np.array([65.0, 67.0], dtype=np.float32)
+
+    targets = _quantize_pitch_curve(midi, voiced, choices, transpose=0)
+
+    np.testing.assert_array_equal(targets[:4], [65.0, 65.0, 65.0, 65.0])
+    assert targets[-1] == 67.0
+
+
 def test_transpose_shifts_targets_even_in_chromatic_mode():
     settings = VocalSettings(scale="chromatic", transpose=12, low_note=48, high_note=84)
     analysis = analyze_pitch(_tone(220.0), settings)
@@ -78,6 +113,51 @@ def test_autotune_render_is_finite_stereo_and_preserves_take_length():
     assert np.isfinite(rendered).all()
     assert np.max(np.abs(rendered)) <= 0.981
     assert analysis.voiced_fraction > 0.5
+
+
+@pytest.mark.parametrize("bypass", ["disabled", "strength", "mix"])
+def test_neutral_pitch_bypass_is_sample_transparent_at_boundaries(bypass):
+    source = np.full((257, 2), 0.1, dtype=np.float32)
+    source[0] = (0.37, -0.23)
+    source[-1] = (-0.19, 0.31)
+    settings = VocalSettings(
+        highpass_hz=20,
+        deesser=0,
+        compression=0,
+        presence_db=0,
+        gate_db=-80,
+        formant=0,
+    )
+    if bypass == "disabled":
+        settings.enabled = False
+    elif bypass == "strength":
+        settings.strength = 0
+    else:
+        settings.mix = 0
+
+    rendered, _analysis = render_autotune(source, settings)
+
+    np.testing.assert_allclose(rendered, source, atol=1e-7)
+
+
+def test_nonfinite_input_is_sanitized_before_processing():
+    source = np.full((257, 2), 0.1, dtype=np.float32)
+    source[0] = (np.nan, np.inf)
+    source[-1] = (-np.inf, np.nan)
+    settings = VocalSettings(
+        enabled=False,
+        highpass_hz=20,
+        deesser=0,
+        compression=0,
+        presence_db=0,
+        gate_db=-80,
+        formant=0,
+    )
+
+    rendered, _analysis = render_autotune(source, settings)
+
+    assert np.isfinite(rendered).all()
+    assert np.max(np.abs(rendered)) <= 0.981
 
 
 def test_hard_tune_moves_an_out_of_key_pitch_to_the_target_note():

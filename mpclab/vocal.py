@@ -20,7 +20,7 @@ import numpy as np
 import soundfile as sf
 
 from .audio_kernel import AUDIO_SAMPLE_RATE
-from .audio_storage import read_stereo, read_channels
+from .audio_storage import read_stereo
 from .fx import BlockConvolver, _biquad, cascade_ir
 from .model import VocalSettings
 
@@ -31,6 +31,11 @@ SCALES = {
     "minor": (0, 2, 3, 5, 7, 8, 10),
     "pentatonic": (0, 2, 4, 7, 9),
 }
+
+# One voicing contract is shared by analysis, targeting, key detection, UI
+# summaries, and rendering.  Keeping separate cutoffs allowed breath/noise to
+# be displayed as unvoiced while still receiving audible pitch correction.
+PITCH_VOICING_THRESHOLD = 0.35
 
 
 def input_device_inventory() -> tuple[list[dict], int | None]:
@@ -95,7 +100,6 @@ class VocalRecorder:
         self.queue_blocks = max(2, int(queue_blocks))
         self.temp_dir = Path(temp_dir) if temp_dir is not None else None
         self.stream = None
-        self.engine = None
         self._queue: queue.Queue[tuple[int, np.ndarray]] | None = None
         self._writer: threading.Thread | None = None
         self._writer_stop = threading.Event()
@@ -110,13 +114,6 @@ class VocalRecorder:
         self.monitor_errors = 0
         self.monitor_callback: Callable[[np.ndarray], None] | None = None
         self._gain = 1.0
-        self.input_channels = (0,)
-        self.capture_channels = 2
-        self.first_adc_time = None
-        self.first_capture_monotonic = None
-        self._expected_adc = None
-        self.input_latency_seconds = 0.0
-        self._input_position = 0
 
     @property
     def recording(self) -> bool:
@@ -146,10 +143,10 @@ class VocalRecorder:
             return
         try:
             with sf.SoundFile(
-                str(path), mode="w", samplerate=self.sample_rate, channels=self.capture_channels, subtype="PCM_24"
+                str(path), mode="w", samplerate=self.sample_rate, channels=2, subtype="PCM_24"
             ) as output:
                 written = 0
-                silence = np.zeros((max(1, self.blocksize), self.capture_channels), dtype=np.float32)
+                silence = np.zeros((max(1, self.blocksize), 2), dtype=np.float32)
 
                 def fill_gap(end):
                     nonlocal written
@@ -204,18 +201,11 @@ class VocalRecorder:
             raise RuntimeError(f"Save or discard the previous take first: {self._temp_path}")
         import sounddevice as sd
 
+        requested_rate = self.sample_rate
         self._queue = queue.Queue(maxsize=self.queue_blocks)
         self._writer_stop.clear()
         self._writer_error = None
         self._captured_frames = 0
-        self._input_position = 0
-        self.first_adc_time = None
-        self.first_capture_monotonic = None
-        self._expected_adc = None
-        selected_channels = tuple(self.input_channels)
-        if not 1 <= len(selected_channels) <= 64 or len(set(selected_channels)) != len(selected_channels) or any(type(c) is not int or not 0 <= c < 64 for c in selected_channels):
-            raise ValueError("Choose distinct input channels from 1 to 64")
-        self.capture_channels = max(2, len(selected_channels))
         self.overruns = 0
         self.dropped_frames = 0
         self.monitor_errors = 0
@@ -224,42 +214,16 @@ class VocalRecorder:
         self._gain = float(10.0 ** (float(gain_db) / 20.0))
         self.monitor_callback = monitor_callback
         self._temp_path = self._make_temp_path()
-        self._writer = threading.Thread(
-            target=self._write_capture, name="mpclab-vocal-writer", daemon=True
-        )
-        self._writer.start()
 
         def callback(indata, _frames, _time_info, status):
             if bool(status) and getattr(status, "input_overflow", True):
                 self.overruns += 1
-            adc = getattr(_time_info, "inputBufferAdcTime", -1.0)
-            if self.first_adc_time is None and adc >= 0:
-                self.first_adc_time = float(adc)
-                self.first_capture_monotonic = getattr(_time_info, "capture_monotonic", None)
-            input_position = getattr(_time_info, "capture_frame", self._input_position)
-            gap = max(0, input_position - self._input_position)
-            if adc >= 0 and self._expected_adc is not None:
-                # ADC timestamps also reveal host-side losses that never
-                # reached our native queue. Small clock rounding is ignored.
-                timestamp_gap = round((adc - self._expected_adc) * self.sample_rate)
-                if timestamp_gap > 2:
-                    gap = max(gap, timestamp_gap)
-            if adc >= 0:
-                self._expected_adc = adc + len(indata) / self.sample_rate
-            self._input_position = input_position + len(indata)
-            if gap and not self.paused:
-                self._captured_frames += gap
-                self.dropped_frames += gap
-                self.overruns += 1
-            mono = np.asarray(indata[:, selected_channels[0]], dtype=np.float32) * self._gain
+            mono = np.asarray(indata[:, 0], dtype=np.float32) * self._gain
             peak = float(np.max(np.abs(mono))) if len(mono) else 0.0
             rms = float(np.sqrt(np.mean(mono * mono))) if len(mono) else 0.0
             self.input_peak = max(peak, self.input_peak * 0.92)
             self.input_rms = rms
-            right = mono if len(selected_channels) == 1 else indata[:, selected_channels[1]] * self._gain
-            stereo = np.ascontiguousarray(np.column_stack((mono, right)), dtype=np.float32)
-            if len(selected_channels) > 2:
-                stereo = np.ascontiguousarray(indata[:, selected_channels] * self._gain, dtype=np.float32)
+            stereo = np.ascontiguousarray(np.column_stack((mono, mono)), dtype=np.float32)
             if not self.paused:
                 position = self._captured_frames
                 self._captured_frames += len(stereo)
@@ -272,46 +236,44 @@ class VocalRecorder:
                     self.dropped_frames += len(stereo)
             if self.monitor_callback is not None:
                 try:
-                    self.monitor_callback(np.ascontiguousarray(stereo[:, :2]))
+                    self.monitor_callback(stereo)
                 except Exception:
                     # A broken monitoring route must not terminate dry capture.
                     self.monitor_errors += 1
 
         try:
-            from .native_dsp import NATIVE
-            from .native_input import NativeInputStream
-            duplex_engine = None
-            if self.engine is not None and getattr(self.engine.stream, "native_callback", False):
-                defaults = sd.default.device
-                incoming = device if device is not None else defaults[0]
-                outgoing = self.engine.output_device if self.engine.output_device is not None else defaults[1]
-                if incoming == outgoing and incoming is not None and incoming != -1:
-                    duplex_engine = self.engine
-            factory = (lambda **options: NativeInputStream(sd, NATIVE, engine=duplex_engine, **options)) if (
-                NATIVE is not None and hasattr(NATIVE.lib, "anh_input_create") and hasattr(sd, "_StreamBase")
-            ) else sd.InputStream
-            stream = factory(
-                samplerate=self.sample_rate,
+            stream = sd.InputStream(
+                samplerate=requested_rate,
                 blocksize=self.blocksize,
-                channels=max(selected_channels) + 1,
+                channels=1,
                 dtype="float32",
                 device=device,
                 latency="low",
                 callback=callback,
             )
-            self.input_latency_seconds = float(getattr(stream, "latency", 0.0))
+            # PortAudio can negotiate a device-native rate even when a rate was
+            # requested.  The WAV header must describe the frames we actually
+            # receive, otherwise the take is audibly fast/slow on playback.
+            actual_rate = getattr(stream, "samplerate", requested_rate)
+            actual_rate = int(round(float(actual_rate)))
+            if actual_rate <= 0:
+                raise RuntimeError("input device reported an invalid sample rate")
+            self.sample_rate = actual_rate
+            self._writer = threading.Thread(
+                target=self._write_capture, name="mpclab-vocal-writer", daemon=True
+            )
+            self._writer.start()
             stream.start()
         except Exception:
             try:
                 if "stream" in locals():
                     stream.close()
             except Exception:
-                if getattr(stream, "native_callback", False) and stream._worker is not None and stream._worker.is_alive():
-                    self.stream = stream
-                    raise
+                pass
             self._finish_writer()
             self._queue = None
             self.monitor_callback = None
+            self.sample_rate = requested_rate
             if not self._captured_frames:
                 self._remove_temp()
             raise
@@ -328,19 +290,11 @@ class VocalRecorder:
             except Exception:
                 # A hot-unplug often makes PortAudio raise on stop. The audio
                 # already captured in memory is still a valid take.
-                if getattr(stream, "native_callback", False) and stream._worker is not None and stream._worker.is_alive():
-                    self.stream = stream
-                    raise
-            remaining = max(0, getattr(stream, "total_frames", 0) - self._input_position)
-            if remaining and not self.paused:
-                self._captured_frames += remaining
-                self.dropped_frames += remaining
+                pass
             try:
                 stream.close()
             except Exception:
                 pass
-            if getattr(stream, "error", ""):
-                self._writer_error = RuntimeError(stream.error)
         self._finish_writer()
         path = self._temp_path
         writer_error = self._writer_error
@@ -358,8 +312,7 @@ class VocalRecorder:
             self._remove_temp()
             return np.zeros((0, 2), dtype=np.float32)
         try:
-            audio, sample_rate = (read_channels(path, self.capture_channels, directory=path.parent)
-                                  if self.capture_channels > 2 else read_stereo(path, 16 * 1024 * 1024, path.parent))
+            audio, sample_rate = read_stereo(path, 16 * 1024 * 1024, path.parent)
             if sample_rate != self.sample_rate:
                 raise RuntimeError(f"captured vocal sample rate changed to {sample_rate}")
             return audio
@@ -395,7 +348,14 @@ class PitchAnalysis:
 
     @property
     def voiced_fraction(self) -> float:
-        return float(np.mean(self.confidence > 0.35)) if len(self.confidence) else 0.0
+        if not len(self.confidence):
+            return 0.0
+        voiced = (
+            (self.detected_hz > 0.0)
+            & np.isfinite(self.detected_midi)
+            & (self.confidence >= PITCH_VOICING_THRESHOLD)
+        )
+        return float(np.mean(voiced))
 
 
 def note_name(midi: float) -> str:
@@ -416,37 +376,80 @@ def allowed_notes(settings: VocalSettings) -> np.ndarray:
     return np.asarray(notes or [60], dtype=np.float32)
 
 
+def _quantize_pitch_curve(
+    midi: np.ndarray,
+    voiced: np.ndarray,
+    choices: np.ndarray,
+    transpose: int,
+    hysteresis: float = 0.15,
+    reset_frames: int = 3,
+    cancelled: Callable[[], bool] | None = None,
+) -> np.ndarray:
+    """Choose scale notes without chattering at an adjacent-note midpoint."""
+    targets = midi.copy()
+    previous: float | None = None
+    unvoiced_frames = reset_frames
+    for index in range(len(midi)):
+        if index % 128 == 0:
+            _check_cancel(cancelled)
+        if not voiced[index]:
+            unvoiced_frames += 1
+            continue
+        pitch = float(midi[index])
+        candidate = float(choices[int(np.argmin(np.abs(choices - pitch)))])
+        if previous is not None and unvoiced_frames < reset_frames and candidate != previous:
+            candidate_distance = abs(candidate - pitch)
+            previous_distance = abs(previous - pitch)
+            if candidate_distance + hysteresis >= previous_distance:
+                candidate = previous
+        targets[index] = candidate + int(transpose)
+        previous = candidate
+        unvoiced_frames = 0
+    return targets
+
+
 def _pitch_frame(frame: np.ndarray, sr: int, low_hz: float, high_hz: float) -> tuple[float, float]:
     frame = np.asarray(frame, dtype=np.float32)
     frame = frame - float(np.mean(frame))
     rms = float(np.sqrt(np.mean(frame * frame)))
     if rms < 2e-4:
         return 0.0, 0.0
-    frame *= np.hanning(len(frame)).astype(np.float32)
+    # YIN's cumulative-mean normalized difference removes the overlap bias of
+    # raw autocorrelation.  That bias used to pull long periods toward shorter
+    # lags (C2 measured almost a semitone sharp) even on a clean sine wave.
+    # Deriving the difference function from FFT autocorrelation keeps the
+    # detector O(n log n) without adding another runtime dependency.
     size = 1 << int(np.ceil(np.log2(max(2, len(frame) * 2 - 1))))
     spec = np.fft.rfft(frame, size)
     ac = np.fft.irfft(spec * np.conj(spec), size)[: len(frame)].real
-    if ac[0] <= 1e-10:
+    energy = np.concatenate(([0.0], np.cumsum(frame.astype(np.float64) ** 2)))
+    if energy[-1] <= 1e-10:
         return 0.0, 0.0
-    lo = max(1, int(sr / max(high_hz, 1.0)))
-    hi = min(len(ac) - 2, int(sr / max(low_hz, 1.0)))
+    lags = np.arange(1, len(frame), dtype=np.int64)
+    difference = np.zeros(len(frame), dtype=np.float64)
+    difference[1:] = energy[len(frame) - lags] + energy[-1] - energy[lags] - 2.0 * ac[lags]
+    cumulative = np.cumsum(difference[1:])
+    normalized = np.ones(len(frame), dtype=np.float64)
+    normalized[1:] = difference[1:] * lags / np.maximum(cumulative, 1e-12)
+    lo = max(2, int(np.floor(sr / max(high_hz, 1.0))))
+    hi = min(len(ac) - 2, int(np.ceil(sr / max(low_hz, 1.0))))
     if hi <= lo:
         return 0.0, 0.0
-    # Prefer the first strong periodic peak, avoiding common octave-down picks.
-    band = ac[lo : hi + 1] / max(float(ac[0]), 1e-12)
-    peaks = np.flatnonzero((band[1:-1] > band[:-2]) & (band[1:-1] >= band[2:])) + 1
-    if not len(peaks):
-        lag = lo + int(np.argmax(band))
+    band = normalized[lo : hi + 1]
+    below_threshold = np.flatnonzero(band < 0.18)
+    if len(below_threshold):
+        lag = lo + int(below_threshold[0])
+        # The first threshold crossing belongs to the first plausible period;
+        # descend to its trough for sub-sample interpolation.
+        while lag < hi and normalized[lag + 1] < normalized[lag]:
+            lag += 1
     else:
-        strengths = band[peaks]
-        best = float(np.max(strengths))
-        eligible = peaks[strengths >= max(0.28, best * 0.82)]
-        lag = lo + int(eligible[0] if len(eligible) else peaks[np.argmax(strengths)])
-    confidence = float(np.clip(ac[lag] / ac[0], 0.0, 1.0))
-    if confidence < 0.18:
+        lag = lo + int(np.argmin(band))
+    confidence = float(np.clip(1.0 - normalized[lag], 0.0, 1.0))
+    if confidence < PITCH_VOICING_THRESHOLD:
         return 0.0, confidence
-    denom = ac[lag - 1] - 2.0 * ac[lag] + ac[lag + 1]
-    delta = 0.5 * (ac[lag - 1] - ac[lag + 1]) / denom if abs(denom) > 1e-12 else 0.0
+    denom = normalized[lag - 1] - 2.0 * normalized[lag] + normalized[lag + 1]
+    delta = 0.5 * (normalized[lag - 1] - normalized[lag + 1]) / denom if abs(denom) > 1e-12 else 0.0
     return float(sr / (lag + np.clip(delta, -0.5, 0.5))), confidence
 
 
@@ -461,7 +464,18 @@ def analyze_pitch(
 ) -> PitchAnalysis:
     """Track a monophonic vocal and quantize voiced frames to the chosen scale."""
     data = np.asarray(audio, dtype=np.float32)
-    mono = data.mean(axis=1) if data.ndim == 2 else data.reshape(-1)
+    if data.ndim == 2:
+        # Imported stereo vocals may be wide or polarity inverted. Averaging
+        # those channels can erase a perfectly voiced take, so follow the
+        # highest-energy channel and apply its one pitch path to both channels.
+        channel_energy = np.zeros(data.shape[1], dtype=np.float64)
+        for start in range(0, len(data), 65536):
+            _check_cancel(cancelled)
+            block = data[start : start + 65536]
+            channel_energy += np.sum(block * block, axis=0, dtype=np.float64)
+        mono = data[:, int(np.argmax(channel_energy))]
+    else:
+        mono = data.reshape(-1)
     if len(mono) < frame_size:
         mono = np.pad(mono, (0, frame_size - len(mono)))
     count = 1 + max(0, (len(mono) - frame_size) // hop)
@@ -481,13 +495,15 @@ def analyze_pitch(
     midi = np.full(count, np.nan, dtype=np.float32)
     voiced = hz > 0.0
     midi[voiced] = 69.0 + 12.0 * np.log2(hz[voiced] / 440.0)
-    targets = midi.copy()
     choices = allowed_notes(settings)
-    for index in np.flatnonzero(voiced):
-        _check_cancel(cancelled)
-        targets[index] = choices[int(np.argmin(np.abs(choices - midi[index])))] + int(
-            settings.transpose
-        )
+    _check_cancel(cancelled)
+    targets = _quantize_pitch_curve(
+        midi,
+        voiced,
+        choices,
+        int(settings.transpose),
+        cancelled=cancelled,
+    )
     times = (np.arange(count, dtype=np.float32) * hop + frame_size * 0.5) / sr
     if progress:
         progress(1.0)
@@ -496,20 +512,25 @@ def analyze_pitch(
 
 def detect_key(analysis: PitchAnalysis) -> tuple[str, str, float]:
     """Suggest the major/minor key that best contains confident vocal notes."""
-    voiced = np.isfinite(analysis.detected_midi) & (analysis.confidence >= 0.28)
+    voiced = (
+        (analysis.detected_hz > 0.0)
+        & np.isfinite(analysis.detected_midi)
+        & (analysis.confidence >= PITCH_VOICING_THRESHOLD)
+    )
     if not np.any(voiced):
         return "C", "major", 0.0
     pitch_classes = np.mod(np.rint(analysis.detected_midi[voiced]).astype(int), 12)
     weights = analysis.confidence[voiced]
+    weight_total = max(float(np.sum(weights)), 1e-9)
     scores = []
     for scale_name in ("major", "minor"):
         intervals = set(SCALES[scale_name])
         for root in range(12):
             inside = np.asarray([((pc - root) % 12) in intervals for pc in pitch_classes])
-            score = float(np.sum(weights[inside]) / max(np.sum(weights), 1e-9))
+            score = float(np.sum(weights[inside]) / weight_total)
             # Tonic and fifth evidence break ties between relative keys.
-            tonic = float(np.sum(weights[pitch_classes == root]))
-            fifth = float(np.sum(weights[pitch_classes == (root + 7) % 12]))
+            tonic = float(np.sum(weights[pitch_classes == root]) / weight_total)
+            fifth = float(np.sum(weights[pitch_classes == (root + 7) % 12]) / weight_total)
             scores.append((score + 0.06 * tonic + 0.025 * fifth, root, scale_name))
     score, root, scale_name = max(scores)
     return NOTE_NAMES[root], scale_name, float(min(1.0, score))
@@ -592,6 +613,8 @@ def render_autotune(
     sr: int = AUDIO_SAMPLE_RATE,
     progress: Callable[[float], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
+    *,
+    source_id: str | None = None,
 ) -> tuple[np.ndarray, PitchAnalysis]:
     """Render correction and cleanup, preserving length and stereo layout."""
     source = np.asarray(audio, dtype=np.float32)
@@ -601,9 +624,18 @@ def render_autotune(
         raise ValueError("vocal audio must be mono or stereo")
     if source.shape[1] == 1:
         source = np.repeat(source, 2, axis=1)
-    source = np.nan_to_num(source, copy=True)
+    source = np.nan_to_num(source, copy=True, nan=0.0, posinf=0.0, neginf=0.0)
     if not len(source):
         raise ValueError("vocal audio is empty")
+    if settings.backend == "v2":
+        from .autotune.service import render
+
+        result, analysis = render(source, settings, sr, source_id, progress, cancelled)
+        try:
+            rendered, _ = sf.read(result.path, dtype="float32", always_2d=True)
+            return rendered, analysis
+        finally:
+            result.close()
     _check_cancel(cancelled)
     if progress:
         progress(0.0)
@@ -617,65 +649,76 @@ def render_autotune(
     if progress:
         progress(0.32)
 
-    # Long, overlapping grains are important here. Very short grains reset
-    # their phase so often that a gentle one-semitone correction can average
-    # back toward the original pitch; 170 ms grains retain vocal identity and
-    # still update their target every 42 ms.
-    frame_size, hop = 8192, 2048
-    window = np.hanning(frame_size).astype(np.float32)
-    corrected = np.zeros_like(source)
-    weight = np.zeros(len(source), dtype=np.float32)
-    ratio_state = 1.0
-    retune_s = max(0.0, float(settings.retune_ms) / 1000.0)
-    smoothing = 1.0 if retune_s <= 0 else 1.0 - np.exp(-(hop / sr) / retune_s)
-    rel = np.arange(frame_size, dtype=np.float32) - frame_size * 0.5
-    starts = np.arange(0, len(source), hop, dtype=np.int64)
-    centers = starts + frame_size // 2
-    padded = np.pad(source, ((frame_size * 2, frame_size * 2), (0, 0)), mode="reflect")
-    for index, center in enumerate(centers):
-        if index % 8 == 0:
-            _check_cancel(cancelled)
-            if progress:
-                progress(0.32 + 0.48 * index / max(1, len(centers)))
-        out_start = int(starts[index])
-        analysis_index = int(
-            np.clip(np.searchsorted(analysis.times, center / sr), 0, len(analysis.times) - 1)
-        )
-        if (
-            settings.enabled
-            and np.isfinite(analysis.detected_midi[analysis_index])
-            and analysis.confidence[analysis_index] >= 0.18
-        ):
-            error = float(
-                analysis.target_midi[analysis_index] - analysis.detected_midi[analysis_index]
+    pitch_bypassed = (
+        not settings.enabled or float(settings.strength) <= 0.0 or float(settings.mix) <= 0.0
+    )
+    if pitch_bypassed:
+        # Besides avoiding needless work, this guarantees that disabling pitch
+        # correction cannot attenuate the first sample at the Hann boundary.
+        corrected = source.copy()
+        if progress:
+            progress(0.80)
+    else:
+        # Long, overlapping grains are important here. Very short grains reset
+        # their phase so often that a gentle one-semitone correction can average
+        # back toward the original pitch; 170 ms grains retain vocal identity and
+        # still update their target every 42 ms.
+        frame_size, hop = 8192, 2048
+        window = np.hanning(frame_size).astype(np.float32)
+        corrected = np.zeros_like(source)
+        weight = np.zeros(len(source), dtype=np.float32)
+        ratio_state = 1.0
+        retune_s = max(0.0, float(settings.retune_ms) / 1000.0)
+        smoothing = 1.0 if retune_s <= 0 else 1.0 - np.exp(-(hop / sr) / retune_s)
+        rel = np.arange(frame_size, dtype=np.float32) - frame_size * 0.5
+        starts = np.arange(0, len(source), hop, dtype=np.int64)
+        centers = starts + frame_size // 2
+        padded = np.pad(source, ((frame_size * 2, frame_size * 2), (0, 0)), mode="reflect")
+        for index, center in enumerate(centers):
+            if index % 8 == 0:
+                _check_cancel(cancelled)
+                if progress:
+                    progress(0.32 + 0.48 * index / max(1, len(centers)))
+            out_start = int(starts[index])
+            analysis_index = int(
+                np.clip(np.searchsorted(analysis.times, center / sr), 0, len(analysis.times) - 1)
             )
-            # Humanize lets a stable held note keep some natural movement.
-            depth = float(settings.strength) * (
-                1.0
-                - float(settings.humanize)
-                * float(np.clip(analysis.confidence[analysis_index], 0.0, 1.0))
-            )
-            desired = 2.0 ** (error * depth / 12.0)
-        else:
-            desired = 1.0
-        ratio_state += (desired - ratio_state) * smoothing
-        ratio = float(np.clip(ratio_state, 0.49, 2.04))
-        read = center + rel * ratio + frame_size * 2
-        lo = np.floor(read).astype(np.int64)
-        frac = (read - lo).astype(np.float32)
-        frame = padded[lo] * (1.0 - frac[:, None]) + padded[lo + 1] * frac[:, None]
-        take = min(frame_size, len(source) - out_start)
-        if take <= 0:
-            continue
-        corrected[out_start : out_start + take] += frame[:take] * window[:take, None]
-        weight[out_start : out_start + take] += window[:take]
-    corrected /= np.maximum(weight[:, None], 1e-5)
+            if (
+                np.isfinite(analysis.detected_midi[analysis_index])
+                and analysis.confidence[analysis_index] >= PITCH_VOICING_THRESHOLD
+            ):
+                error = float(
+                    analysis.target_midi[analysis_index] - analysis.detected_midi[analysis_index]
+                )
+                # Humanize lets a stable held note keep some natural movement.
+                depth = float(settings.strength) * (
+                    1.0
+                    - float(settings.humanize)
+                    * float(np.clip(analysis.confidence[analysis_index], 0.0, 1.0))
+                )
+                desired = 2.0 ** (error * depth / 12.0)
+            else:
+                desired = 1.0
+            ratio_state += (desired - ratio_state) * smoothing
+            ratio = float(np.clip(ratio_state, 0.49, 2.04))
+            read = center + rel * ratio + frame_size * 2
+            lo = np.floor(read).astype(np.int64)
+            frac = (read - lo).astype(np.float32)
+            frame = padded[lo] * (1.0 - frac[:, None]) + padded[lo + 1] * frac[:, None]
+            take = min(frame_size, len(source) - out_start)
+            if take <= 0:
+                continue
+            corrected[out_start : out_start + take] += frame[:take] * window[:take, None]
+            weight[out_start : out_start + take] += window[:take]
+        corrected /= np.maximum(weight[:, None], 1e-5)
     _check_cancel(cancelled)
     if progress:
         progress(0.80)
 
     # Preserve some of the original vocal body before the explicit wet/dry mix.
-    body = float(np.clip(settings.formant, 0.0, 1.0)) * 0.16
+    body = (
+        float(np.clip(settings.formant, 0.0, 1.0)) * 0.16 if settings.backend == "legacy" else 0.0
+    )
     corrected = corrected * (1.0 - body) + source * body
     wet = float(np.clip(settings.mix, 0.0, 1.0))
     rendered = source * (1.0 - wet) + corrected * wet

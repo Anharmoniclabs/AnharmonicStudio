@@ -146,6 +146,7 @@ From the repository root, in the prepared native environment:
 ```sh
 uv sync --locked --group dev
 uv run --no-sync python scripts/build_native.py
+uv run --no-sync python scripts/build_rubberband.py
 ```
 
 The native helper is built under `.native/`. Source and compiler flags determine its
@@ -226,3 +227,11 @@ Create a standalone source archive with:
 ```sh
 uv run --no-sync python scripts/build_source_bundle.py dist/AnharmonicStudio-source.zip
 ```
+
+## Autotune V2 and local browser companion
+
+Build the bundled GPL pitch engine with `python scripts/build_rubberband.py` (CMake and C++17 required). V2 has no network/service dependency. Existing projects retain their legacy engine; select **Autotune V2** in the Vocal editor to opt in. New note regions, source hashes and render settings are saved without changing dry takes.
+
+Choose **File → Connect local browser…** for the current desktop session. For a dedicated browser session, run `python -m mpclab --browser-companion --data-dir PATH`. This uses the same data-directory lock and never starts a second writer. The printed private URL uses loopback only. It does not launch or move a browser. Native audio devices and local files belong to the companion computer.
+
+The companion renders application-owned Qt surfaces. Standalone Web Audio retains its documented limitations. Native plugin custom windows, accessibility, hardware latency, and macOS/Windows behavior require platform acceptance testing; the Linux synthetic checks do not certify those.

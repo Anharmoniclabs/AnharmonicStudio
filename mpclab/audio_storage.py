@@ -68,19 +68,3 @@ def heap_bytes(arrays) -> int:
         if not isinstance(base, np.memmap):
             total += array.nbytes
     return total
-
-
-def read_channels(path, channels, heap_budget=16 * 1024 * 1024, directory=None):
-    """Decode a multichannel recording with the same bounded storage policy."""
-    with sf.SoundFile(str(path)) as source:
-        if source.channels != channels:
-            raise ValueError("Recording channel count changed unexpectedly")
-        shape = (source.frames, channels)
-        data = np.empty(shape, np.float32) if source.frames * channels * 4 <= heap_budget else mapped_array(shape, directory)
-        offset = 0
-        for block in source.blocks(blocksize=DECODE_BLOCK, dtype="float32", always_2d=True):
-            data[offset:offset + len(block)] = block
-            offset += len(block)
-        if offset != source.frames:
-            raise OSError("Recording ended before its declared length")
-        return data, source.samplerate

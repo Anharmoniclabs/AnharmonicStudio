@@ -1,0 +1,258 @@
+[
+  {
+    "id": "osc1",
+    "label": "Oscillator 1",
+    "low": 0,
+    "high": 3,
+    "default": 0,
+    "step": 1
+  },
+  {
+    "id": "osc2",
+    "label": "Oscillator 2",
+    "low": 0,
+    "high": 3,
+    "default": 3,
+    "step": 1
+  },
+  {
+    "id": "osc_mix",
+    "label": "Oscillator blend",
+    "low": 0,
+    "high": 1,
+    "default": 0.42,
+    "step": 0
+  },
+  {
+    "id": "osc2_octave",
+    "label": "Oscillator octave",
+    "low": -4,
+    "high": 4,
+    "default": 0,
+    "step": 1
+  },
+  {
+    "id": "detune",
+    "label": "Detune",
+    "low": 0,
+    "high": 30,
+    "default": 8,
+    "step": 0
+  },
+  {
+    "id": "pulse_width",
+    "label": "Pulse width",
+    "low": 0.1,
+    "high": 0.9,
+    "default": 0.5,
+    "step": 0
+  },
+  {
+    "id": "sub",
+    "label": "Sub oscillator",
+    "low": 0,
+    "high": 0.8,
+    "default": 0.18,
+    "step": 0
+  },
+  {
+    "id": "noise",
+    "label": "Noise",
+    "low": 0,
+    "high": 0.35,
+    "default": 0.015,
+    "step": 0
+  },
+  {
+    "id": "attack",
+    "label": "Attack",
+    "low": 0.0005,
+    "high": 3,
+    "default": 0.025,
+    "step": 0
+  },
+  {
+    "id": "decay",
+    "label": "Decay",
+    "low": 0.005,
+    "high": 3,
+    "default": 0.32,
+    "step": 0
+  },
+  {
+    "id": "sustain",
+    "label": "Sustain",
+    "low": 0,
+    "high": 1,
+    "default": 0.68,
+    "step": 0
+  },
+  {
+    "id": "release",
+    "label": "Release",
+    "low": 0.005,
+    "high": 5,
+    "default": 0.65,
+    "step": 0
+  },
+  {
+    "id": "cutoff",
+    "label": "Cutoff",
+    "low": 50,
+    "high": 18000,
+    "default": 2400,
+    "step": 0
+  },
+  {
+    "id": "resonance",
+    "label": "Resonance",
+    "low": 0,
+    "high": 0.96,
+    "default": 0.28,
+    "step": 0
+  },
+  {
+    "id": "filter_env",
+    "label": "Filter envelope",
+    "low": 0,
+    "high": 1,
+    "default": 0.38,
+    "step": 0
+  },
+  {
+    "id": "drive",
+    "label": "Drive",
+    "low": 0,
+    "high": 1,
+    "default": 0.18,
+    "step": 0
+  },
+  {
+    "id": "spread",
+    "label": "Stereo width",
+    "low": 0,
+    "high": 1,
+    "default": 0.42,
+    "step": 0
+  },
+  {
+    "id": "lfo_rate",
+    "label": "LFO rate",
+    "low": 0.03,
+    "high": 12,
+    "default": 0.32,
+    "step": 0
+  },
+  {
+    "id": "lfo_pitch",
+    "label": "LFO pitch",
+    "low": 0,
+    "high": 30,
+    "default": 2,
+    "step": 0
+  },
+  {
+    "id": "lfo_filter",
+    "label": "LFO filter",
+    "low": 0,
+    "high": 0.8,
+    "default": 0.08,
+    "step": 0
+  },
+  {
+    "id": "volume",
+    "label": "Level",
+    "low": 0,
+    "high": 0.75,
+    "default": 0.42,
+    "step": 0
+  },
+  {
+    "id": "arp_on",
+    "label": "Arpeggiator",
+    "low": 0,
+    "high": 1,
+    "default": 0,
+    "step": 1
+  },
+  {
+    "id": "arp_rate",
+    "label": "Arp division",
+    "low": 0,
+    "high": 5,
+    "default": 2,
+    "step": 1
+  },
+  {
+    "id": "arp_mode",
+    "label": "Arp order",
+    "low": 0,
+    "high": 3,
+    "default": 0,
+    "step": 1
+  },
+  {
+    "id": "arp_octaves",
+    "label": "Arp octaves",
+    "low": 1,
+    "high": 4,
+    "default": 1,
+    "step": 1
+  },
+  {
+    "id": "arp_gate",
+    "label": "Arp gate",
+    "low": 0.05,
+    "high": 1,
+    "default": 0.72,
+    "step": 0
+  },
+  {
+    "id": "echo",
+    "label": "Echo mix",
+    "low": 0,
+    "high": 0.6,
+    "default": 0,
+    "step": 0
+  },
+  {
+    "id": "feedback",
+    "label": "Echo feedback",
+    "low": 0,
+    "high": 0.85,
+    "default": 0.36,
+    "step": 0
+  },
+  {
+    "id": "echo_rate",
+    "label": "Echo division",
+    "low": 0,
+    "high": 5,
+    "default": 3,
+    "step": 1
+  },
+  {
+    "id": "space",
+    "label": "Reverb mix",
+    "low": 0,
+    "high": 0.6,
+    "default": 0,
+    "step": 0
+  },
+  {
+    "id": "size",
+    "label": "Reverb size",
+    "low": 0,
+    "high": 1,
+    "default": 0.55,
+    "step": 0
+  },
+  {
+    "id": "chorus",
+    "label": "Chorus mix",
+    "low": 0,
+    "high": 1,
+    "default": 0,
+    "step": 0
+  }
+]

@@ -9,7 +9,7 @@ from PySide6.QtGui import QColor, QPainter, QPen, QFont, QFontMetrics, QPolygonF
 from ..model import Clip
 from .theme import q, TRACK_COLORS, is_light
 from .waveform import draw_peaks
-from .playlist_geometry import HEAD_W, ROW_H, RULER_H
+from .playlist_geometry import HEAD_W, RULER_H
 
 
 def paintEvent(owner, ev):
@@ -53,31 +53,31 @@ def paintEvent(owner, ev):
     # lanes
     any_row_solo = any(row.solo for row in owner.rows())
     for i, row in enumerate(owner.rows()):
-        y = RULER_H + i * ROW_H
+        y = RULER_H + i * owner.row_height
         row_disabled = row.mute or (any_row_solo and not row.solo)
         if owner._drop_target and owner._drop_target[0] == i:
-            p.fillRect(QRectF(HEAD_W, y, w - HEAD_W, ROW_H), q("accent", 32))
+            p.fillRect(QRectF(HEAD_W, y, w - HEAD_W, owner.row_height), q("accent", 32))
         if i % 2:
-            p.fillRect(QRectF(HEAD_W, y, w - HEAD_W, ROW_H), q("fg", 8))
+            p.fillRect(QRectF(HEAD_W, y, w - HEAD_W, owner.row_height), q("fg", 8))
         if row_disabled:
-            p.fillRect(QRectF(HEAD_W, y, w - HEAD_W, ROW_H), q("rec", 22))
+            p.fillRect(QRectF(HEAD_W, y, w - HEAD_W, owner.row_height), q("rec", 22))
         p.setPen(QPen(q("fg", 30)))
-        p.drawLine(0, int(y + ROW_H), w, int(y + ROW_H))
+        p.drawLine(0, int(y + owner.row_height), w, int(y + owner.row_height))
 
         # header
-        p.fillRect(QRectF(0, y, HEAD_W, ROW_H), q("bg2"))
+        p.fillRect(QRectF(0, y, HEAD_W, owner.row_height), q("bg2"))
         track_color = row.color or TRACK_COLORS[i % len(TRACK_COLORS)]
-        p.fillRect(QRectF(4, y, HEAD_W - 4, ROW_H), q(track_color, 24))
-        p.fillRect(QRectF(0, y, 4, ROW_H), q(track_color))
+        p.fillRect(QRectF(4, y, HEAD_W - 4, owner.row_height), q(track_color, 24))
+        p.fillRect(QRectF(0, y, 4, owner.row_height), q(track_color))
         p.setPen(q("dim") if row_disabled else q("fg"))
         p.drawText(
-            QRectF(10, y + 3, HEAD_W - 82, ROW_H / 2),
+            QRectF(10, y + 3, HEAD_W - 82, owner.row_height / 2),
             Qt.AlignLeft | Qt.AlignVCenter,
             fm.elidedText(row.name, Qt.ElideRight, HEAD_W - 88),
         )
         p.setPen(q("rec") if row.mute else q("dim2"))
         p.drawText(
-            QRectF(10, y + ROW_H / 2, HEAD_W - 62, ROW_H / 2 - 4),
+            QRectF(10, y + owner.row_height / 2, HEAD_W - 62, owner.row_height / 2 - 4),
             Qt.AlignLeft | Qt.AlignVCenter,
             "MUTED" if row.mute else f"{len(row.clips)} clips",
         )
@@ -86,7 +86,7 @@ def paintEvent(owner, ev):
         if armed:
             p.setPen(q("rec"))
             p.drawText(
-                QRectF(10, y + ROW_H / 2, HEAD_W - 82, ROW_H / 2 - 4),
+                QRectF(10, y + owner.row_height / 2, HEAD_W - 82, owner.row_height / 2 - 4),
                 Qt.AlignRight | Qt.AlignVCenter,
                 "REC" if capture.active else "ARMED",
             )
@@ -109,12 +109,14 @@ def paintEvent(owner, ev):
             p.drawText(br, Qt.AlignCenter, label)
 
         for clip in row.clips:
-            owner._draw_clip(p, clip, y + 3, ROW_H - 7, row_disabled or clip.mute, track_color)
+            owner._draw_clip(
+                p, clip, y + 3, owner.row_height - 7, row_disabled or clip.mute, track_color
+            )
 
         if capture and capture.active and capture.target.id == row.id:
             left = owner.beat_to_x(capture.start_beat)
             right = owner.beat_to_x(max(capture.start_beat, owner.app.engine.beat))
-            recording = QRectF(left, y + 3, max(4, right - left), ROW_H - 7)
+            recording = QRectF(left, y + 3, max(4, right - left), owner.row_height - 7)
             p.fillRect(recording, q("rec", 42))
             p.setPen(QPen(q("rec"), 1))
             p.drawRect(recording)
@@ -122,8 +124,8 @@ def paintEvent(owner, ev):
             p.setClipRect(recording)
             for beat, peak in capture.peaks:
                 x = owner.beat_to_x(beat)
-                mid = y + ROW_H * 0.65
-                amplitude = peak * ROW_H * 0.25
+                mid = y + owner.row_height * 0.65
+                amplitude = peak * owner.row_height * 0.25
                 p.drawLine(QPointF(x, mid - amplitude), QPointF(x, mid + amplitude))
             p.drawText(
                 recording.adjusted(6, 1, -2, -2),
@@ -313,7 +315,12 @@ def _draw_clip(owner, p: QPainter, clip: Clip, y: float, h: float, muted: bool, 
                         p.drawLine(int(rx), int(y + 11), int(rx), int(y + h))
                     cursor += source_secs
             else:
-                span = min(source_secs, arranged_secs) / meta.duration
+                # A non-looping clip always plays its complete selected
+                # source range across its Arrange duration.  In
+                # particular, a compressed clip must not draw only the
+                # first part of its source: that would make the waveform
+                # disagree with the audio it renders.
+                span = source_frac
                 draw_peaks(
                     p,
                     peaks,
@@ -335,6 +342,7 @@ def _draw_clip(owner, p: QPainter, clip: Clip, y: float, h: float, muted: bool, 
     )
     if clip.kind == "audio":
         name = ("⟳ " if clip.loop else "") + ("↶ " if clip.reverse else "") + name
+        name += f"  · {clip.length_beats:g}b"
     elif pat := next((pp for pp in proj.patterns if pp.id == clip.ref), None):
         repeats = clip.length_beats / max(0.25, pat.length_beats)
         if repeats > 1.01:
@@ -342,5 +350,51 @@ def _draw_clip(owner, p: QPainter, clip: Clip, y: float, h: float, muted: bool, 
     if clip.mute:
         name = "MUTED · " + name
     p.setPen(q("clip_title_ink"))
-    p.drawText(QRectF(x + 3, y, w - 6, 11), Qt.AlignLeft | Qt.AlignVCenter, name)
+    stretch_label = audio_stretch_label(clip, proj.bpm)
+    badge_width = 0.0
+    if stretch_label and w >= 92:
+        badge_width = min(70.0, 8.0 + QFontMetrics(p.font()).horizontalAdvance(stretch_label))
+        badge = QRectF(x + w - badge_width - 3, y + 1, badge_width, 9)
+        p.setBrush(q("accent", 190))
+        p.setPen(Qt.NoPen)
+        p.drawRoundedRect(badge, 2, 2)
+        p.setPen(q("on_accent"))
+        p.drawText(badge, Qt.AlignCenter, stretch_label)
+    p.drawText(
+        QRectF(x + 3, y, max(1.0, w - 6 - badge_width), 11),
+        Qt.AlignLeft | Qt.AlignVCenter,
+        name,
+    )
     p.restore()
+
+    # The right edge is a time-stretch handle for audio (the left edge
+    # remains a source trim).  A small grip advertises that distinction
+    # without taking space from the waveform or changing hit-testing.
+    if clip.kind == "audio" and w >= 14:
+        active = selected or clip is owner._hover_clip
+        grip = q("accent_hi") if active else q("clip_aud_line", 185)
+        p.setPen(QPen(grip, 1.25 if active else 1.0))
+        grip_x = x + w - 4
+        centre = y + h * 0.63
+        for offset in (-3.0, 0.0, 3.0):
+            p.drawLine(int(grip_x + offset), int(centre - 5), int(grip_x + offset), int(centre + 5))
+
+
+def audio_stretch_label(clip: Clip, bpm: float) -> str | None:
+    """Return a compact timeline-warp label for a non-looping audio clip.
+
+    ``length_beats`` is the time the block occupies in Arrange; source_length
+    is the unmodified part of the file it plays.  Keeping this calculation in
+    the view makes the visual affordance truthful without adding presentation
+    state to the project or changing the renderer's stretch semantics.
+    """
+    if clip.kind != "audio" or clip.loop or clip.source_length <= 0 or bpm <= 0:
+        return None
+    natural_beats = clip.source_length * bpm / 60.0
+    if natural_beats <= 0:
+        return None
+    factor = clip.length_beats / natural_beats
+    if abs(factor - 1.0) < 0.01:
+        return None
+    action = "STRETCH" if factor > 1.0 else "COMPRESS"
+    return f"{action} ×{factor:.2g}"

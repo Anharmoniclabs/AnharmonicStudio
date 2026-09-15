@@ -62,6 +62,20 @@ def test_audio_setup_persists_devices_workflow_and_latency(window):
     assert window.project.vocal_record.input_latency_ms == 10.0
 
 
+def test_agent_swarm_harness_is_an_optional_review_dock(window):
+    assert window.agent_swarm_dock.isHidden()
+    project_before = window.project.to_dict()
+    window.show_agent_harness()
+    panel = window.agent_swarm_panel
+    assert panel.roster.rowCount() == 10
+    assert not window.agent_swarm_dock.isHidden()
+    panel.queue_selected()
+    panel.run_selected()
+    assert panel.harness.jobs[0].state == "complete"
+    assert panel.harness.jobs[0].agent_id == "atlas"
+    assert window.project.to_dict() == project_before
+
+
 def test_file_new_project_clears_session_but_retains_library_and_saved_file(window):
     clip = window.library.add_audio(np.zeros((480, 2), dtype=np.float32), "Keep this sample")
     window.project.pads[0].sample_id = clip.id
@@ -416,6 +430,59 @@ def test_record_counts_three_beats_before_starting(window, monkeypatch):
     assert starts == [True]
 
 
+def test_record_overdubs_an_already_playing_pattern_without_restarting(window, monkeypatch):
+    window.engine.mode = "pattern"
+    window.engine.playing = True
+    window.engine.beat = 3.25
+    stops = []
+    monkeypatch.setattr(window.engine, "stop_transport", lambda **kwargs: stops.append(kwargs))
+
+    window.btn_rec.setChecked(True)
+
+    assert window.engine.recording
+    assert window.engine.playing
+    assert window.engine.beat == 3.25
+    assert not stops
+    assert window.record_count_label.isHidden()
+    assert "pattern overdub" in window.status.currentMessage()
+    window.btn_rec.setChecked(False)
+    assert not window.engine.recording
+
+
+def test_pattern_performance_is_one_undo_step_and_stop_disarms_recording(window):
+    window.engine.mode = "pattern"
+    window.engine.playing = True
+    window.btn_rec.setChecked(True)
+    window.engine.beat = 0.25
+    window.play_synth_note(60, 0.7)
+    window.engine.beat = 0.75
+    window.release_synth_note(60)
+    window.play_synth_note(64, 0.7)
+    window.engine.beat = 1.25
+    window.release_synth_note(64)
+
+    assert len(window._undo) == 1
+    window.stop_all()
+    assert not window.engine.recording
+    assert not window.btn_rec.isChecked()
+    window.undo()
+    assert not window.project.pattern().notes
+
+
+def test_play_toggle_disarms_an_active_pattern_take(window, monkeypatch):
+    window.engine.mode = "pattern"
+    window.engine.playing = window.engine.recording = True
+    window.btn_rec.setChecked(True)
+    toggles = []
+    monkeypatch.setattr(window.engine, "toggle_play", lambda: toggles.append(True))
+
+    window.toggle_play()
+
+    assert toggles == [True]
+    assert not window.engine.recording
+    assert not window.btn_rec.isChecked()
+
+
 @pytest.mark.parametrize("cancel", ["record", "stop", "mode", "play"])
 def test_cancel_count_in_never_starts_recording(window, monkeypatch, cancel):
     starts = []
@@ -435,3 +502,42 @@ def test_cancel_count_in_never_starts_recording(window, monkeypatch, cancel):
     assert not window.btn_rec.isChecked()
     assert window.record_count_label.isHidden()
     assert not window._record_count_timer.isActive()
+
+
+def test_narrow_workspace_preserves_editor_and_restores_sidebars(window):
+    from PySide6.QtWidgets import QApplication
+
+    window.resize(1440, 900)
+    window.show()
+    window.browser_frame.show()
+    window.pad_side.show()
+    QApplication.processEvents()
+    window.resize(760, 700)
+    QApplication.processEvents()
+    assert window.browser_frame.isHidden()
+    assert window.pad_side.isHidden()
+    assert window.tabs.width() > 700
+    assert window.appearance_button.isVisible()
+    window.toggle_browser()
+    assert window.browser_frame.isVisible()
+    window.toggle_pads()
+    assert window.pad_side.isVisible()
+    assert window.browser_frame.isHidden()
+    window.resize(1440, 900)
+    QApplication.processEvents()
+    assert window.browser_frame.isVisible()
+    assert window.pad_side.isVisible()
+
+
+def test_precision_split_button_remains_reachable_in_sampler(window):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QApplication
+
+    window.resize(760, 900)
+    window.show()
+    window.studio.select(0)
+    QApplication.processEvents()
+    button = window.cut_at_cursor_button
+    point = button.mapTo(window, QPoint(0, 0))
+    assert button.isVisible()
+    assert 0 <= point.x() < window.width() - button.width()
