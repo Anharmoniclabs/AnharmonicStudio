@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import platform
 import json
 from pathlib import Path
 import threading
@@ -24,15 +25,17 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
-    QScrollArea,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
+    QScrollArea,
     QWidget,
 )
 from shiboken6 import isValid
 
-from ..midi_devices import MidiRouter, MidiService, controller_settings
+from ..midi_devices import MidiService, controller_settings
+from ..midi_output import MidiOutputService
+from ..device_profiles import PROFILES, connection_help
 from ..plugin_host import IsolatedPlugin, LivePlugin, UnavailablePlugin
 from ..plugin_registry import PluginRegistry, compatibility, default_plugin_paths, discover_plugins
 from .window_client import WindowClient, emit_if_alive
@@ -66,40 +69,21 @@ class DevicesController(WindowClient, QObject):
         super().__init__(window)
         self.app = window
         self.service = MidiService()
+        self.output = MidiOutputService()
+        self.output.select(str(window.settings.value("midi/output", "") or ""),
+                           str(window.settings.value("midi/output_clock", "false")).lower() == "true")
+        window.engine.midi.output = self.output
+        try:
+            window.engine.synth_polyphony = min(64, max(8, int(window.settings.value("midi/polyphony", 32))))
+        except (ValueError, TypeError):
+            window.engine.synth_polyphony = 32
         self.registry = PluginRegistry(window.root / "library/_plugin_registry.json")
         try:
             self.registry.load()
         except (OSError, ValueError, TypeError):
             pass
-        self.router = MidiRouter(
-            window.play_selected_note,
-            window.release_selected_note,
-            window._pad_pressed,
-            window._pad_released,
-            lambda: window.pads.bank,
-            self._control,
-        )
-        # Bound methods in the router are replaced with weak dispatchers so child
-        # controls cannot retain the entire closed workstation.
-        reference = weakref.ref(window)
-
-        def dispatch(name):
-            def call(*args):
-                target = reference()
-                if target is not None and isValid(target):
-                    return getattr(target, name)(*args)
-
-            return call
-
-        self.router.note_on = dispatch("play_selected_note")
-        self.router.note_off = dispatch("release_selected_note")
-        self.router.pad_on = dispatch("_pad_pressed")
-        self.router.pad_off = dispatch("_pad_released")
-        self.router.bank = lambda: reference().pads.bank if reference() is not None else 0
-        self.router.expression = self._expression
-        self.router.channel_destination = self._channel_destination
-        self.router.channel_note_on = self._channel_note_on
-        self.router.channel_note_off = self._channel_note_off
+        self.router = window.engine.midi.router
+        window.engine.midi.source = self.service
         try:
             config = json.loads(str(window.settings.value("midi/controllers", "{}")))
             self.router.settings = controller_settings(config)
@@ -140,14 +124,22 @@ class DevicesController(WindowClient, QObject):
         # Tests/renderers never enumerate or open real device ports automatically.
         if QApplication.instance().platformName() != "offscreen":
             self.service.start()
+            self.output.start()
             self.scanner.start()
             QTimer.singleShot(0, self, self.scan)
             QTimer.singleShot(0, self, self.sync_project)
         self.destroyed.connect(self.service.close)
+        self.destroyed.connect(self.output.close)
         self.destroyed.connect(window.engine.external.close)
 
     def persist(self):
+        self.router.settings = controller_settings(self.router.settings)
+        if any(config.get("clock") for config in self.router.settings.values()):
+            self.output.clock_enabled = False
         self.app.settings.setValue("midi/controllers", json.dumps(self.router.settings))
+        self.app.settings.setValue("midi/output", self.output.selected)
+        self.app.settings.setValue("midi/output_clock", self.output.clock_enabled)
+        self.app.settings.setValue("midi/polyphony", self.app.engine.synth_polyphony)
         self.app.settings.setValue("midi/disabled", json.dumps(sorted(self.service.disabled)))
         self.app.settings.setValue("plugins/paths", json.dumps(self.extra_paths))
 
@@ -181,8 +173,19 @@ class DevicesController(WindowClient, QObject):
     def _tick(self):
         if self._closed:
             return
-        for event in self.service.drain():
-            self.router.handle(*event)
+        performance = self.app.engine.midi
+        performance.route = (self.app.piano_roll.target_pad,
+                             getattr(self.app.piano_roll, "target_instrument", None) or self.app.project.selected_instrument,
+                             self.app.pads.bank)
+        while performance.notifications:
+            kind, target, value = performance.notifications.popleft()
+            if kind == "note":
+                self.app.synth_panel.keyboard.set_note_active(target, value)
+            elif target == "record":
+                self._control(target, value)
+            elif target in ("bank_next", "bank_previous"):
+                self.app.pads.bank = performance.route[2]
+                self.app.pads.update()
         if self.router.learned:
             self.router.learned = None
             self.persist()
@@ -190,7 +193,7 @@ class DevicesController(WindowClient, QObject):
             before = {port.id for port in self._last_ports if port.connected}
             now = {port.id for port in self.service.ports if port.connected}
             for key in before - now:
-                self.router.release_port(key)
+                self.app.engine.midi.release(key)
             added = [p.name for p in self.service.ports if p.id in now - before]
             if added:
                 self.app.status.showMessage("MIDI connected · " + ", ".join(added), 5000)
@@ -228,6 +231,7 @@ class DevicesController(WindowClient, QObject):
 
         def work():
             devices = []
+            outputs = []
             candidates = []
             error = ""
             try:
@@ -237,25 +241,28 @@ class DevicesController(WindowClient, QObject):
             if hardware:
                 try:
                     import sounddevice as sd
-                    from .main_window import pipewire_output_inventory
+                    from .main_window import pipewire_output_inventory, output_device_inventory
 
                     devices = [
                         f"{d['name']} · {int(d['max_input_channels'])} inputs / {int(d['max_output_channels'])} outputs"
                         for d in sd.query_devices()
                     ]
                     devices.extend(p["label"] for p in pipewire_output_inventory())
+                    outputs, _default_output = output_device_inventory()
                 except Exception as exc:
                     error = str(exc)
             target = reference()
             if target is not None:
-                emit_if_alive(target, "scan_finished", (candidates, devices), error)
+                emit_if_alive(target, "scan_finished", (candidates, devices, outputs), error)
 
         threading.Thread(target=work, name="Device and plugin scanner", daemon=True).start()
 
     def _scanned(self, result, error):
         if self._closed:
             return
-        candidates, self.audio_devices = result
+        candidates, self.audio_devices = result[:2]
+        if len(result) > 2 and not error:
+            self._recover_output(result[2])
         self.registry.replace_candidates(candidates)
         try:
             self.registry.save()
@@ -264,6 +271,29 @@ class DevicesController(WindowClient, QObject):
         self.scan_error = error
         self.scanning = False
         self.changed.emit()
+
+    def _recover_output(self, outputs):
+        app = self.app
+        if app.track_capture.busy or app.vocal_panel.recorder.recording:
+            return
+        key = app._audio_output_key
+        if not key:
+            return
+        matches = [item for item in outputs if item["key"] == key]
+        if len(matches) != 1:
+            if getattr(app.engine.stream, "active", True) is False:
+                app.engine.stop()
+                app._audio_start_error = "Selected output disconnected; waiting for reconnect"
+            return
+        device = matches[0]["index"]
+        if app.engine.stream is None or not getattr(app.engine.stream, "active", True):
+            try:
+                app.engine.stop()
+                app.engine.start(device=device)
+                app._audio_start_error = None
+                app.status.showMessage(f"Audio reconnected · {matches[0]['name']}", 4000)
+            except Exception as exc:
+                app._audio_start_error = str(exc)
 
     def load_plugin(self, slot, specification, *, save=True):
         if slot not in self._slot_generation or self._closed:
@@ -380,7 +410,7 @@ class DevicesController(WindowClient, QObject):
         self._generation += 1
         self._slot_generation = dict.fromkeys(self._slot_generation, self._generation)
         self._pending_loads.clear()
-        self.router.release_port()
+        self.app.engine.midi.release()
         self.app.engine.external.close()
         self.app.engine.cmds.put(("synthpanic",))
         for slot, spec in self.app.project.plugins.items():
@@ -396,8 +426,9 @@ class DevicesController(WindowClient, QObject):
         self._generation += 1
         self.timer.stop()
         self.scanner.stop()
-        self.router.release_port()
+        self.app.engine.midi.release()
         self.service.close()
+        self.output.close()
         self.app.engine.external.close()
 
 
@@ -418,9 +449,7 @@ class DevicesDialog(QDialog):
         self.parameters = {}
         midi = QWidget()
         ml = QVBoxLayout(midi)
-        hint = QLabel(
-            "Connect a USB MIDI keyboard or pad controller. Available inputs connect automatically.\nFor MPC hardware, enable its MIDI/controller mode first."
-        )
+        hint = QLabel("Connect a keyboard or pads, select a sound, and play. The activity indicator confirms incoming notes.")
         hint.setWordWrap(True)
         ml.addWidget(hint)
         self.port_list = QListWidget()
@@ -440,6 +469,55 @@ class DevicesDialog(QDialog):
         self.base_note.setValue(36)
         self.base_note.valueChanged.connect(self._mode_changed)
         form.addRow("First pad MIDI note", self.base_note)
+        self.profile = QComboBox()
+        for key, profile in PROFILES.items():
+            self.profile.addItem(profile["name"], key)
+        self.profile.activated.connect(self._profile_changed)
+        form.addRow("Device role", self.profile)
+        self.transpose = QSpinBox()
+        self.transpose.setRange(-48, 48)
+        self.transpose.setSuffix(" semitones")
+        self.channel = QComboBox()
+        self.channel.addItem("All channels", -1)
+        for number in range(16):
+            self.channel.addItem(str(number + 1), number)
+        self.velocity = QComboBox()
+        for curve in ("linear", "soft", "hard", "fixed"):
+            self.velocity.addItem(curve.title(), curve)
+        self.encoder = QComboBox()
+        self.encoder.addItem("Absolute knobs", "absolute")
+        self.encoder.addItem("Relative encoders (two's complement)", "relative")
+        self.takeover = QCheckBox("Pick up the current value before changing it")
+        self.follow_clock = QCheckBox("Follow this device's tempo and transport")
+        self.transport_enabled = QCheckBox("Accept transport buttons")
+        for label, control in (("Transpose", self.transpose), ("Input channel", self.channel),
+                               ("Touch", self.velocity), ("Knobs", self.encoder),
+                               ("Soft takeover", self.takeover), ("Sync input", self.follow_clock),
+                               ("Transport", self.transport_enabled)):
+            form.addRow(label, control)
+            if isinstance(control, QComboBox):
+                control.currentIndexChanged.connect(self._extended_settings)
+            elif isinstance(control, QSpinBox):
+                control.valueChanged.connect(self._extended_settings)
+            else:
+                control.toggled.connect(self._extended_settings)
+        self.polyphony = QComboBox()
+        for count in (8, 16, 32, 64):
+            self.polyphony.addItem(str(count), count)
+        self.polyphony.setCurrentIndex(self.polyphony.findData(controller.app.engine.synth_polyphony))
+        self.polyphony.currentIndexChanged.connect(self._polyphony_changed)
+        form.addRow("Instrument voices", self.polyphony)
+        self.output_port = QComboBox()
+        self.output_port.addItem("No MIDI output", "")
+        self.output_clock = QCheckBox("Send tempo and transport to this output")
+        self.output_port.activated.connect(self._output_changed)
+        self.output_clock.toggled.connect(self._output_changed)
+        form.addRow("MIDI output", self.output_port)
+        form.addRow("Sync output", self.output_clock)
+        self.connection_hint = QLabel(connection_help("keys", platform.system()))
+        self.connection_hint.setWordWrap(True)
+        form.addRow(self.connection_hint)
+
         self.learn_target = QComboBox()
         for label, value in [
             ("Master volume", "master"),
@@ -466,9 +544,12 @@ class DevicesDialog(QDialog):
         self.activity.setWordWrap(True)
         ml.addWidget(self.activity)
         panic = QPushButton("Release held notes")
-        panic.clicked.connect(lambda: controller.router.release_port())
+        panic.clicked.connect(lambda: controller.app.engine.midi.release())
         ml.addWidget(panic)
-        self.tabs.addTab(midi, "MIDI controllers")
+        midi_scroll = QScrollArea()
+        midi_scroll.setWidgetResizable(True)
+        midi_scroll.setWidget(midi)
+        self.tabs.addTab(midi_scroll, "MIDI controllers")
 
         plugins = QWidget()
         pl = QVBoxLayout(plugins)
@@ -531,6 +612,43 @@ class DevicesDialog(QDialog):
         controller.changed.connect(self.refresh)
         self.refresh()
 
+    def _profile_changed(self, *_args):
+        profile = PROFILES[self.profile.currentData()]
+        self.mode.setCurrentText(profile["mode"])
+        self.base_note.setValue(profile["pad_base"])
+        self.connection_hint.setText(connection_help(self.profile.currentData(), platform.system()))
+
+    def _polyphony_changed(self, *_args):
+        self.controller.app.engine.synth_polyphony = self.polyphony.currentData()
+        self.controller.persist()
+
+    def _output_changed(self, *_args):
+        clock = self.output_clock.isChecked()
+        if clock:
+            for config in self.controller.router.settings.values():
+                config["clock"] = False
+            self.follow_clock.setChecked(False)
+            self.controller.app.engine.midi.clock.source = None
+        self.controller.output.select(self.output_port.currentData(), clock)
+        self.controller.persist()
+
+    def _extended_settings(self, *_args):
+        key = self._selected_port()
+        if key is None:
+            return
+        self.controller.app.engine.midi.release(key)
+        settings = self.controller.router.settings.setdefault(key, {})
+        if self.follow_clock.isChecked():
+            for config in self.controller.router.settings.values():
+                config["clock"] = False
+            self.controller.output.clock_enabled = False
+        settings.update(transpose=self.transpose.value(), channel=self.channel.currentData(),
+                        velocity_curve=self.velocity.currentData(), encoder=self.encoder.currentData(),
+                        soft_takeover=self.takeover.isChecked(), clock=self.follow_clock.isChecked(),
+                        transport=self.transport_enabled.isChecked())
+        self.controller.app.engine.midi.clock.source = None
+        self.controller.persist()
+
     def _selected_port(self):
         item = self.port_list.currentItem()
         return item.data(Qt.UserRole) if item is not None else None
@@ -544,6 +662,20 @@ class DevicesDialog(QDialog):
         self.enabled.setChecked(key is not None and key not in self.controller.service.disabled)
         self.mode.setCurrentText(settings.get("mode", "Keys + drum channel"))
         self.base_note.setValue(int(settings.get("pad_base", 36)))
+        for widget, field, default in ((self.transpose, "transpose", 0), (self.channel, "channel", -1),
+                                      (self.velocity, "velocity_curve", "linear"), (self.encoder, "encoder", "absolute"),
+                                      (self.takeover, "soft_takeover", False), (self.follow_clock, "clock", False),
+                                      (self.transport_enabled, "transport", True)):
+            widget.blockSignals(True)
+            widget.setEnabled(key is not None)
+            value = settings.get(field, default)
+            if isinstance(widget, QComboBox):
+                widget.setCurrentIndex(max(0, widget.findData(value)))
+            elif isinstance(widget, QSpinBox):
+                widget.setValue(value)
+            else:
+                widget.setChecked(value)
+            widget.blockSignals(False)
         for control in (self.enabled, self.mode, self.base_note):
             control.blockSignals(False)
 
@@ -552,13 +684,13 @@ class DevicesDialog(QDialog):
         if key is not None:
             self.controller.service.enable(key, checked)
             if not checked:
-                self.controller.router.release_port(key)
+                self.controller.app.engine.midi.release(key)
             self.controller.persist()
 
     def _mode_changed(self, *_args):
         key = self._selected_port()
         if key is not None:
-            self.controller.router.release_port(key)
+            self.controller.app.engine.midi.release(key)
             settings = self.controller.router.settings.setdefault(key, {})
             settings.update(mode=self.mode.currentText(), pad_base=self.base_note.value())
             self.controller.persist()
@@ -633,6 +765,21 @@ class DevicesDialog(QDialog):
                 self.learn_target.addItem(f"Track {index + 1} volume", f"track:{index}")
             self.learn_target.setCurrentIndex(max(0, self.learn_target.findData(selected_target)))
             self.learn_target.blockSignals(False)
+        output_ports = tuple((p.id, p.name) for p in controller.output.ports)
+        if output_ports != getattr(self, "_output_ports", None):
+            self._output_ports = output_ports
+            self.output_port.blockSignals(True)
+            self.output_port.clear()
+            self.output_port.addItem("No MIDI output", "")
+            for identifier, name in output_ports:
+                self.output_port.addItem(name, identifier)
+            if controller.output.selected and self.output_port.findData(controller.output.selected) < 0:
+                self.output_port.addItem("Remembered output — disconnected", controller.output.selected)
+            self.output_port.setCurrentIndex(max(0, self.output_port.findData(controller.output.selected)))
+            self.output_port.blockSignals(False)
+        self.output_clock.blockSignals(True)
+        self.output_clock.setChecked(controller.output.clock_enabled)
+        self.output_clock.blockSignals(False)
         ports = controller.service.ports
         if ports != self._ports:
             selected = self._selected_port()

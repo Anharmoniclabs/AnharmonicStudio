@@ -22,7 +22,6 @@ from . import engine_mixing, engine_offline, engine_scheduling
 from .audio_kernel import (
     AUDIO_SAMPLE_RATE,
     DEFAULT_BLOCKSIZE,
-    ULTRA_LOW_LATENCY_BLOCKSIZE,
     MasteringKernel,
 )
 from .fx import MasterChain, MixRack, TrackChain
@@ -87,12 +86,18 @@ class Engine:
         # ``None`` means the current system default. An explicit PortAudio
         # index pins this app to a device until the user changes it.
         self.output_device: int | str | None = None
+        self.output_channels = (0, 1)
         self.linux_audio = LinuxAudioRuntime()
         self._live_starting = False
         self._native_output_active = False
+        self.audio_clock = None
+        self.capture_anchor = None
+        self.capture_anchor_requested = False
+        self.midi_playback_state = {}
         self.cmds: "queue.SimpleQueue[tuple]" = queue.SimpleQueue()
         self.voices: list[PadVoice] = []
         self.synth_voices: list[SynthVoice] = []
+        self.synth_polyphony = 32
         self._synth_variants = {}
         self._variant_patch = None
         self.arp_state = ArpState()
@@ -141,12 +146,15 @@ class Engine:
         self._meter_scratch = np.zeros((blocksize, 2), dtype=np.float32)
         self._native_meter = np.zeros(2, dtype=np.float64)
         # Microphone monitoring arrives from the independent input callback.
-        # A lock-free, preallocated latest-block ring keeps both audio callbacks
-        # away from Queue locks and heap allocations. Old cue audio is disposable.
+        # Ordered single-producer/single-consumer storage; unread input is
+        # never overwritten. Overflow and starvation remain visible.
         self._monitor_audio = np.zeros((8, blocksize, 2), dtype=np.float32)
         self._monitor_lengths = np.zeros(8, dtype=np.int32)
         self._monitor_write = 0
         self._monitor_read = 0
+        self.monitor_dropped_frames = 0
+        self.monitor_missing_frames = 0
+        self._monitor_scratch = np.zeros((blocksize, 2), np.float32)
         self._note_events: list = []
         self._audio_events: list = []
         self._pad_workspace = PadRenderWorkspace(blocksize)
@@ -166,6 +174,8 @@ class Engine:
         self._track_tail = np.zeros(len(self.project.tracks), dtype=np.int64)
         self._click_plain = _make_click(sample_rate, False)
         self._click_accent = _make_click(sample_rate, True)
+        from .midi_performance import MidiPerformance
+        self.midi = MidiPerformance(self)
         self._lock_realtime_working_set()
 
     @property
@@ -225,15 +235,33 @@ class Engine:
         chunk = np.asarray(audio, dtype=np.float32)
         if chunk.ndim != 2 or chunk.shape[1] != 2 or not len(chunk):
             return
-        take = min(len(chunk), self._monitor_audio.shape[1])
-        slot = self._monitor_write % len(self._monitor_audio)
-        source = chunk[-take:]
-        target = self._monitor_audio[slot, :take]
-        np.multiply(source, np.float32(gain), out=target)
-        self._monitor_lengths[slot] = take
-        # Publish only after the slot is complete. Integer assignment is atomic
-        # under the GIL; NumPy may release it during the copy above.
-        self._monitor_write += 1
+        ring = self._monitor_audio.reshape(-1, 2)
+        write, read = self._monitor_write, self._monitor_read
+        take = min(len(chunk), len(ring) - (write - read))
+        self.monitor_dropped_frames += len(chunk) - take
+        start = write % len(ring)
+        first = min(take, len(ring) - start)
+        np.multiply(chunk[:first], np.float32(gain), out=ring[start:start + first])
+        np.multiply(chunk[first:take], np.float32(gain), out=ring[:take - first])
+        self._monitor_write = write + take
+
+    def read_monitor(self, frames):
+        """Consume consecutive samples, zero-filling only actual starvation."""
+        if frames > len(self._monitor_scratch):
+            raise ValueError("Monitor block exceeds prepared output size")
+        out = self._monitor_scratch[:frames]
+        out.fill(0)
+        ring = self._monitor_audio.reshape(-1, 2)
+        read, write = self._monitor_read, self._monitor_write
+        count = min(frames, write - read)
+        start = read % len(ring)
+        first = min(count, len(ring) - start)
+        out[:first] = ring[start:start + first]
+        out[first:count] = ring[:count - first]
+        self._monitor_read = read + count
+        if count:
+            self.monitor_missing_frames += frames - count
+        return out if count else None
 
     def prepare_track_tone(self, index: int, fx=None) -> None:
         """Build one track's IR and filter FFT on the calling (GUI) thread."""
@@ -324,21 +352,34 @@ class Engine:
                 voice.render(warm, self.project.synth)
         native_output = NATIVE is not None and hasattr(sd, "_StreamBase")
         stream_factory = (
-            (lambda **options: NativeOutputStream(sd, NATIVE, **options))
+            (lambda **options: NativeOutputStream(sd, NATIVE, output_channels=self.output_channels, **options))
             if native_output
             else sd.OutputStream
         )
+        output_callback = self._callback
+        output_count = 2
+        if not native_output and self.output_channels != (0, 1):
+            mapping = tuple(self.output_channels)
+            if len(mapping) != 2 or any(type(c) is not int or not 0 <= c < 64 for c in mapping):
+                raise ValueError("Select a valid stereo output pair")
+            output_count = max(mapping) + 1
+            scratch = np.zeros((self.blocksize, 2), np.float32)
+            def output_callback(out, frames, timing, status):
+                self._callback(scratch[:frames], frames, timing, status)
+                out.fill(0)
+                out[:, mapping[0]] += scratch[:frames, 0]
+                out[:, mapping[1]] += scratch[:frames, 1]
         stream = stream_factory(
             samplerate=self.sr,
             blocksize=self.blocksize,
-            channels=2,
+            channels=output_count,
             dtype="float32",
             device=output_device,
             latency="low",
             clip_off=True,
             dither_off=True,
             prime_output_buffers_using_stream_callback=True,
-            callback=self._callback,
+            callback=output_callback,
         )
         self._native_output_active = native_output
         try:
@@ -390,6 +431,8 @@ class Engine:
         self._monitor_audio = np.zeros((8, frames, 2), dtype=np.float32)
         self._monitor_lengths = np.zeros(8, dtype=np.int32)
         self._monitor_write = self._monitor_read = 0
+        self._monitor_scratch = np.zeros((frames, 2), np.float32)
+        self.monitor_dropped_frames = self.monitor_missing_frames = 0
         self._pad_workspace = PadRenderWorkspace(frames)
         self.mastering = MasteringKernel(self.sr, blocksize=frames)
         self.rack.reset()
@@ -728,8 +771,8 @@ class Engine:
         voices=None,
         live_trigger: bool = True,
         instrument_id: str | None = None,
-        event_source=None,
-        trigger_id=None,
+        midi_channel: int = 0,
+        midi_owner: str | None = None,
     ) -> None:
         voices = self.synth_voices if voices is None else voices
         if (
@@ -737,15 +780,7 @@ class Engine:
             and voices is self.synth_voices
             and self.external.instrument is not None
         ):
-            self.external.note_on(
-                note,
-                velocity,
-                offset,
-                gate_frames,
-                live_trigger,
-                event_source=event_source,
-                trigger_id=trigger_id,
-            )
+            self.external.note_on(note, velocity, offset, gate_frames, live_trigger, channel=midi_channel)
             return
         patch = self.project.instrument_patch(instrument_id)
         # Retrigger within the same performance source. Playing along must not
@@ -755,10 +790,12 @@ class Engine:
                 voice.note == note
                 and voice.instrument_id == instrument_id
                 and voice.live_trigger == live_trigger
+                and voice.midi_channel == midi_channel
+                and voice.midi_owner == midi_owner
                 and not voice.dead
             ):
                 voice.note_off(0.008)
-        max_voices = 4 if self.blocksize <= ULTRA_LOW_LATENCY_BLOCKSIZE else MAX_SYNTH_VOICES
+        max_voices = min(64, max(8, int(self.synth_polyphony)))
         live_count = 0
         oldest = None
         for voice in voices:
@@ -792,19 +829,23 @@ class Engine:
                 variant=variant,
                 live_trigger=live_trigger,
                 instrument_id=instrument_id,
+                midi_channel=midi_channel,
+                midi_owner=midi_owner,
                 patch_ref=patch if instrument_id is not None else None,
                 event_source=event_source,
                 trigger_id=trigger_id,
             )
         )
 
-    def _release_synth(self, note: int, instrument_id=None) -> None:
+    def _release_synth(self, note: int, instrument_id=None, midi_owner=None, midi_channel=0) -> None:
         if instrument_id is None and self.external.instrument is not None:
             self.external.note_off(note)
         for voice in self.synth_voices:
             if (
                 voice.note == note
                 and voice.instrument_id == instrument_id
+                and voice.midi_owner == midi_owner
+                and voice.midi_channel == midi_channel
                 and voice.live_trigger
                 and not voice.dead
             ):
@@ -957,15 +998,29 @@ class Engine:
             self.underruns += 1
 
         self._process_commands()
-        published = self._monitor_write
-        monitor = None
-        if published != self._monitor_read:
-            slot = (published - 1) % len(self._monitor_audio)
-            monitor = self._monitor_audio[slot, : int(self._monitor_lengths[slot])]
-            self._monitor_read = published
+        now = time.monotonic()
+        presentation = getattr(time_info, "output_monotonic", None)
+        if presentation is None:
+            dac = getattr(time_info, "outputBufferDacTime", None)
+            current = getattr(time_info, "currentTime", None)
+            presentation = now + (dac - current if dac is not None and current is not None else self.latency_ms / 1000)
+        self.audio_clock = (presentation, self.beat, self.project.bpm, self.playing)
+        if self.capture_anchor_requested and self.playing:
+            self.capture_anchor = self.audio_clock
+            self.capture_anchor_requested = False
+        midi_events = self.midi.process(frames, now, deferred=True)
+        midi_index = 0
+        self._process_commands()
+        monitor = self.read_monitor(frames)
         offset = 0
         while offset < frames:
+            while midi_index < len(midi_events) and midi_events[midi_index][0] <= offset:
+                self.midi.apply_event(midi_events[midi_index][1])
+                midi_index += 1
+            self._process_commands()
             count = frames - offset
+            if midi_index < len(midi_events):
+                count = min(count, midi_events[midi_index][0] - offset)
             end = None
             if self.playing and self.mode == "song":
                 proj = self.project
@@ -990,6 +1045,7 @@ class Engine:
                         if voice.pad_index == -1 and not voice.dead:
                             voice.release_now(fade)
 
+        self.midi.finish_block()
         elapsed = time.perf_counter() - t_start
         self.cpu = elapsed / (frames / self.sr)
         self._cb_times[self._cb_i] = elapsed
@@ -1009,6 +1065,7 @@ class Engine:
             kind = cmd[0]
             if kind in ("panic", "synthpanic", "stopt", "seek"):
                 self.external.panic()
+                self.midi_playback_state.clear()
             if kind == "midiexpression":
                 if self.external.instrument is not None:
                     self.external.events.append((cmd[1], 0))

@@ -20,7 +20,7 @@ import numpy as np
 import soundfile as sf
 
 from .audio_kernel import AUDIO_SAMPLE_RATE
-from .audio_storage import read_stereo
+from .audio_storage import read_stereo, read_channels
 from .fx import BlockConvolver, _biquad, cascade_ir
 from .model import VocalSettings
 
@@ -100,6 +100,7 @@ class VocalRecorder:
         self.queue_blocks = max(2, int(queue_blocks))
         self.temp_dir = Path(temp_dir) if temp_dir is not None else None
         self.stream = None
+        self.engine = None
         self._queue: queue.Queue[tuple[int, np.ndarray]] | None = None
         self._writer: threading.Thread | None = None
         self._writer_stop = threading.Event()
@@ -114,6 +115,13 @@ class VocalRecorder:
         self.monitor_errors = 0
         self.monitor_callback: Callable[[np.ndarray], None] | None = None
         self._gain = 1.0
+        self.input_channels = (0,)
+        self.capture_channels = 2
+        self.first_adc_time = None
+        self.first_capture_monotonic = None
+        self._expected_adc = None
+        self.input_latency_seconds = 0.0
+        self._input_position = 0
 
     @property
     def recording(self) -> bool:
@@ -143,10 +151,10 @@ class VocalRecorder:
             return
         try:
             with sf.SoundFile(
-                str(path), mode="w", samplerate=self.sample_rate, channels=2, subtype="PCM_24"
+                str(path), mode="w", samplerate=self.sample_rate, channels=self.capture_channels, subtype="PCM_24"
             ) as output:
                 written = 0
-                silence = np.zeros((max(1, self.blocksize), 2), dtype=np.float32)
+                silence = np.zeros((max(1, self.blocksize), self.capture_channels), dtype=np.float32)
 
                 def fill_gap(end):
                     nonlocal written
@@ -206,6 +214,14 @@ class VocalRecorder:
         self._writer_stop.clear()
         self._writer_error = None
         self._captured_frames = 0
+        self._input_position = 0
+        self.first_adc_time = None
+        self.first_capture_monotonic = None
+        self._expected_adc = None
+        selected_channels = tuple(self.input_channels)
+        if not 1 <= len(selected_channels) <= 64 or len(set(selected_channels)) != len(selected_channels) or any(type(c) is not int or not 0 <= c < 64 for c in selected_channels):
+            raise ValueError("Choose distinct input channels from 1 to 64")
+        self.capture_channels = max(2, len(selected_channels))
         self.overruns = 0
         self.dropped_frames = 0
         self.monitor_errors = 0
@@ -218,12 +234,34 @@ class VocalRecorder:
         def callback(indata, _frames, _time_info, status):
             if bool(status) and getattr(status, "input_overflow", True):
                 self.overruns += 1
-            mono = np.asarray(indata[:, 0], dtype=np.float32) * self._gain
+            adc = getattr(_time_info, "inputBufferAdcTime", -1.0)
+            if self.first_adc_time is None and adc >= 0:
+                self.first_adc_time = float(adc)
+                self.first_capture_monotonic = getattr(_time_info, "capture_monotonic", None)
+            input_position = getattr(_time_info, "capture_frame", self._input_position)
+            gap = max(0, input_position - self._input_position)
+            if adc >= 0 and self._expected_adc is not None:
+                # ADC timestamps also reveal host-side losses that never
+                # reached our native queue. Small clock rounding is ignored.
+                timestamp_gap = round((adc - self._expected_adc) * self.sample_rate)
+                if timestamp_gap > 2:
+                    gap = max(gap, timestamp_gap)
+            if adc >= 0:
+                self._expected_adc = adc + len(indata) / self.sample_rate
+            self._input_position = input_position + len(indata)
+            if gap and not self.paused:
+                self._captured_frames += gap
+                self.dropped_frames += gap
+                self.overruns += 1
+            mono = np.asarray(indata[:, selected_channels[0]], dtype=np.float32) * self._gain
             peak = float(np.max(np.abs(mono))) if len(mono) else 0.0
             rms = float(np.sqrt(np.mean(mono * mono))) if len(mono) else 0.0
             self.input_peak = max(peak, self.input_peak * 0.92)
             self.input_rms = rms
-            stereo = np.ascontiguousarray(np.column_stack((mono, mono)), dtype=np.float32)
+            right = mono if len(selected_channels) == 1 else indata[:, selected_channels[1]] * self._gain
+            stereo = np.ascontiguousarray(np.column_stack((mono, right)), dtype=np.float32)
+            if len(selected_channels) > 2:
+                stereo = np.ascontiguousarray(indata[:, selected_channels] * self._gain, dtype=np.float32)
             if not self.paused:
                 position = self._captured_frames
                 self._captured_frames += len(stereo)
@@ -236,40 +274,43 @@ class VocalRecorder:
                     self.dropped_frames += len(stereo)
             if self.monitor_callback is not None:
                 try:
-                    self.monitor_callback(stereo)
+                    self.monitor_callback(np.ascontiguousarray(stereo[:, :2]))
                 except Exception:
                     # A broken monitoring route must not terminate dry capture.
                     self.monitor_errors += 1
 
         try:
-            stream = sd.InputStream(
-                samplerate=requested_rate,
+            from .native_dsp import NATIVE
+            from .native_input import NativeInputStream
+            duplex_engine = None
+            if self.engine is not None and getattr(self.engine.stream, "native_callback", False):
+                defaults = sd.default.device
+                incoming = device if device is not None else defaults[0]
+                outgoing = self.engine.output_device if self.engine.output_device is not None else defaults[1]
+                if incoming == outgoing and incoming is not None and incoming != -1:
+                    duplex_engine = self.engine
+            factory = (lambda **options: NativeInputStream(sd, NATIVE, engine=duplex_engine, **options)) if (
+                NATIVE is not None and hasattr(NATIVE.lib, "anh_input_create") and hasattr(sd, "_StreamBase")
+            ) else sd.InputStream
+            stream = factory(
+                samplerate=self.sample_rate,
                 blocksize=self.blocksize,
-                channels=1,
+                channels=max(selected_channels) + 1,
                 dtype="float32",
                 device=device,
                 latency="low",
                 callback=callback,
             )
-            # PortAudio can negotiate a device-native rate even when a rate was
-            # requested.  The WAV header must describe the frames we actually
-            # receive, otherwise the take is audibly fast/slow on playback.
-            actual_rate = getattr(stream, "samplerate", requested_rate)
-            actual_rate = int(round(float(actual_rate)))
-            if actual_rate <= 0:
-                raise RuntimeError("input device reported an invalid sample rate")
-            self.sample_rate = actual_rate
-            self._writer = threading.Thread(
-                target=self._write_capture, name="mpclab-vocal-writer", daemon=True
-            )
-            self._writer.start()
+            self.input_latency_seconds = float(getattr(stream, "latency", 0.0))
             stream.start()
         except Exception:
             try:
                 if "stream" in locals():
                     stream.close()
             except Exception:
-                pass
+                if getattr(stream, "native_callback", False) and stream._worker is not None and stream._worker.is_alive():
+                    self.stream = stream
+                    raise
             self._finish_writer()
             self._queue = None
             self.monitor_callback = None
@@ -290,11 +331,19 @@ class VocalRecorder:
             except Exception:
                 # A hot-unplug often makes PortAudio raise on stop. The audio
                 # already captured in memory is still a valid take.
-                pass
+                if getattr(stream, "native_callback", False) and stream._worker is not None and stream._worker.is_alive():
+                    self.stream = stream
+                    raise
+            remaining = max(0, getattr(stream, "total_frames", 0) - self._input_position)
+            if remaining and not self.paused:
+                self._captured_frames += remaining
+                self.dropped_frames += remaining
             try:
                 stream.close()
             except Exception:
                 pass
+            if getattr(stream, "error", ""):
+                self._writer_error = RuntimeError(stream.error)
         self._finish_writer()
         path = self._temp_path
         writer_error = self._writer_error
@@ -312,7 +361,8 @@ class VocalRecorder:
             self._remove_temp()
             return np.zeros((0, 2), dtype=np.float32)
         try:
-            audio, sample_rate = read_stereo(path, 16 * 1024 * 1024, path.parent)
+            audio, sample_rate = (read_channels(path, self.capture_channels, directory=path.parent)
+                                  if self.capture_channels > 2 else read_stereo(path, 16 * 1024 * 1024, path.parent))
             if sample_rate != self.sample_rate:
                 raise RuntimeError(f"captured vocal sample rate changed to {sample_rate}")
             return audio

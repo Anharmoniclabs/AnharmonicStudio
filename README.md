@@ -51,6 +51,17 @@ qualified for release or deployed to Cloudflare.
 - **Beats:** program step patterns and control per-hit velocity.
 - **Instruments:** explore factory sounds, shape analog synth patches, and record arpeggiator notes.
 - **Notes:** write synth parts or play samples chromatically in the piano roll.
+- **Scoring:** view a pattern or arranged song as engraved sheet music, select an
+  individual instrument part, compose pattern notes, and export PDF or MusicXML.
+  Notation uses 4/4, concert pitch and sixteenth-note rounding without changing
+  playback. **Audio → score** automatically converts a file, selected library audio,
+  or the current song into reviewable note parts. Song modes separate vocals, bass,
+  drums and other instruments, with an optional six-stem mode adding piano and guitar.
+  Single-instrument transcription runs with the bundled Basic Pitch model; song
+  separation needs `./install-separation.sh` and may download Demucs weights on first use.
+  Review the estimated tempo and first four bars, select parts, then add editable
+  patterns and muted score rows in one undoable operation. Conversion supports audio
+  up to 15 minutes; fixed-tempo 4/4 notation and drum-family estimates may need correction.
 - **Song:** arrange patterns and audio clips, create variations, and automate levels and pan.
 - **Mix:** balance tracks with EQ, saturation, compression, delay, and reverb.
 - **Vocals:** record directly into Song, open recorded clips in Autotune, build comps, and render pitch correction to a new take.

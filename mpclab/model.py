@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass, field, asdict, replace
 from pathlib import Path
 
-from .music import Note, AutomationLane, read_notes, read_automation
+from .music import Note, MidiControl, AutomationLane, read_notes, read_automation, read_midi_controls
 from .plugin_registry import validate_project_plugins
 from .project_migrations import legacy_mixer_track_id, migrate_project_document
 
@@ -207,6 +207,7 @@ class Pattern:
     bars: int = 2
     div: int = 4  # steps per beat
     notes: list[Note] = field(default_factory=list)
+    midi_controls: list[MidiControl] = field(default_factory=list)
     # pad index -> {step index: velocity}
     steps: dict[int, dict[int, float]] = field(default_factory=dict)
 
@@ -445,6 +446,8 @@ class VocalRecordSettings:
 
     corrected_monitor: bool = False
     input_device: str = ""  # stable ``host/name`` key; empty = default
+    input_channels: list[int] = field(default_factory=lambda: [0])
+    split_inputs: bool = False
     input_gain_db: float = 0.0
     input_latency_ms: float = 0.0  # measured input/loopback placement offset
     monitor: bool = False
@@ -455,42 +458,10 @@ class VocalRecordSettings:
     mixer_track: int = 3
 
     def __post_init__(self):
-        """Validate persisted capture defaults before applying them to controls."""
-        if type(self.input_device) is not str:
-            raise ValueError("vocal record input_device must be a string")
-        if type(self.monitor) is not bool:
-            raise ValueError("vocal record monitor must be a boolean")
-        if type(self.corrected_monitor) is not bool:
-            raise ValueError("corrected monitor must be a boolean")
-        if type(self.auto_place) is not bool:
-            raise ValueError("vocal record auto_place must be a boolean")
-
-        def bounded(name: str, low: float, high: float):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise ValueError(f"vocal record {name} must be a finite number")
-            try:
-                finite = math.isfinite(value)
-            except OverflowError as exc:
-                raise ValueError(f"vocal record {name} must be a finite number") from exc
-            if not finite or not low <= value <= high:
-                raise ValueError(f"vocal record {name} must be between {low:g} and {high:g}")
-
-        bounded("input_gain_db", -24.0, 24.0)
-        bounded("input_latency_ms", 0.0, 500.0)
-        bounded("monitor_gain", 0.0, 1.5)
-        for name in ("count_in_bars", "playlist_row", "mixer_track"):
-            value = getattr(self, name)
-            if type(value) is not int:
-                raise ValueError(f"vocal record {name} must be an integer")
-        if not 0 <= self.count_in_bars <= 4:
-            raise ValueError("vocal record count_in_bars must be an integer from 0 to 4")
-        if not 0 <= self.playlist_row < 128:
-            raise ValueError("vocal record playlist_row must be an integer from 0 to 127")
-        if not 0 <= self.mixer_track < MAX_TRACKS:
-            raise ValueError(
-                f"vocal record mixer_track must be an integer from 0 to {MAX_TRACKS - 1}"
-            )
+        if not isinstance(self.input_channels, list) or not 1 <= len(self.input_channels) <= 64 or any(type(c) is not int or not 0 <= c < 64 for c in self.input_channels) or len(set(self.input_channels)) != len(self.input_channels):
+            raise ValueError("Recording inputs must be distinct channel numbers from 1 to 64")
+        if type(self.split_inputs) is not bool:
+            raise ValueError("Separate-input recording must be enabled or disabled")
 
 
 @dataclass
@@ -1059,6 +1030,7 @@ class Project:
                     div=div,
                     steps=steps,
                     notes=read_notes(p.get("notes", [])),
+                    midi_controls=read_midi_controls(p.get("midi_controls", [])),
                 )
             )
         proj.patterns = pats or [Pattern()]

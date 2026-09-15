@@ -58,6 +58,8 @@ def main():
         "pycparser",
         "python-rtmidi",
         "pedalboard",
+        "verovio",
+        "onnxruntime",
     )
     with tempfile.TemporaryDirectory(prefix="linux-build-", dir=output.parent) as temporary:
         stage = Path(temporary)
@@ -98,6 +100,10 @@ def main():
             "pedalboard",
             "--collect-all",
             "rtmidi",
+            "--collect-all",
+            "verovio",
+            "--collect-all",
+            "onnxruntime",
         ]
         bundled = root / "plugins/bundled"
         if bundled.is_dir():
