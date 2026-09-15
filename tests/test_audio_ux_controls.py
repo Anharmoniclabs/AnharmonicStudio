@@ -8,11 +8,10 @@ import pytest
 from mpclab.audio_kernel import ULTRA_LOW_LATENCY_BLOCKSIZE
 from mpclab.engine import Engine
 from mpclab.library import Clip
-from mpclab.model import Clip as SongClip, Project
+from mpclab.model import Project
 from mpclab.ui import main_window, padgrid
 from mpclab.ui.main_window import MainWindow
 from mpclab.ui.mixer import VUMeter
-from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import QPushButton
 
 
@@ -97,23 +96,6 @@ def test_pad_inspector_sound_tools_target_the_selected_pad(window):
     buttons["TIGHTEN"].click()
 
     assert calls == [("normalize", pad_index), ("tighten", pad_index)]
-
-
-def test_song_clip_length_control_stretches_non_destructively_and_undoes(window):
-    audio = np.ones((4_800, 2), dtype=np.float32) * 0.1
-    source = window.library.add_audio(audio, "Stretch me")
-    clip = SongClip(kind="audio", ref=source.id, length_beats=2.0, source_length=source.duration)
-    window.project.rows[0].clips.append(clip)
-    window.playlist.select_clip(clip)
-
-    assert window.clip_length.isEnabled()
-    window.clip_length.setValue(6.0)
-
-    assert clip.length_beats == 6.0
-    assert clip.source_length == source.duration
-    assert "stretched" in window.status.currentMessage()
-    window.undo()
-    assert window.project.rows[0].clips[0].length_beats == 2.0
 
 
 def test_browser_exposes_linked_drum_packs_and_folder_filter(window):
@@ -388,36 +370,12 @@ def test_vu_meter_uses_dbfs_scale_and_holds_instantaneous_peaks():
     assert VUMeter._position(1.0) == pytest.approx(1.0)
     assert VUMeter._position(10.0 ** (-30.0 / 20.0)) == pytest.approx(0.5)
     assert VUMeter._position(0.0) == pytest.approx(0.0)
-    assert VUMeter._db_position(0.0) == pytest.approx(1.0)
-    assert VUMeter._db_position(-12.0) == pytest.approx(0.8)
-    assert VUMeter._db_position(-24.0) == pytest.approx(0.6)
-    assert VUMeter._db_position(-48.0) == pytest.approx(0.2)
 
     meter = VUMeter()
     meter.set_level(0.1, 0.8)
     meter.set_level(0.0, 0.0)
     assert meter.level == 0.0
     assert meter.peak == pytest.approx(0.8 * 0.94)
-    assert not VUMeter._clip_active(meter.peak)
-    assert VUMeter._clip_active(1.0)
-
-
-def test_vu_meter_paints_reference_scale_at_normal_and_compact_heights():
-    meter = VUMeter()
-    label_gutter = meter.width() - meter._BAR_WIDTH - meter._LABEL_GAP
-    widest_label = max(
-        QFontMetrics(meter.font()).horizontalAdvance(str(db)) for db in meter._REFERENCE_DB
-    )
-    # The dB reference labels are part of the visual metering workflow, not
-    # decoration: the complete widest label must fit in the reserved gutter.
-    assert label_gutter >= widest_label
-    for height in (180, 48):
-        meter.resize(meter.width(), height)
-        meter.set_level(0.4, 1.0)
-        image = meter.grab().toImage()
-        assert not image.isNull()
-        assert image.width() == meter.width()
-        assert image.height() == height
 
 
 def test_mixer_strip_uses_engine_rms_and_peak_and_marks_edits_dirty(window):

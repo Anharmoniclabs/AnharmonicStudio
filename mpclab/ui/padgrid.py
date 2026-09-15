@@ -39,38 +39,6 @@ from .theme import q, TRACK_COLORS
 from .waveform import draw_peaks, RANGE_MIME
 
 
-def _mode_chip_label(mode: str) -> str:
-    """Return the compact playback-state label shown on assigned pads.
-
-    The grid must make a pad's performance behaviour legible without making
-    the user open its inspector.  Keep this mapping pure so it can be covered
-    without a painter or a running audio engine.
-    """
-
-    return {"one-shot": "ONE", "gate": "GATE", "loop": "LOOP"}.get(mode, "ONE")
-
-
-def _mode_chip_layout(
-    mode: str, pad_width: float, full_width: float
-) -> tuple[str, float, bool] | None:
-    """Choose a mode chip that never collides with the pad keycap.
-
-    The bottom-right keycap reserves 22 px, while a normal chip begins 10 px
-    from the left edge.  A 4x4 grid at its 240 px minimum makes each pad only
-    about 52 px wide, so spelling out ``GATE`` there used to cover the keycap.
-    Gate and loop retain a small, distinct state glyph at that size; one-shot
-    needs no redundant chip.
-    """
-
-    if full_width <= max(0.0, pad_width - 35.0):
-        return _mode_chip_label(mode), full_width, False
-    if mode == "gate":
-        return "G", 13.0, True
-    if mode == "loop":
-        return "L", 13.0, True
-    return None
-
-
 class PadGrid(WindowClient, QWidget):
     padPressed = Signal(int, float)  # global index, velocity
     padReleased = Signal(int)
@@ -210,10 +178,6 @@ class PadGrid(WindowClient, QWidget):
 
         small = QFont(self.font())
         small.setPointSizeF(7.5)
-        chip_font = QFont(self.font())
-        chip_font.setPointSizeF(6.5)
-        chip_font.setBold(True)
-        chip_metrics = QFontMetricsF(chip_font)
         name_font = QFont(self.font())
         name_font.setPointSizeF(8.0)
         name_metrics = QFontMetricsF(name_font)
@@ -314,38 +278,6 @@ class PadGrid(WindowClient, QWidget):
                     p.drawRoundedRect(
                         QRectF(rect.left() + 4, rect.top() + 5, 2, rect.height() - 10), 1, 1
                     )
-
-                # The waveform says what is on the pad; this small chip says
-                # how it behaves under a finger.  It deliberately overlays a
-                # little of the waveform rather than taking space from the
-                # sample name or the hardware-key keycap.
-                full_label = _mode_chip_label(pad.mode)
-                full_width = max(24.0, chip_metrics.horizontalAdvance(full_label) + 8.0)
-                layout = _mode_chip_layout(pad.mode, rect.width(), full_width)
-                if layout is not None:
-                    chip_label, chip_width, compact = layout
-                    chip_x = badge.left() - chip_width - 2.0 if compact else rect.left() + 10.0
-                    chip = QRectF(chip_x, rect.bottom() - 17, chip_width, 12)
-                    if pad.mode == "one-shot":
-                        chip_fill, chip_edge, chip_ink = q("bg", 190), q("padline"), q("dim")
-                    elif pad.mode == "gate":
-                        chip_fill, chip_edge, chip_ink = (
-                            q("accent", 210),
-                            q("accent_hi"),
-                            q("on_accent"),
-                        )
-                    else:  # loop
-                        chip_fill, chip_edge, chip_ink = (
-                            q("accent2", 210),
-                            q("accent_hi"),
-                            q("on_accent2"),
-                        )
-                    p.setFont(chip_font)
-                    p.setBrush(chip_fill)
-                    p.setPen(QPen(chip_edge, 1))
-                    p.drawRoundedRect(chip, 2, 2)
-                    p.setPen(chip_ink)
-                    p.drawText(chip, Qt.AlignCenter, chip_label)
 
             p.setFont(small)
             p.setPen(Qt.NoPen)

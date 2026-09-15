@@ -49,7 +49,7 @@ class NativeDSP:
         # CDLL releases the GIL during the C routines; PyDLL would not.
         self.lib = ctypes.CDLL(str(path))
         self.lib.mpc_dsp_abi.restype = ctypes.c_int
-        if self.lib.mpc_dsp_abi() != 2:
+        if self.lib.mpc_dsp_abi() != 1:
             raise ValueError("Unsupported native DSP ABI")
         ptr, count, integer, real = (
             ctypes.c_void_p,
@@ -103,9 +103,9 @@ class NativeDSP:
         self.lib.mpc_synth(
             output.ctypes.data,
             len(output),
-            _array(noise, len(output) * 2),
+            _array(noise, len(output)),
             _array(params, 23),
-            _array(state, 19),
+            _array(state, 12),
             age,
             gate,
         )

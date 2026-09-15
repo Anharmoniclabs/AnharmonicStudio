@@ -30,7 +30,6 @@ jobs:
           brew install ffmpeg portaudio
           uv sync --locked --group dev
           uv run --no-sync python scripts/build_native.py
-          uv run --no-sync python scripts/build_rubberband.py
       - name: Measure unprofiled workloads and collect separate hotspots
         run: >-
           uv run --no-sync python scripts/profile_production.py

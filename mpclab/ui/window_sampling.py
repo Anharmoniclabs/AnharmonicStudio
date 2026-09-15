@@ -5,7 +5,6 @@ project state stay with that coordinator. This module owns only its named domain
 """
 
 from __future__ import annotations
-from ..music import Note
 import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -21,7 +20,7 @@ from ..model import (
 )
 from ..synth import render_patch
 from ..workflow import four_bar_phrase, pattern_arrangement_target
-from .playlist import RULER_H
+from .playlist import ROW_H, RULER_H
 
 
 def set_bank(window, bank: int):
@@ -76,25 +75,11 @@ def _pad_pressed(window, gi: int, vel: float):
     pad = window.project.pads[gi]
     if not pad.empty:
         window.track_capture.note_on(pad.root_note, vel, gi)
-        if window.engine.recording and window.engine.playing and window.engine.mode == "pattern":
-            # Each physical pad owns its lane even when several pads have
-            # the same root note.  This is deliberately separate from
-            # TrackCapture: pattern ideas can be performed immediately,
-            # with no audio or vocal track armed.
-            window._finish_recorded_pad_note(gi)
-            window._snapshot_recording_take()
-            window._recorded_pad_notes[gi] = (
-                window.project.pattern().id,
-                window.engine.beat,
-                vel,
-                pad.root_note,
-            )
     window.engine.trigger_pad(gi, vel)
 
 
 def _pad_released(window, gi: int):
     window.track_capture.note_off(window.project.pads[gi].root_note, gi)
-    window._finish_recorded_pad_note(gi)
     window.engine.release_pad(gi)
 
 
@@ -255,9 +240,9 @@ def append_sample_to_arrangement(window, ref, start, end):
     window._arrange_drop_filter.reveal()
     window.song_scroll.ensureVisible(
         int(window.playlist.beat_to_x(clip.start_beat) + 20),
-        int(RULER_H + (row_index + 0.5) * window.playlist.row_height),
+        int(RULER_H + (row_index + 0.5) * ROW_H),
         40,
-        int(window.playlist.row_height),
+        ROW_H,
     )
     return clip
 
@@ -301,13 +286,12 @@ def edit_sample(window, clip_id: str):
 
 
 def _span_to_slider(window, span: float) -> int:
-    minimum = min(0.999999, window.wave.minimum_span())
-    span = min(1.0, max(minimum, span))
-    return int(round(1000 * np.log(span) / np.log(minimum)))
+    span = min(1.0, max(window.ZOOM_MIN_SPAN, span))
+    return int(round(1000 * np.log(span) / np.log(window.ZOOM_MIN_SPAN)))
 
 
 def _slider_to_span(window, ticks: int) -> float:
-    return float(window.wave.minimum_span() ** (ticks / 1000.0))
+    return float(window.ZOOM_MIN_SPAN ** (ticks / 1000.0))
 
 
 def _wave_zoom_slider(window, ticks: int):
@@ -319,7 +303,7 @@ def _wave_zoom_slider(window, ticks: int):
     # the chop on screen instead of drifting off the edge.
     start, end = window.wave.selection()
     focus = (start + end) / 2 / window.wave.duration if end > start else None
-    window.wave.zoom_by(want / max(1e-15, span), focus)
+    window.wave.zoom_by(want / max(1e-9, span), focus)
 
 
 def _wave_view_changed(window):
@@ -331,7 +315,7 @@ def _wave_view_changed(window):
     if window.wave.duration <= 0:
         window.zoom_readout.setText("—")
     elif seconds < 1.0:
-        window.zoom_readout.setText(f"{seconds * 1000:.3f} ms visible")
+        window.zoom_readout.setText(f"{seconds * 1000:.0f} ms visible")
     else:
         window.zoom_readout.setText(f"{seconds:.2f} s visible")
     window.nav.update()
@@ -593,9 +577,9 @@ def arrange_four_bar_phrase(window):
         window.show_tab(window.TAB_PLAYLIST)
     window.song_scroll.ensureVisible(
         int(window.playlist.beat_to_x(start) + 20),
-        int(RULER_H + (row_index + 0.5) * window.playlist.row_height),
+        int(RULER_H + (row_index + 0.5) * ROW_H),
         40,
-        int(window.playlist.row_height),
+        ROW_H,
     )
     window.status.showMessage(
         f"{len(plan.pads)} chops · bank {chr(65 + plan.bank)} · 4 bars at song tempo "
@@ -603,26 +587,3 @@ def arrange_four_bar_phrase(window):
         8000,
     )
     return clip
-
-
-def _finish_recorded_pad_note(window, gi: int):
-    """Commit one pad gesture into the pattern it began in."""
-    recorded = window._recorded_pad_notes.pop(gi, None)
-    if recorded is None:
-        return
-    pattern_id, start, velocity, pitch = recorded
-    pattern = next((p for p in window.project.patterns if p.id == pattern_id), None)
-    if pattern is None:
-        return
-    beat = start % pattern.length_beats
-    duration = min(max(0.03125, window.engine.beat - start), pattern.length_beats - beat)
-    pattern.notes.append(Note(pitch, beat, duration, velocity, gi))
-    window._set_dirty(True)
-    window.piano_roll.canvas.refresh()
-    window.step_grid.refresh()
-
-
-def _finish_recorded_pad_notes(window):
-    """Close held pads before Record/Stop changes the transport position."""
-    for gi in tuple(window._recorded_pad_notes):
-        window._finish_recorded_pad_note(gi)

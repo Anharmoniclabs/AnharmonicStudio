@@ -16,7 +16,6 @@ from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QSettings
 from PySide6.QtGui import QKeySequence, QShortcut, QAction, QActionGroup, QColor
 from PySide6.QtWidgets import (
     QMainWindow,
-    QDockWidget,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -67,8 +66,6 @@ from .audio_setup import AudioSetupDialog
 from .color_picker import TonePickerDialog
 from .visual_assets import owner_icon, brand_pixmap
 from .devices import DevicesController
-from ..agent_harness import AgentHarness
-from .agent_harness import AgentHarnessPanel
 from . import (
     window_layout,
     transport_layout,
@@ -147,7 +144,7 @@ SHORTCUTS = (
     (
         "TRANSPORT",
         (
-            ("Space", "play / pause · double-tap to restart from top"),
+            ("Space", "play / pause"),
             ("Esc", "stop, rewind, kill every voice"),
             ("Home", "jump to the start"),
             ("L", "pattern / song mode"),
@@ -187,15 +184,13 @@ SHORTCUTS = (
         "CHOP / EDIT",
         (
             ("wheel", "zoom around the pointer"),
-            ("Shift+wheel", "scroll · Alt+wheel makes the wave taller"),
+            ("Shift+wheel", "scroll · Ctrl+wheel makes the wave taller"),
             ("+  ·  -", "zoom in / out"),
             ("Z  ·  0", "zoom to the range / fit the whole sample"),
             ("←  →", "nudge the range end · Alt moves the whole range"),
             ("↑  ↓", "step through slices"),
             ("M  ·  Delete", "drop a marker / remove the selected one"),
             ("Enter", "play the range"),
-            ("Ctrl+Enter", "send the range to the arrangement"),
-            ("Ctrl+Shift+Enter", "map the range to the selected pad"),
         ),
     ),
     (
@@ -273,6 +268,7 @@ def output_device_inventory() -> tuple[list[dict], int | None]:
             {
                 "index": index,
                 "kind": "portaudio",
+                "channels": int(device.get("max_output_channels", 0)),
                 "name": name,
                 "host": host_name,
                 "label": f"{name}  ·  {host_name}",
@@ -379,12 +375,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.export_job = None
         self.project_path: Path | None = None
         self._recorded_notes = {}
-        # Pad performances are their own pattern-lane capture.  They must
-        # not depend on the optional Song-track recorder being armed.
-        self._recorded_pad_notes = {}
-        # A live pattern performance is one edit.  Notes may arrive from pads
-        # and the synth in any order, but Undo must remove the whole take.
-        self._recording_take_snapshot = False
         self._record_count_deadline = None
         self._record_count_timer = QTimer(self)
         self._record_count_timer.setInterval(20)
@@ -397,14 +387,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.session_path = self.projects_dir / ".session-autosave.json"
         self.session_history_path = self.projects_dir / ".session-history.json"
         self.history_path = self.session_history_path
-        self.agent_harness = AgentHarness(root / "agent-swarm.json")
-        self._agent_harness_load_warning = ""
-        try:
-            self.agent_harness.load()
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            # A malformed optional harness preference must never prevent a
-            # song, its audio device, or recovery history from opening.
-            self._agent_harness_load_warning = str(exc)
         if not restore_session and self.session_path.exists():
             self._archive_session_recovery()
 
@@ -430,6 +412,16 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         if audio_buffer not in valid_buffers:
             audio_buffer = DEFAULT_BLOCKSIZE
         self.engine = Engine(self.library, blocksize=audio_buffer)
+        try:
+            channels = json.loads(str(self.settings.value("audio/input_channels", "[0]")))
+            outputs = json.loads(str(self.settings.value("audio/output_channels", "[0, 1]")))
+            if isinstance(channels, list) and 1 <= len(channels) <= 64 and all(type(c) is int and 0 <= c < 64 for c in channels):
+                self.project.vocal_record.input_channels = channels
+            if isinstance(outputs, list) and len(outputs) == 2 and all(type(c) is int and 0 <= c < 64 for c in outputs):
+                self.engine.output_channels = tuple(outputs)
+            self.project.vocal_record.split_inputs = str(self.settings.value("audio/split_inputs", "false")).lower() == "true"
+        except (ValueError, TypeError):
+            pass
         self._audio_output_key = str(self.settings.value("audio/output_device", "") or "")
         if self._audio_output_key:
             try:
@@ -508,9 +500,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self._autosave_timer.timeout.connect(self._autosave_session)
         self._autosave_timer.start(15000)
         self.devices = DevicesController(self)
-        self.devices.changed.connect(self.synth_panel.sync_plugin_mode)
-        self.devices.changed.connect(self.piano_roll.sync_channels)
-        self.synth_panel.sync_plugin_mode()
 
     # ── construction ─────────────────────────────────────────
     def _build(self):
@@ -533,33 +522,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         # take a moment to enumerate, and that must never delay opening a song.
         scan_hint = self.audio_menu.addAction("OPEN TO SCAN CONNECTIONS")
         scan_hint.setEnabled(False)
-
-    def _build_agent_harness(self):
-        """Mount the swarm outside production editor ownership and splitter geometry."""
-        self.agent_swarm_dock = QDockWidget("Agentic MPC Labs", self)
-        self.agent_swarm_dock.setObjectName("agentSwarmDock")
-        self.agent_swarm_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
-        self.agent_swarm_panel = AgentHarnessPanel(self.agent_harness, self.agent_swarm_dock)
-        self.agent_swarm_dock.setWidget(self.agent_swarm_panel)
-        self.addDockWidget(Qt.RightDockWidgetArea, self.agent_swarm_dock)
-        self.agent_swarm_dock.hide()
-
-    def show_agent_harness(self):
-        """Open the review-only swarm without changing song/editor navigation."""
-        summary = (
-            f"Project: {self.project.name}; BPM: {self.project.bpm:.2f}; "
-            f"patterns: {len(self.project.patterns)}; "
-            f"arrange clips: {sum(len(row.clips) for row in self.project.rows)}."
-        )
-        self.agent_swarm_panel.set_context_summary(summary)
-        self.agent_swarm_dock.show()
-        self.agent_swarm_dock.raise_()
-        if self._agent_harness_load_warning:
-            self.status.showMessage(
-                "Agent harness settings were ignored; using safe defaults", 5000
-            )
-        else:
-            self.status.showMessage("Agent swarm · review proposals only", 3000)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -600,6 +562,8 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             str(self.settings.value("audio/input_device", "") or ""),
             str(self.settings.value("audio/workflow", "build") or "build"),
         )
+        rec = self.project.vocal_record
+        dialog.select_channels(rec.input_channels, self.engine.output_channels, rec.split_inputs, rec.monitor)
         dialog.accepted.connect(lambda: self._apply_audio_setup(dialog))
         dialog.finished.connect(lambda _result: self._audio_setup_closed(dialog))
         dialog.open()
@@ -612,6 +576,12 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
     def _apply_audio_setup(self, dialog: AudioSetupDialog) -> None:
         """Persist accepted onboarding choices through existing controls."""
         output_key = dialog.output_key
+        if self.track_capture.busy or self.vocal_panel.recorder.recording:
+            self.status.showMessage("Finish the take before changing audio devices", 5000)
+            return
+        mapping = tuple(dialog.output_channels.currentData() or (0, 1))
+        previous_mapping = self.engine.output_channels
+        self.engine.output_channels = mapping
         if output_key != self._audio_output_key:
             self._select_audio_output(output_key)
         frames = dialog.recommended_frames
@@ -623,11 +593,27 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.settings.setValue("audio/setup_complete", True)
         rec = self.project.vocal_record
         rec.input_device = dialog.input_key
+        selected, split = dialog.input_channels.currentData() or ((0,), False)
+        rec.input_channels, rec.split_inputs = list(selected), split
+        rec.monitor = bool(dialog.monitor_mode.currentData())
+        self.settings.setValue("audio/input_channels", json.dumps(rec.input_channels))
+        self.settings.setValue("audio/split_inputs", rec.split_inputs)
+        self.settings.setValue("audio/output_channels", json.dumps(mapping))
+        if previous_mapping != mapping and self.engine.stream is not None:
+            try:
+                self.engine.restart(self.engine.blocksize)
+            except Exception as exc:
+                self.engine.output_channels = previous_mapping
+                self.status.showMessage(f"Output channels unavailable: {exc}", 6000)
+                return
         if dialog.calibration is not None:
             milliseconds = dialog.calibration.milliseconds
             rec.input_latency_ms = milliseconds
             self.settings.setValue("audio/roundtrip_latency_ms", milliseconds)
             self.settings.setValue("audio/roundtrip_confidence", dialog.calibration.confidence)
+        else:
+            rec.input_latency_ms = 0.0
+            self.settings.setValue("audio/roundtrip_latency_ms", 0.0)
         self._set_dirty(True)
         self.vocal_panel.sync()
         self.track_inspector.sync()
@@ -635,11 +621,18 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     def _run_setup_loopback_calibration(self, input_device=None, output_device=None):
         """Temporarily yield the live device to the explicit cable test."""
+        if self.track_capture.busy or self.vocal_panel.recorder.recording:
+            raise RuntimeError("Finish the current take before running calibration")
         was_running = self.engine.stream is not None
         if was_running:
             self.engine.stop()
         try:
-            return run_loopback_calibration(input_device, output_device, self.engine.sr)
+            dialog = self._audio_setup_dialog
+            frames = dialog.recommended_frames if dialog else self.engine.blocksize
+            selected, _split = dialog.input_channels.currentData() if dialog else ((0,), False)
+            outputs = tuple(dialog.output_channels.currentData()) if dialog else self.engine.output_channels
+            return run_loopback_calibration(input_device, output_device, self.engine.sr,
+                                            blocksize=frames, input_channel=selected[0], output_channels=outputs)
         finally:
             if was_running:
                 try:
@@ -819,18 +812,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.playback_scope.blockSignals(True)
         self.playback_scope.setCurrentIndex(1 if self.engine.mode == "song" else 0)
         self.playback_scope.blockSignals(False)
-        self._refresh_transport_scope_visual()
-
-    def _refresh_transport_scope_visual(self):
-        """Make the project-wide transport target readable at a glance."""
-        scope = "song" if self.engine.mode == "song" else "pattern"
-        if self.playback_scope.property("scope") == scope:
-            return
-        self.playback_scope.setProperty("scope", scope)
-        style = self.playback_scope.style()
-        style.unpolish(self.playback_scope)
-        style.polish(self.playback_scope)
-        self.playback_scope.update()
 
     # ── theming ──────────────────────────────────────────────
     def toggle_theme(self):
@@ -1018,72 +999,23 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         sc("F10", lambda: self.show_tab(self.TAB_VOCALS))
         sc("F11", lambda: self.btn_playlist_focus.toggle())
         sc("F12", lambda: self.show_tab(self.TAB_PIANO))
-        for i in range(self.tabs.count()):
+        for i in range(min(9, self.tabs.count())):
             sc(f"Ctrl+{i + 1}", lambda idx=i: self.show_tab(idx))
 
     # ── keyboard: pads and transport ─────────────────────────
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.KeyPress and (
-            event.key() != Qt.Key_Space
-            or _is_text_entry(watched)
-            or event.modifiers() != Qt.NoModifier
-        ):
-            self._last_transport_space = None
-        # Numeric-keypad pads are a performance surface, not a widget-local
-        # shortcut.  A producer may keep focus in the Browser, Arrange,
-        # mixer, or an inspector while playing a pattern take.  Capture the
-        # hit at the application boundary so it always reaches the selected
-        # pad.  Text and numeric editors deliberately keep their keypad input
-        # for clip names and exact value entry.
-        if (
-            event.type() == QEvent.KeyPress
-            and not event.isAutoRepeat()
-            and not _is_text_entry(watched)
-            and not _is_text_entry(QApplication.focusWidget())
-            and (local := _pad_for_key(event)) is not None
-        ):
-            gi = self.pads.bank * PADS_PER_BANK + local
-            if event.key() not in self._held_pads:
-                self._held_pads[event.key()] = gi
-                self.select_pad(gi)
-                velocity = 0.55 if event.modifiers() & Qt.ShiftModifier else 1.0
-                self._pad_pressed(gi, velocity)
-                self.pads.update()
-            event.accept()
-            return True
-        if event.type() == QEvent.KeyRelease and not event.isAutoRepeat():
-            # A keypad pad can be pressed while the main window owns the key
-            # event, then released after focus moves to the Browser (or any
-            # other child).  Child widgets consume that release, so relying on
-            # MainWindow.keyReleaseEvent leaves gate and loop pads held.  The
-            # application filter sees the release before its focused child and
-            # retains the pad index captured at key-down.
-            gi = self._held_pads.pop(event.key(), None)
-            if gi is not None:
-                self._pad_released(gi)
-                self.pads.update()
-                event.accept()
-                return True
         if (
             event.type() == QEvent.KeyPress
             and event.key() == Qt.Key_Space
             and not event.isAutoRepeat()
-            and event.modifiers() == Qt.NoModifier
-            and isinstance(watched, QWidget)
-            and watched.window() is self
-            and QApplication.activeModalWidget() is None
         ):
-            # The custom StepGrid owns Space while it has focus: Space is the
-            # standard keyboard toggle for its selected step, not transport.
-            if watched is getattr(self, "step_grid", None):
-                return super().eventFilter(watched, event)
             # The filter is installed on the application, so `watched` is the
             # widget the key was actually delivered to.  Trust it before the
             # focus widget: focusWidget() is None whenever the window is not
             # active, which would otherwise let Space steal a keystroke out of
             # the project-name field.
             if not _is_text_entry(watched) and not _is_text_entry(QApplication.focusWidget()):
-                window_transport.space_transport(self)
+                self.toggle_play()
                 event.accept()
                 return True
         return super().eventFilter(watched, event)
@@ -1106,14 +1038,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             vel = 0.55 if ev.modifiers() & Qt.ShiftModifier else 1.0
             self._pad_pressed(gi, vel)
             self.pads.update()
-            return
-
-        # Forwarded key events can bypass the application's typing filter.
-        # Keep musical typing ahead of workspace and recording shortcuts here
-        # too, so K/R cannot arm or disarm a take while playing notes.
-        typing = self.typing_keyboard
-        if typing is not None and typing.isVisible() and typing._handle_press(ev):
-            ev.accept()
             return
 
         # Playlist tool letters only bite while the Playlist is on screen, so
@@ -1158,7 +1082,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             return
 
         if key == Qt.Key_Space:
-            window_transport.space_transport(self)
+            self.toggle_play()
         elif key == Qt.Key_Escape:
             self.stop_all()
         elif key == Qt.Key_Home:
@@ -1182,10 +1106,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
     def keyReleaseEvent(self, ev):
         if ev.isAutoRepeat():
             return
-        typing = self.typing_keyboard
-        if typing is not None and typing._handle_release(ev):
-            ev.accept()
-            return
         local = _pad_for_key(ev)
         if local is not None:
             gi = self._held_pads.pop(ev.key(), None)
@@ -1204,9 +1124,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.studio.pages[self.studio.selected].setFocus()
 
     def _toggle_panel(self, panel):
-        if getattr(self, "_compact_panels", None) is not None and panel.isHidden():
-            other = self.pad_side if panel is self.browser_frame else self.browser_frame
-            other.hide()
         self._save_panel_layout()
         panel.setVisible(panel.isHidden())
         self._save_panel_layout()
@@ -1216,8 +1133,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     def search_samples(self):
         """Bring sound search into reach without moving away from the editor."""
-        if getattr(self, "_compact_panels", None) is not None:
-            self.pad_side.hide()
         self.browser_frame.show()
         self.browser.search.setFocus(Qt.ShortcutFocusReason)
         self.browser.search.selectAll()
@@ -1227,10 +1142,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self._toggle_panel(self.pad_side)
 
     def _save_panel_layout(self):
-        if (
-            getattr(self, "_playlist_focus", False)
-            or getattr(self, "_compact_panels", None) is not None
-        ):
+        if getattr(self, "_playlist_focus", False):
             return
         sizes = self.main_splitter.sizes()
         for index, size in enumerate(sizes):
@@ -1256,9 +1168,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.typing_keyboard.show()
         self.typing_keyboard.raise_()
         self.typing_keyboard.activateWindow()
-        self.status.showMessage(
-            "musical typing · white Z–/ + Q–] · black A–' + 1–0 · PgUp/PgDn octave", 3500
-        )
+        self.status.showMessage("musical typing active · Z–M / Q–U · [ ] changes octave", 3500)
 
     def show_shortcuts(self):
         """Show the keyboard-reference sheet."""
@@ -1320,18 +1230,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         dlg.exec()
 
     # ── transport actions ────────────────────────────────────
-    def _snapshot_recording_take(self, *args, **kwargs):
-        return window_transport._snapshot_recording_take(self, *args, **kwargs)
-
-    def _finish_recorded_pad_note(self, *args, **kwargs):
-        return window_sampling._finish_recorded_pad_note(self, *args, **kwargs)
-
-    def _finish_recorded_pad_notes(self, *args, **kwargs):
-        return window_sampling._finish_recorded_pad_notes(self, *args, **kwargs)
-
-    def _selected_clip_length(self, *args, **kwargs):
-        return arrangement_actions._selected_clip_length(self, *args, **kwargs)
-
     def _record_toggled(self, enabled):
         return window_transport._record_toggled(self, enabled)
 
@@ -1580,9 +1478,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
     def _sync_compact_playlist_ui(self):
         return arrangement_actions._sync_compact_playlist_ui(self)
 
-    def _sync_playlist_tool_accessibility(self, tool):
-        return arrangement_actions._sync_playlist_tool_accessibility(self, tool)
-
     def set_playlist_tool(self, tool: str):
         return arrangement_actions.set_playlist_tool(self, tool)
 
@@ -1686,7 +1581,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         )
 
         recorders = (self.track_capture.recorder, self.vocal_panel.recorder)
-        self.track_inspector.update_input_feedback()
         active_inputs = [rec for rec in recorders if rec.recording]
         self.transport_meters.set_levels(
             eng.master_meter[0],
@@ -1779,32 +1673,8 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             )
         )
 
-    def _sync_responsive_panels(self):
-        if not hasattr(self, "pad_side"):
-            return
-        self.logo.setVisible(self.width() >= 1000 and not getattr(self, "_playlist_focus", False))
-        self.project_bar.setMinimumWidth(self.project_bar.sizeHint().width())
-        self.transport_meters.setVisible(self.width() >= 1100)
-        if getattr(self, "_playlist_focus", False):
-            return
-        compact = getattr(self, "_compact_panels", None)
-        if self.width() < 1100 and compact is None:
-            self._compact_panels = (
-                not self.browser_frame.isHidden(),
-                not self.pad_side.isHidden(),
-                self.main_splitter.sizes(),
-            )
-            self.browser_frame.hide()
-            self.pad_side.hide()
-        elif self.width() >= 1200 and compact is not None:
-            self._compact_panels = None
-            self.browser_frame.setVisible(compact[0])
-            self.pad_side.setVisible(compact[1])
-            self.main_splitter.setSizes(compact[2])
-
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
-        self._sync_responsive_panels()
         self._sync_compact_playlist_ui()
 
     def closeEvent(self, ev):
@@ -1847,6 +1717,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         if self.typing_keyboard is not None:
             self.typing_keyboard.panic()
         self.separator.shutdown()
+        self.scoring_panel.shutdown()
         self.vocal_panel.shutdown()
         self.engine.stop_transport(rewind=True)
         self.engine.stop()

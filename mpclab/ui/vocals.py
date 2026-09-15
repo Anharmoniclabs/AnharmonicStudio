@@ -173,7 +173,6 @@ class VocalPanel(WindowClient, QWidget):
         self.input_gain.setValue(rec.input_gain_db)
         self.input_latency.setValue(rec.input_latency_ms)
         self.monitor.setChecked(rec.monitor)
-        self.corrected_monitor.setChecked(rec.corrected_monitor)
         self.monitor_gain.setValue(rec.monitor_gain * 100.0)
         self.count_in.setCurrentIndex(max(0, self.count_in.findData(rec.count_in_bars)))
         self.auto_place.setChecked(rec.auto_place)
@@ -185,7 +184,6 @@ class VocalPanel(WindowClient, QWidget):
         self.key_box.setCurrentText(tune.key)
         self.scale_box.setCurrentText(tune.scale)
         self.autotune_enabled.setChecked(tune.enabled)
-        self.tune_backend.setCurrentIndex(self.tune_backend.findData(tune.backend))
         wanted_range = (tune.low_note, tune.high_note)
         idx = self.range_box.findData(wanted_range)
         self.range_box.setCurrentIndex(idx if idx >= 0 else self.range_box.count() - 1)
@@ -399,12 +397,6 @@ class VocalPanel(WindowClient, QWidget):
         )
 
     def _tick(self):
-        live = getattr(self, "_live_monitor", None)
-        if live is not None:
-            self.record_status.setText(
-                live.error
-                or f"Corrected cue · estimated processing delay {live.latency_ms:.0f} ms · dry capture"
-            )
         peak = float(self.recorder.input_peak)
         db = 20.0 * np.log10(max(peak, 1e-6))
         self.input_meter.setValue(int(np.clip((db + 60.0) / 60.0, 0, 1) * 1000))
@@ -414,9 +406,6 @@ class VocalPanel(WindowClient, QWidget):
         self.record_time.setText(f"{int(minutes):02d}:{seconds:04.1f}")
 
     def shutdown(self):
-        if getattr(self, "_live_monitor", None):
-            self._live_monitor.close()
-            self._live_monitor = None
         self.pitch_view.shutdown()
         self.meter_timer.stop()
         self._countdown_token += 1

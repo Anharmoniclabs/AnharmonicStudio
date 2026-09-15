@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import math
-import copy
 import threading
-from dataclasses import replace
-from pathlib import Path
 
 from .window_client import WindowClient, emit_if_alive
 
@@ -14,7 +11,6 @@ from PySide6.QtCore import Qt, QRectF, Signal, QTimer, QPointF, QSize, QEvent
 from PySide6.QtGui import QPainter, QPen, QPolygonF, QFont
 from PySide6.QtWidgets import (
     QComboBox,
-    QTabBar,
     QScrollArea,
     QListWidget,
     QListWidgetItem,
@@ -29,23 +25,12 @@ from PySide6.QtWidgets import (
     QSlider,
     QVBoxLayout,
     QWidget,
-    QFileDialog,
-    QMessageBox,
 )
 
 from ..synth import PATCHES, PATCH_CATEGORIES, PATCH_DESCRIPTIONS, WAVEFORMS, patch_copy
 from .. import orchestra
 from .keymap import MUSICAL_OFFSET_LABELS
 from .theme import q
-from ..prism import (
-    ARP_PRESETS,
-    EFFECT_PRESETS,
-    bundled_plugin,
-    mutate_patch,
-    parse_sound,
-    sound_document,
-)
-from .prism_scope import PrismScope
 
 
 BLACK_NOTES = {1, 3, 6, 8, 10}
@@ -233,7 +218,7 @@ class PianoKeyboard(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.base_note = 48
-        self.octaves = 3
+        self.octaves = 2
         self.active: set[int] = set()
         self._mouse_note: int | None = None
         self.setMinimumHeight(150)
@@ -399,15 +384,7 @@ class SynthPanel(WindowClient, QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        self.instrument_tabs = QTabBar()
-        self.instrument_tabs.addTab("Native instrument")
-        self.instrument_tabs.addTab("Prism")
-        self.instrument_tabs.currentChanged.connect(self._instrument_tab_changed)
-        outer.addWidget(self.instrument_tabs)
-        self._last_prism_spec = None
-        self._prism_project = self.app.project
         head = QWidget()
-        self._native_head = head
         head.setObjectName("toolbar")
         hl = QHBoxLayout(head)
         hl.setContentsMargins(10, 7, 10, 7)
@@ -524,48 +501,12 @@ class SynthPanel(WindowClient, QWidget):
         self.instrument_splitter.addWidget(quick)
         self.instrument_splitter.setSizes([650, 290])
         outer.addWidget(self.instrument_splitter, 1)
-        from .prism_controls import PrismControls
-
-        self.prism_surface = PrismControls(self.app)
-        self.prism_surface.hide()
-        outer.addWidget(self.prism_surface, 1)
         advanced = QPushButton("Sound design & arpeggiator ▸")
-        self._advanced_button = advanced
         advanced.setCheckable(True)
         advanced.setMinimumHeight(34)
         outer.addWidget(advanced)
 
-        tools = QWidget()
-        tools_layout = QHBoxLayout(tools)
-        tools_layout.setContentsMargins(8, 2, 8, 2)
-        self._prism_a = None
-        self._tone_buttons = []
-        for title, callback in (
-            ("Mutate tone", self._mutate_tone),
-            ("Store A", self._store_a),
-            ("Swap A/B", self._swap_a),
-            ("Save sound…", self._save_sound),
-            ("Load sound…", self._load_sound),
-            ("Launch Prism", self._use_prism),
-            ("Use built-in", self._use_builtin),
-        ):
-            button = QPushButton(title)
-            button.clicked.connect(callback)
-            tools_layout.addWidget(button)
-            if len(self._tone_buttons) < 5:
-                self._tone_buttons.append(button)
-        tools_scroll = QScrollArea()
-        self._native_tools = tools_scroll
-        tools_scroll.setWidgetResizable(True)
-        tools_scroll.setFixedHeight(48)
-        tools_scroll.setFrameShape(QFrame.NoFrame)
-        tools_scroll.setWidget(tools)
-        outer.addWidget(tools_scroll)
-        self.plugin_mode = QLabel()
-        self.plugin_mode.setWordWrap(True)
-        self.plugin_mode.setObjectName("hint")
-        outer.addWidget(self.plugin_mode)
-        self.visualizer = PrismScope(self.app)
+        self.visualizer = SynthVisualizer(self.app)
         outer.addWidget(self.visualizer)
 
         body = QWidget()
@@ -614,25 +555,13 @@ class SynthPanel(WindowClient, QWidget):
         bl.addWidget(amp, 1)
 
         arp, arpf = self._section("ARPEGGIATOR")
-        self.arp_presets = QComboBox()
-        self.arp_presets.addItem("Choose arp preset…")
-        self.arp_presets.addItems([item["name"] for item in ARP_PRESETS])
-        self.arp_presets.activated.connect(self._arp_preset)
-        arpf.addRow("PRESET", self.arp_presets)
         self.arp_on = QPushButton("ARP OFF")
         self.arp_on.setObjectName("go")
         self.arp_on.setCheckable(True)
         self.arp_on.toggled.connect(self._arp_toggled)
         arpf.addRow("", self.arp_on)
         self.arp_rate = QComboBox()
-        for label, value in (
-            ("1/32", 0.125),
-            ("1/16", 0.25),
-            ("1/8 T", 1 / 3),
-            ("1/8", 0.5),
-            ("1/8 D", 0.75),
-            ("1/4", 1.0),
-        ):
+        for label, value in (("1/32", 0.125), ("1/16", 0.25), ("1/8", 0.5), ("1/4", 1.0)):
             self.arp_rate.addItem(label, value)
         self.arp_rate.currentIndexChanged.connect(
             lambda i: self._set_arp("rate_beats", self.arp_rate.itemData(i))
@@ -650,12 +579,6 @@ class SynthPanel(WindowClient, QWidget):
         self.arp_gate.setRange(5, 100)
         self.arp_gate.valueChanged.connect(lambda v: self._set_arp("gate", v / 100))
         arpf.addRow("GATE", self.arp_gate)
-        effects = QComboBox()
-        effects.addItem("Choose track effect…")
-        effects.addItems(list(EFFECT_PRESETS))
-        effects.setToolTip("Applies drive and delay/reverb sends to this instrument's mixer track")
-        effects.textActivated.connect(self._effect_preset)
-        arpf.addRow("TRACK FX", effects)
         hint = QLabel(
             "Hold a chord. The engine orders notes\nat sample-accurate, BPM-synced intervals."
         )
@@ -663,7 +586,6 @@ class SynthPanel(WindowClient, QWidget):
         arp.layout().insertWidget(arp.layout().count() - 1, hint)
         bl.addWidget(arp, 1)
         advanced_scroll = QScrollArea()
-        self._advanced_scroll = advanced_scroll
         advanced_scroll.setWidgetResizable(True)
         advanced_scroll.setWidget(body)
         outer.addWidget(advanced_scroll, 1)
@@ -671,7 +593,7 @@ class SynthPanel(WindowClient, QWidget):
         self.visualizer.hide()
         advanced.toggled.connect(advanced_scroll.setVisible)
         advanced.toggled.connect(lambda on: self.instrument_splitter.setVisible(not on))
-        advanced.toggled.connect(lambda on: self.sync_plugin_mode())
+        advanced.toggled.connect(self.visualizer.setVisible)
         advanced.toggled.connect(
             lambda on: advanced.setText(
                 "Sound design & arpeggiator ▾" if on else "Sound design & arpeggiator ▸"
@@ -683,7 +605,7 @@ class SynthPanel(WindowClient, QWidget):
         kl = QHBoxLayout(keyboard_bar)
         kl.setContentsMargins(10, 5, 10, 5)
         kl.addWidget(QLabel("TYPING KEYS"))
-        kl.addWidget(QLabel("Ctrl+T opens the movable keyboard · play while editing controls"))
+        kl.addWidget(QLabel("Ctrl+T opens the focused musical-typing window"))
         kl.addStretch(1)
         down = QPushButton("OCT −")
         down.setObjectName("mini")
@@ -764,7 +686,7 @@ class SynthPanel(WindowClient, QWidget):
             if value == getattr(self.app.project.selected_patch, attr):
                 return
             self._load_request += 1
-            if snapshot:
+            if self.app.project.selected_patch.sample_source and snapshot:
                 self.app.snapshot()
             setattr(self.app.project.selected_patch, attr, value)
             self.app.project.selected_patch.name = "Custom"
@@ -778,9 +700,6 @@ class SynthPanel(WindowClient, QWidget):
 
     def _set_arp(self, attr, value):
         if not self._building and value is not None:
-            if value == getattr(self.app.project.arp, attr):
-                return
-            self.app.snapshot()
             setattr(self.app.project.arp, attr, value)
             self.visualizer.update()
             self.app._set_dirty(True)
@@ -835,9 +754,7 @@ class SynthPanel(WindowClient, QWidget):
         generation = self._preview_generation
         instrument_id = self.app.project.selected_instrument
         if self._preview_note is not None:
-            self.app.engine.synth_note_off(
-                self._preview_note, instrument_id=getattr(self, "_preview_instrument", None)
-            )
+            self.app.engine.synth_note_off(self._preview_note, instrument_id=getattr(self, "_preview_instrument", None))
         self._preview_note = note
         self._preview_instrument = instrument_id
         if instrument_id is None:
@@ -904,12 +821,6 @@ class SynthPanel(WindowClient, QWidget):
     def load_preset(self, name):
         if self._building or name not in PATCHES:
             return
-        if self._external_selected():
-            self.app.status.showMessage(
-                "Use Prism controls to change the plugin sound, or return to the built-in instrument",
-                5000,
-            )
-            return False
         self._load_request += 1
         if name == self.app.project.selected_patch.name:
             return True
@@ -948,11 +859,7 @@ class SynthPanel(WindowClient, QWidget):
         self.app.project.selected_patch = patch_copy(name)
         self.app.project.selected_patch.track = track
         self.sync()
-        kind = (
-            "orchestral instrument"
-            if self.app.project.selected_patch.sample_source
-            else "analog patch"
-        )
+        kind = "orchestral instrument" if self.app.project.selected_patch.sample_source else "analog patch"
         self.app.status.showMessage(f"{kind} · {name}", 3500)
 
     def set_octave(self, octave):
@@ -979,7 +886,6 @@ class SynthPanel(WindowClient, QWidget):
             self._preview_generation += 1
         self._displayed_instrument = self.app.project.selected_instrument
         patch = self.app.project.selected_patch
-        self.visualizer.set_patch(patch)
         self.patch_name.setText(patch.name)
         sampled = bool(patch.sample_source)
         self.sample_controls.setVisible(sampled)
@@ -1036,182 +942,7 @@ class SynthPanel(WindowClient, QWidget):
         self.arp_gate.setValue(round(arp.gate * 100))
         for control in (self.arp_on, self.arp_rate, self.arp_mode, self.arp_octaves, self.arp_gate):
             control.setEnabled(self.app.project.selected_instrument is None)
-            control.setToolTip(
-                "The live arpeggiator currently belongs to the primary instrument only"
-            )
+            control.setToolTip("The live arpeggiator currently belongs to the primary instrument only")
         self.set_octave(self.octave)
         self.visualizer.update()
         self._building = False
-        self.sync_plugin_mode()
-
-    def _apply_prism_sound(self, patch, arp=None):
-        self.app.snapshot()
-        self._load_request += 1
-        self.app.engine.synth_panic()
-        track = self.app.project.selected_patch.track
-        self.app.project.selected_patch = replace(patch, track=track)
-        if arp is not None:
-            self.app.project.arp = replace(arp)
-        self.app._set_dirty(True)
-        self.sync()
-
-    def _mutate_tone(self):
-        try:
-            self._apply_prism_sound(mutate_patch(self.app.project.selected_patch))
-        except ValueError as exc:
-            self.app.status.showMessage(str(exc), 5000)
-
-    def _store_a(self):
-        self._prism_a = (replace(self.app.project.selected_patch), replace(self.app.project.arp))
-        self.app.status.showMessage("Sound A stored · Swap A/B compares tone and arpeggiator", 4000)
-
-    def _swap_a(self):
-        if self._prism_a is None:
-            self.app.status.showMessage("Store sound A before comparing", 4000)
-            return
-        old = (replace(self.app.project.selected_patch), replace(self.app.project.arp))
-        self._apply_prism_sound(*self._prism_a)
-        self._prism_a = old
-
-    def _save_sound(self):
-        try:
-            document = sound_document(self.app.project.selected_patch, self.app.project.arp)
-        except ValueError as exc:
-            self.app.status.showMessage(str(exc), 5000)
-            return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save Prism sound", "My sound.prism.json", "Prism sounds (*.prism.json)"
-        )
-        if not path:
-            return
-        try:
-            from ..library_journal import _atomic_json
-
-            _atomic_json(Path(path), document)
-        except (OSError, ValueError) as exc:
-            QMessageBox.warning(self, "Save sound", str(exc))
-
-    def _load_sound(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Load Prism sound", "", "Prism sounds (*.prism.json)"
-        )
-        if not path:
-            return
-        try:
-            with Path(path).open("r", encoding="utf-8") as stream:
-                patch, arp = parse_sound(stream.read(1024 * 1024 + 1))
-            self._apply_prism_sound(patch, arp)
-        except (OSError, ValueError, TypeError) as exc:
-            QMessageBox.warning(self, "Load sound", str(exc))
-
-    def _arp_preset(self, index):
-        if index <= 0:
-            return
-        from ..model import ArpSettings
-
-        data = {key: value for key, value in ARP_PRESETS[index - 1].items() if key != "name"}
-        self.app.snapshot()
-        self.app.engine.synth_panic()
-        self.app.project.arp = ArpSettings(**data)
-        self.app._set_dirty(True)
-        self.sync()
-
-    def _effect_preset(self, name):
-        if name not in EFFECT_PRESETS:
-            return
-        self.app.snapshot()
-        patch = self.app.project.selected_patch
-        fx = self.app.project.tracks[patch.track].fx
-        for key, value in EFFECT_PRESETS[name].items():
-            setattr(fx, key, value)
-        self.app._set_dirty(True)
-        self.app.status.showMessage(
-            f"{name} · mixer track {patch.track + 1} · shared send timing", 5000
-        )
-
-    def _use_prism(self):
-        path = bundled_plugin()
-        if path is None:
-            self.app.status.showMessage("Prism plugin pack is not installed in this build", 5000)
-            return
-        devices = getattr(self.app, "devices", None)
-        if devices is not None:
-            from .prism_controls import patch_parameters
-
-            patch = self.app.project.selected_patch
-            if patch.sample_source:
-                patch = PATCHES["Carbon Pulse"]
-            specification = (
-                copy.deepcopy(self._last_prism_spec)
-                if self._last_prism_spec
-                else {"path": str(path), "parameters": patch_parameters(patch)}
-            )
-            devices.load_plugin("instrument", specification)
-            self.app.status.showMessage("Opening Prism sound lab…", 4000)
-
-    def _instrument_tab_changed(self, index):
-        if index == 1:
-            self._prism_controls()
-        else:
-            self._use_builtin()
-
-    def _prism_controls(self):
-        specification = self.app.project.plugins.get("instrument", {})
-        if (
-            not self._external_selected()
-            or Path(specification.get("path", "")).name != "Anharmonic Prism.vst3"
-        ):
-            self._use_prism()
-        self.sync_plugin_mode()
-
-    def _use_builtin(self):
-        devices = getattr(self.app, "devices", None)
-        if devices is not None and "instrument" in self.app.project.plugins:
-            spec = self.app.project.plugins["instrument"]
-            if Path(spec.get("path", "")).name == "Anharmonic Prism.vst3":
-                self._last_prism_spec = copy.deepcopy(spec)
-            devices.remove_plugin("instrument")
-            self.app.status.showMessage("Built-in instrument active", 4000)
-
-    def sync_plugin_mode(self):
-        if self._prism_project is not self.app.project:
-            self._last_prism_spec = None
-            self._prism_project = self.app.project
-        active = self._external_selected()
-        specification = self.app.project.plugins.get("instrument", {})
-        prism = active and Path(specification.get("path", "")).name == "Anharmonic Prism.vst3"
-        self.instrument_tabs.blockSignals(True)
-        self.instrument_tabs.setCurrentIndex(1 if prism else 0)
-        self.instrument_tabs.blockSignals(False)
-        self._native_head.setVisible(not prism)
-        self._native_tools.setVisible(not prism)
-        self.prism_surface.setVisible(prism)
-        self._advanced_button.setVisible(not prism)
-        self.instrument_splitter.setVisible(not prism and not self._advanced_button.isChecked())
-        self._advanced_scroll.setVisible(not prism and self._advanced_button.isChecked())
-        if prism:
-            self.prism_surface.sync()
-        patch = self.app.project.selected_patch
-        self.plugin_mode.setVisible(active and not prism)
-        self.plugin_mode.setText(
-            "External instrument active · Prism controls edit Prism. Use built-in to return to the sound controls below. The input arp and mixer track still apply."
-        )
-        for slider, attr, *_ in self._controls:
-            slider.setEnabled(
-                not active
-                and not (
-                    patch.sample_source
-                    and (attr == "lfo_pitch" or (attr == "layer_mix" and not patch.sample_layer))
-                )
-            )
-        for combo, _ in self._combos:
-            combo.setEnabled(not active)
-        for widget in (self.preset, self.sound_cards, self.print_button, *self._tone_buttons):
-            widget.setEnabled(not active)
-        self.visualizer.setVisible(not active and not patch.sample_source)
-
-    def _external_selected(self):
-        return (
-            self.app.project.selected_instrument is None
-            and getattr(getattr(self.app.engine, "external", None), "instrument", None) is not None
-        )

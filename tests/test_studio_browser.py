@@ -140,14 +140,6 @@ def test_studio_reuses_editors_and_keeps_selection_across_focused_tabs(tmp_path,
         assert window.studio.pages[3] is window.mixer
         assert window.studio.pages[2].parent() is window.studio.arrangement
         assert window.btn_play.accessibleName() == "Play or pause"
-        assert window.playback_scope.accessibleName() == "Playback scope"
-        assert window.playback_scope.property("scope") == "pattern"
-        window.set_mode("song")
-        assert window.playback_scope.currentData() == "song"
-        assert window.playback_scope.property("scope") == "song"
-        window.set_mode("pattern")
-        assert window.playback_scope.currentData() == "pattern"
-        assert window.playback_scope.property("scope") == "pattern"
     finally:
         window._dirty = False
         window.close()

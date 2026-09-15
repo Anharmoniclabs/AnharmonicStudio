@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from mpclab.engine import Engine
 from mpclab.export import render_export
-from mpclab.model import Note, Project
+from mpclab.model import Project
 from mpclab.ui import main_window, theme
 from mpclab.ui.playlist import HEAD_W, ROW_H, RULER_H
 from scripts.render_studio_preview import PreviewSettings
@@ -341,49 +341,6 @@ def test_recorded_audio_plays_through_chosen_mixer_channel(window, monkeypatch, 
     assert not np.any(muted)
 
 
-def test_saved_audio_take_is_preloaded_for_the_first_song_pass(window, monkeypatch):
-    """A recording must be audible immediately, even when it was not cached on write."""
-    mock_audio(window, monkeypatch)
-    row = arm(window)
-    original_add = window.library.add_audio
-
-    def add_without_cache(*args, **kwargs):
-        source = original_add(*args, **kwargs)
-        window.library._audio.pop(source.id, None)
-        return source
-
-    monkeypatch.setattr(window.library, "add_audio", add_without_cache)
-    window.btn_rec.click()
-    window.stop_all()
-
-    clip = row.clips[0]
-    assert window.library.cached_audio(clip.ref) is not None
-
-
-def test_recording_at_a_negotiated_input_rate_keeps_its_real_duration(window, monkeypatch):
-    """A 44.1 kHz input must not be treated as 48 kHz playback frames."""
-    recorder = window.track_capture.recorder
-    captured = np.full((44_100, 2), 0.1, dtype=np.float32)
-
-    def start_at_device_rate(*_args):
-        recorder.sample_rate = 44_100
-
-    monkeypatch.setattr(recorder, "start", start_at_device_rate)
-    monkeypatch.setattr(recorder, "stop", lambda: captured)
-    row = arm(window)
-
-    window.btn_rec.click()
-    window.stop_all()
-
-    clip = row.clips[0]
-    source = window.library.clips[clip.ref]
-    assert source.sample_rate == window.library.sample_rate == window.engine.sample_rate
-    assert source.duration == pytest.approx(1.0, abs=0.0001)
-    assert clip.source_length == pytest.approx(1.0, abs=0.0001)
-    assert clip.length_beats == pytest.approx(1.5, abs=0.0001)
-    assert len(window.library.audio(clip.ref)) == 48_000
-
-
 def test_song_record_without_an_arm_explains_destination(window):
     window.set_mode("song")
     window.btn_rec.click()
@@ -391,41 +348,6 @@ def test_song_record_without_an_arm_explains_destination(window):
     assert not window.btn_rec.isChecked()
     assert "Arm a Song track" in window.status.currentMessage()
     assert not window._undo
-
-
-def test_track_inspector_makes_input_route_and_missing_signal_actionable(window, monkeypatch):
-    mock_audio(window, monkeypatch)
-    row = arm(window)
-    row.record_track = 6
-    window.track_inspector.sync()
-    assert "Mixer 7" in window.track_inspector.input_feedback.text()
-    assert "Ready" in window.track_inspector.input_feedback.text()
-
-    window.btn_rec.click()
-    window.track_capture.recorder.input_peak = 0.0
-    window.track_inspector.update_input_feedback()
-    assert "NO INPUT" in window.track_inspector.input_feedback.text()
-    assert "Audio input setup" in window.track_inspector.input_feedback.text()
-
-    window.track_capture.recorder.input_peak = 0.25
-    window.track_inspector.update_input_feedback()
-    assert "dBFS" in window.track_inspector.input_feedback.text()
-    assert "Mixer 7" in window.track_inspector.input_feedback.text()
-    window.stop_all()
-
-
-def test_short_silent_audio_take_is_kept_for_inspection(window, monkeypatch):
-    recorder = window.track_capture.recorder
-    short_silence = np.zeros((64, 2), dtype=np.float32)
-    monkeypatch.setattr(recorder, "start", lambda *_args: None)
-    monkeypatch.setattr(recorder, "stop", lambda: short_silence)
-    row = arm(window)
-
-    window.btn_rec.click()
-    window.stop_all()
-
-    assert len(row.clips) == 1
-    assert "no input detected" in window.track_capture.message
 
 
 def test_capture_prevents_session_replacement_tempo_changes_and_seek(window, monkeypatch, tmp_path):
@@ -468,7 +390,7 @@ def test_color_control_remains_visible_in_narrow_focus_mode(window):
     window.resize(760, 700)
     window.set_playlist_focus(True)
     QApplication.processEvents()
-    color = window.appearance_button
+    color = window.btn_color
     assert color.isVisible()
     top_left = color.mapTo(window, QPoint(0, 0))
     assert 0 <= top_left.x() < window.width() - color.width()
@@ -515,37 +437,3 @@ def test_discarding_unsaved_take_requires_explicit_choice(window, monkeypatch):
     monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.Yes)
     window.track_capture.discard_take()
     assert not window.track_capture.busy
-
-
-def test_sequence_recording_never_starts_an_armed_audio_take(window, monkeypatch):
-    """The sequence editor owns pad/note capture, even with audio armed."""
-    _data, calls = mock_audio(window, monkeypatch)
-    arm(window, source="audio")
-    window.tabs.setCurrentIndex(window.TAB_SEQ)
-    window.engine.mode = "song"
-    window.engine.playing = True
-
-    window.btn_rec.click()
-
-    assert window.engine.mode == "pattern"
-    assert window.engine.recording
-    assert not window.track_capture.active
-    assert not window.track_capture.pending
-    assert calls == []
-    window.btn_rec.click()
-
-
-def test_mpc_pad_capture_writes_its_own_pattern_channel(window):
-    """Numeric/MPC pads must record the pad index, not an audio lane."""
-    source = window.library.add_audio(np.ones((4800, 2), np.float32) * 0.05, "Pad")
-    pad = window.project.pads[0]
-    pad.sample_id, pad.end = source.id, source.duration
-    window.engine.mode = "pattern"
-    window.engine.playing = window.engine.recording = True
-    window.engine.beat = 1.0
-
-    window._pad_pressed(0, 0.71)
-    window.engine.beat = 1.5
-    window._pad_released(0)
-
-    assert window.project.pattern().notes == [Note(pad.root_note, 1.0, 0.5, 0.71, 0)]

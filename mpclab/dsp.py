@@ -181,20 +181,12 @@ def onset_envelope(x: np.ndarray, sr: int = SR) -> np.ndarray:
 
 def detect_bpm(x: np.ndarray, sr: int = SR, lo: float = 60.0, hi: float = 190.0) -> float:
     """Autocorrelate the onset envelope, pick the strongest plausible tempo."""
-    return tempo_from_envelope(onset_envelope(x, sr), sr / HOP, lo, hi)
-
-
-def tempo_from_envelope(env, fps, lo=60.0, hi=190.0) -> float:
-    """Reuse spectral flux and compute linear correlation in O(n log n)."""
+    env = onset_envelope(x, sr)
     if env.size < 32:
         return 120.0
-    env = np.asarray(env, dtype=np.float64)
     env = env - env.mean()
-    if not np.any(env):
-        return 120.0
-    size = 1 << (2 * env.size - 1).bit_length()
-    spectrum = np.fft.rfft(env, n=size)
-    ac = np.fft.irfft(spectrum * spectrum.conj(), n=size)[: env.size]
+    ac = np.correlate(env, env, mode="full")[env.size - 1 :]
+    fps = sr / HOP
     lags = np.arange(ac.size)
     with np.errstate(divide="ignore", invalid="ignore"):
         bpms = 60.0 * fps / lags
@@ -212,32 +204,7 @@ def tempo_from_envelope(env, fps, lo=60.0, hi=190.0) -> float:
         scores += 0.5 * shifted
     scores[~band] = -np.inf
     best = int(np.argmax(scores))
-    lag = float(best)
-    if 0 < best < len(scores) - 1 and np.isfinite(scores[best - 1 : best + 2]).all():
-        left, center, right = scores[best - 1 : best + 2]
-        curve = left - 2 * center + right
-        if curve < 0:
-            lag += float(np.clip(0.5 * (left - right) / curve, -0.5, 0.5))
-    # Long-lag peaks measure several beats together, reducing frame rounding
-    # error that would otherwise drift bar boundaries over a full song.
-    estimates, weights = [], []
-    for multiple in (2, 4, 8, 16):
-        radius = max(2, int(multiple * 0.6))
-        center = round(lag * multiple)
-        first, last = max(1, center - radius), min(len(ac) - 2, center + radius)
-        if last <= first:
-            continue
-        peak = first + int(np.argmax(ac[first : last + 1]))
-        if peak in (first, last) or ac[peak] <= 0:
-            continue
-        left, height, right = ac[peak - 1 : peak + 2]
-        curve = left - 2 * height + right
-        offset = 0.5 * (left - right) / curve if curve < 0 else 0.0
-        estimates.append((peak + float(np.clip(offset, -0.5, 0.5))) / multiple)
-        weights.append(float(height) * multiple * multiple)
-    if estimates:
-        lag = float(np.average(estimates, weights=weights))
-    bpm = float(60.0 * fps / lag)
+    bpm = float(60.0 * fps / best)
     while bpm < lo * 1.35 and bpm * 2 <= hi:
         bpm *= 2
     return round(bpm, 2)

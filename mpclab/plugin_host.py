@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import base64
 import json
-import math
 import multiprocessing
 import os
 from pathlib import Path
@@ -66,16 +65,24 @@ def receive_packet(connection):
 def plugin_worker(connection, specification, sample_rate):
     """Entry point for multiprocessing spawn (also supported by frozen builds)."""
     try:
+        # Native plugins can write directly to C stdout/stderr. Their child must
+        # not corrupt the export supervisor's JSON stream or flood the terminal.
+        # User-facing failures still travel over the bounded IPC connection.
         with open(os.devnull, "wb") as sink:
             os.dup2(sink.fileno(), 1)
             os.dup2(sink.fileno(), 2)
         import pedalboard_native
 
+        # The native API exposes normalized controls directly. The high-level
+        # wrapper probes thousands of values per parameter to infer units, which
+        # can stall loading MIDI-heavy instruments. Keep this adapter versioned.
         plugin_class = pedalboard_native.VST3Plugin
         if Path(specification["path"]).suffix.casefold() == ".component":
             plugin_class = pedalboard_native.AudioUnitPlugin
 
         def initialize_parameters(self, parameter_values):
+            # The native constructor calls this Python hook. Values are
+            # restored below by stable native index, without unit inference.
             if parameter_values:
                 raise PluginError("Unexpected constructor parameters")
 
@@ -125,26 +132,6 @@ def plugin_worker(connection, specification, sample_rate):
             request, raw = receive_packet(connection)
             if request.get("command") == "close":
                 break
-            updates = request.get("parameters", {})
-            if not isinstance(updates, dict) or len(updates) > 512:
-                raise PluginError("Invalid plugin parameters")
-            if updates:
-                # Pedalboard reset recreates the native processor. Parameter wrappers
-                # retained across it point at the old processor; obtain fresh handles.
-                parameters = {str(p.index): p for p in plugin._parameters if p.is_automatable}
-            for name, value in updates.items():
-                if (
-                    name not in parameters
-                    or not isinstance(value, (int, float))
-                    or not math.isfinite(value)
-                    or not 0 <= value <= 1
-                ):
-                    raise PluginError("Invalid plugin parameter value")
-            for name, value in updates.items():
-                parameters[name].raw_value = float(value)
-            if request.get("command") == "parameters":
-                send_packet(connection, {"updated": True})
-                continue
             frames = request.get("frames", 0)
             if type(frames) is not int or not 1 <= frames <= MAX_FRAMES:
                 raise PluginError("Invalid plugin audio block")
@@ -245,12 +232,6 @@ class IsolatedPlugin:
             raise PluginError(header["error"])
         return header, raw
 
-    def set_parameters(self, values):
-        send_packet(self.connection, {"command": "parameters", "parameters": values})
-        header, _ = self._receive(2)
-        if not header.get("updated"):
-            raise PluginError("Plugin did not accept parameters")
-
     def render(self, audio, frames, midi=(), *, reset=False, timeout=2):
         if self.closed:
             raise PluginError("Plugin is closed")
@@ -263,11 +244,7 @@ class IsolatedPlugin:
             if not np.isfinite(result).all():
                 raise PluginError("Plugin returned nonfinite audio")
             return result
-        except PluginError:
-            self.close()
-            raise
         except (EOFError, BrokenPipeError, OSError) as exc:
-            self.close()
             raise PluginError("Plugin process closed unexpectedly") from exc
 
     def close(self):
@@ -275,6 +252,7 @@ class IsolatedPlugin:
             return
         self.closed = True
         self.connection.close()
+        # This handle refers only to the child created above, never a desktop app.
         if self.process.is_alive():
             self.process.terminate()
         self.process.join(timeout=1)
@@ -294,40 +272,20 @@ class LivePlugin:
         self.results: queue.Queue = queue.Queue(maxsize=4)
         self.error = ""
         self.misses = 0
-        self._consecutive_misses = 0
         self._position = 0
         self._pending = {}
-        self._parameter_lock = threading.Lock()
-        self._parameter_updates = {}
-        self.scope = np.zeros((512, 2), dtype=np.float32)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="Plugin audio bridge", daemon=True)
         self._thread.start()
 
-    def set_parameters(self, values):
-        if len(values) > 512 or any(
-            k not in self.info.get("parameters", {}) or not math.isfinite(v) or not 0 <= v <= 1
-            for k, v in values.items()
-        ):
-            raise PluginError("Invalid plugin parameter value")
-        with self._parameter_lock:
-            self._parameter_updates.update(values)
-
     def _run(self):
         try:
             while not self._stop.is_set():
-                with self._parameter_lock:
-                    updates, self._parameter_updates = self._parameter_updates, {}
-                if updates:
-                    self.plugin.set_parameters(updates)
-                    for key, value in updates.items():
-                        self.info["parameters"][key]["value"] = value
                 try:
                     sequence, audio, frames, midi, reset = self.requests.get(timeout=0.1)
                 except queue.Empty:
                     continue
                 output = self.plugin.render(audio, frames, midi, reset=reset)
-                self.scope = output[-512:].copy()
                 try:
                     self.results.put_nowait((sequence, output))
                 except queue.Full:
@@ -372,18 +330,8 @@ class LivePlugin:
                 del self._pending[number]
         if covered < max(0, end - max(0, wanted)):
             self.misses += 1
-            self._consecutive_misses += 1
-            # A brief worker stall drops only the unavailable samples. Keep
-            # advancing the timeline and forwarding MIDI (especially note-off)
-            # so a healthy plugin can catch up without replaying late audio.
-            # Persistent lag still fails closed, as do queue and worker errors.
-            if self._consecutive_misses >= 8:
-                self.error = (
-                    "Plugin repeatedly missed its audio deadline; reload it or increase the buffer"
-                )
-                return None
-        else:
-            self._consecutive_misses = 0
+            self.error = "Plugin missed its audio deadline; reload it or increase the buffer"
+            return None
         return result
 
     def close(self):

@@ -1,1 +1,0 @@
-"""Versioned, nondestructive vocal correction."""

@@ -25,22 +25,6 @@ PRODUCTION_COMMANDS = (
     "markers.manage",
     "markers.export",
     "audio.analyze_file",
-    "midi.file_import",
-    "midi.file_export",
-    "midi.pattern_export",
-    "audio.loudness",
-    "audio.normalize",
-    "instruments.manage",
-    "automation.copy_lane",
-    "automation.paste_lane",
-    "automation.paste_at_playhead",
-    "track.folder_create",
-    "track.folder_add",
-    "track.folder_toggle",
-    "project.template_save",
-    "project.template_load",
-    "project.import_dawproject",
-    "project.export_dawproject",
 )
 
 
@@ -187,43 +171,6 @@ def main(report=None):
 
     app = QApplication.instance() or QApplication([])
     result = {"native_dsp": STATUS, "qt_platform": app.platformName(), "audio_devices_opened": 0}
-    from .autotune.shifter import shift
-
-    sample = np.arange(48000, dtype=np.float32) / 48000
-    tone = np.repeat((0.1 * np.sin(2 * np.pi * 220 * sample))[:, None], 2, axis=1)
-    tuned = shift(tone, np.array([2 ** (2 / 12)]), np.array([0.0]), 48000, 1.0)
-    spectrum = abs(np.fft.rfft(tuned[12000:36000, 0] * np.hanning(24000)))
-    frequency = np.argmax(spectrum) * 2
-    if tuned.shape != tone.shape or not 244 <= frequency <= 250:
-        raise RuntimeError("Installed V2 pitch engine failed its measured output check")
-    result["autotune_v2"] = {
-        "backend": "rubberband-r3",
-        "frames": len(tuned),
-        "measured_hz": float(frequency),
-    }
-    from .companion import server as companion_server
-
-    if not (Path(companion_server.__file__).parent / "client.js").is_file():
-        raise RuntimeError("Browser companion assets missing")
-    result["browser_companion_assets"] = True
-    from .prism import bundled_plugin
-
-    prism = bundled_plugin()
-    result["prism_bundled"] = prism is not None
-    if prism is not None:
-        instrument = IsolatedPlugin({"path": str(prism)})
-        try:
-            audio = instrument.render(None, 1024, [([0x90, 60, 100], 0)])
-            if (
-                not instrument.info["instrument"]
-                or not np.isfinite(audio).all()
-                or np.max(np.abs(audio)) < 0.0001
-            ):
-                raise RuntimeError("Bundled Prism instrument failed its native audio check")
-            result["prism_audio"] = True
-            result["prism_parameters"] = len(instrument.info["parameters"])
-        finally:
-            instrument.close()
     result["native_output_callback"] = True
     result["native_core_abi"] = int(NATIVE.lib.anh_core_abi())
     host = IsolatedPlugin({}, worker=plugin_runtime_probe)

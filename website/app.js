@@ -76,20 +76,14 @@
 
   const config = window.ANHARMONIC_CONFIG || {};
   const installationGuidance = document.querySelector('#installation-guidance');
-  const privacyStatement = document.querySelector('#privacy');
-  const revealTargetDetails = () => {
-    if (location.hash === '#installation-guidance' && installationGuidance) installationGuidance.open = true;
-    if (location.hash === '#privacy' && privacyStatement) privacyStatement.open = true;
+  const revealInstallationGuidance = () => {
+    if (location.hash === '#installation-guidance') installationGuidance.open = true;
   };
-  window.addEventListener('hashchange', revealTargetDetails);
-  document.querySelectorAll('a[href="#installation-guidance"], a[href="#privacy"]').forEach(link => {
-    link.addEventListener('click', event => {
-      const href = link.getAttribute('href');
-      if (href === '#installation-guidance' && installationGuidance) installationGuidance.open = true;
-      if (href === '#privacy' && privacyStatement) privacyStatement.open = true;
-    });
+  window.addEventListener('hashchange', revealInstallationGuidance);
+  document.querySelectorAll('a[href="#installation-guidance"]').forEach(link => {
+    link.addEventListener('click', () => { installationGuidance.open = true; });
   });
-  revealTargetDetails();
+  revealInstallationGuidance();
   const dialog = document.querySelector('#download-dialog');
   dialog.querySelector('.dialog-close').addEventListener('click', () => dialog.close());
   dialog.addEventListener('click', event => {
@@ -172,18 +166,4 @@
     document.querySelector('.pack-card .price-note').textContent = 'Checkout is closed right now.';
     document.querySelector('.pack-card .commerce-link').firstChild.textContent = 'Download details ';
   }
-  document.querySelectorAll('[data-youtube]').forEach(preview => {
-    preview.addEventListener('click', event => {
-      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      event.preventDefault();
-      const player = document.createElement('iframe');
-      player.src = `https://www.youtube-nocookie.com/embed/${preview.dataset.youtube}?autoplay=1&rel=0`;
-      player.title = preview.getAttribute('aria-label').replace(/^Play /, '');
-      player.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
-      player.allowFullscreen = true;
-      player.referrerPolicy = 'strict-origin-when-cross-origin';
-      preview.replaceWith(player);
-      player.focus();
-    });
-  });
 })();
