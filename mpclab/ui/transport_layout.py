@@ -46,7 +46,7 @@ def _build_transport(window) -> QWidget:
     window.btn_play.setObjectName("play")
     window.btn_play.setCheckable(True)
     window.btn_play.setFixedWidth(38)
-    window.btn_play.setToolTip("Play / pause (Space) · double-tap Space to restart from top")
+    window.btn_play.setToolTip("Play / pause  (Space)")
     window.btn_play.clicked.connect(window.toggle_play)
     window.btn_stop = QPushButton("■")
     window.btn_stop.setFixedWidth(38)
@@ -57,8 +57,7 @@ def _build_transport(window) -> QWidget:
     window.btn_rec.setCheckable(True)
     window.btn_rec.setFixedWidth(38)
     window.btn_rec.setToolTip(
-        "Record into the armed Song track; otherwise record the current pattern. "
-        "When a pattern is already playing, Record overdubs immediately. (R)"
+        "Record into the armed Song track; otherwise record the current pattern (R)"
     )
     window.btn_rec.toggled.connect(window._record_toggled)
     for b in (window.btn_play, window.btn_stop, window.btn_rec):
@@ -66,7 +65,7 @@ def _build_transport(window) -> QWidget:
         lay.addWidget(b)
     window.btn_play.setAccessibleName("Play or pause")
     window.btn_stop.setAccessibleName("Stop and rewind")
-    window.btn_rec.setAccessibleName("Record or overdub")
+    window.btn_rec.setAccessibleName("Record with three-beat count-in")
     window.record_count_label = QLabel()
     window.record_count_label.setAccessibleName("Recording countdown")
     window.record_count_label.setStyleSheet("font-size: 24px; font-weight: bold;")
@@ -88,8 +87,6 @@ def _build_transport(window) -> QWidget:
     window.btn_pattern.hide()
     window.btn_song.hide()
     window.playback_scope = QComboBox()
-    window.playback_scope.setObjectName("transportScope")
-    window.playback_scope.setAccessibleName("Playback scope")
     window.playback_scope.addItem("Current pattern", "pattern")
     window.playback_scope.addItem("Song timeline", "song")
     window.playback_scope.setToolTip("Transport playback scope · L switches")
@@ -98,7 +95,6 @@ def _build_transport(window) -> QWidget:
     )
     window.btn_song.toggled.connect(window._sync_playback_scope)
     window.btn_pattern.toggled.connect(window._sync_playback_scope)
-    window._refresh_transport_scope_visual()
     lay.addWidget(window.playback_scope)
 
     lay.addSpacing(8)
@@ -245,6 +241,8 @@ def _build_transport(window) -> QWidget:
         window.btn_cut_self,
         window.master_title,
         window.master_slider,
+        window.project_action_buttons["load"],
+        window.project_action_buttons["export"],
         window.btn_typing,
         window.audio_buffer,
         window.btn_audio_retry,

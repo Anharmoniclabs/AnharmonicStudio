@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-import math
-import json
-from pathlib import Path
 
 import numpy as np
 
@@ -438,12 +435,6 @@ for category, name, source, changes in (
     PATCH_CATEGORIES[name] = category
 
 
-for _entry in json.loads((Path(__file__).resolve().parent / "prism_expansion.json").read_text()):
-    PATCHES[_entry["name"]] = replace(
-        PATCHES[_entry["source"]], name=_entry["name"], **_entry["changes"]
-    )
-    PATCH_CATEGORIES[_entry["name"]] = _entry["category"]
-
 PATCHES.update(orchestra.PATCHES)
 PATCH_CATEGORIES.update(orchestra.CATEGORIES)
 PATCH_DESCRIPTIONS = orchestra.DESCRIPTIONS
@@ -536,26 +527,21 @@ class SynthVoice:
     ic2_r: float = 0.0
     dead: bool = False
     live_trigger: bool = True  # keyboard/arp ownership, independent of gate length
-    event_source: object = None
-    trigger_id: object = None
     instrument_id: str | None = None
     patch_ref: SynthPatch | None = None
+    midi_channel: int = 0
+    midi_owner: str | None = None
+    pitch_bend: float = 0.0
+    expression_gain: float = 1.0
+    modulation: float = 0.0
+    pressure: float = 0.0
 
     def __post_init__(self):
         self._rng = default_rng(self.note * 7919 + self.age)
         self._env_state = np.zeros(4, dtype=np.float64)
         self._filter_state = np.zeros(4, dtype=np.float64)
-        # The final seven slots keep the half-rate filter pair and held output
-        # continuous when an audio callback ends on an odd frame.
-        self._native_state = np.zeros(19, dtype=np.float64)
+        self._native_state = np.zeros(12, dtype=np.float64)
         self._native_params = np.zeros(23, dtype=np.float64)
-        self._half_pending = False
-        self._half_left = 0.0
-        self._half_right = 0.0
-        self._half_envelope = 0.0
-        self._half_lfo = 0.0
-        self._half_hold_left = 0.0
-        self._half_hold_right = 0.0
         self._orchestra = None
 
     def note_off(self, release: float) -> None:
@@ -628,7 +614,7 @@ class SynthVoice:
     def _render_native(self, dest, patch, offset, n):
         stages = ("attack", "decay", "sustain", "release")
         kinds = {"saw": 0, "sine": 1, "triangle": 2, "square": 3}
-        base = midi_to_hz(self.note)
+        base = midi_to_hz(self.note + self.pitch_bend)
         sr = self.sample_rate
         # All allocations and Python work are per block, never per sample.
         self._native_params[:] = (
@@ -647,13 +633,13 @@ class SynthVoice:
             min(0.9, max(0.1, patch.pulse_width)),
             patch.sub,
             patch.noise,
-            patch.lfo_pitch,
+            patch.lfo_pitch + self.modulation * 40,
             patch.lfo_filter,
             patch.filter_env,
-            patch.cutoff,
+            min(20000, patch.cutoff * (1 + self.pressure)),
             2.0 - 1.92 * min(0.98, max(0.0, patch.resonance)),
             1.0 + max(0.0, patch.drive) * 9.0,
-            min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume),
+            min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume) * self.expression_gain,
             1.0 / max(1.0, 1.0 + patch.sub + patch.noise),
         )
         self._native_state[:] = (
@@ -669,17 +655,10 @@ class SynthVoice:
             self.ic2_l,
             self.ic1_r,
             self.ic2_r,
-            self._half_pending,
-            self._half_left,
-            self._half_right,
-            self._half_envelope,
-            self._half_lfo,
-            self._half_hold_left,
-            self._half_hold_right,
         )
         NATIVE.synth(
             dest[offset:],
-            self._rng.uniform(-1.0, 1.0, n * 2),
+            self._rng.uniform(-1.0, 1.0, n),
             self._native_params,
             self._native_state,
             self.age,
@@ -689,25 +668,13 @@ class SynthVoice:
         self.phase1, self.phase2, self.phase_sub, self.lfo_phase = map(float, state[:4])
         self.envelope, self.stage = float(state[4]), stages[int(state[5])]
         self.release_step, self.dead = float(state[6]), bool(state[7])
-        self.ic1_l, self.ic2_l, self.ic1_r, self.ic2_r = map(float, state[8:12])
-        self._half_pending = bool(state[12])
-        (
-            self._half_left,
-            self._half_right,
-            self._half_envelope,
-            self._half_lfo,
-            self._half_hold_left,
-            self._half_hold_right,
-        ) = map(float, state[13:])
+        self.ic1_l, self.ic2_l, self.ic1_r, self.ic2_r = map(float, state[8:])
         self.age += n
 
     def render(self, dest: np.ndarray, patch: SynthPatch) -> None:
-        # A host may split a scheduled start across arbitrary small callbacks.
-        # Consume only frames actually supplied; dropping the entire offset on
-        # a short block would change both note timing and DSP partitioning.
-        offset = min(max(0, self.start_offset), len(dest))
+        offset = max(0, self.start_offset)
         n = len(dest) - offset
-        self.start_offset = max(0, self.start_offset - len(dest))
+        self.start_offset = 0
         if n <= 0 or self.dead:
             return
 
@@ -718,7 +685,7 @@ class SynthVoice:
                 )
             envelope = self._envelope(n, patch)
             audio = self._orchestra.render(n, patch)
-            gain = envelope * min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume)
+            gain = envelope * min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume) * self.expression_gain
             dest[offset:] += (audio * gain[:, None]).astype(np.float32)
             self.age += n
             if self._orchestra.finished:
@@ -735,8 +702,8 @@ class SynthVoice:
         lfo = np.sin(2.0 * np.pi * lfo_phase)
         self.lfo_phase = float(np.mod(self.lfo_phase + n * lfo_step, 1.0))
 
-        base = midi_to_hz(self.note)
-        pitch_mod = np.exp2(lfo * patch.lfo_pitch / 1200.0)
+        base = midi_to_hz(self.note + self.pitch_bend)
+        pitch_mod = np.exp2(lfo * (patch.lfo_pitch + self.modulation * 40) / 1200.0)
         step1 = np.minimum(0.45, base * pitch_mod / sr)
         f2 = base * (2.0**patch.osc2_octave) * (2.0 ** (patch.detune / 1200.0))
         step2 = np.minimum(0.45, f2 * pitch_mod / sr)
@@ -748,68 +715,76 @@ class SynthVoice:
         osc1 = _oscillator(patch.osc1, ph1, step1, patch.pulse_width)
         osc2 = _oscillator(patch.osc2, ph2, step2, patch.pulse_width)
         sub = np.sin(2.0 * np.pi * phs)
-        noise = self._rng.uniform(-1.0, 1.0, (n, 2))
+        noise = self._rng.uniform(-1.0, 1.0, n)
 
         mix = min(1.0, max(0.0, patch.osc_mix))
         spread = min(1.0, max(0.0, patch.spread)) * 0.32
         left = osc1 * (1.0 - mix) * (1.0 + spread) + osc2 * mix * (1.0 - spread)
         right = osc1 * (1.0 - mix) * (1.0 - spread) + osc2 * mix * (1.0 + spread)
-        left += sub * patch.sub + noise[:, 0] * patch.noise
-        right += sub * patch.sub + noise[:, 1] * patch.noise
+        left += sub * patch.sub + noise * patch.noise
+        right += sub * patch.sub + noise[::-1] * patch.noise
         norm = 1.0 / max(1.0, 1.0 + patch.sub + patch.noise)
         left *= norm
         right *= norm
 
         env = self._envelope(n, patch)
-        # A pair cannot be filtered until its second source frame exists.
-        # Preserve an odd first frame across calls and emit its filtered result
-        # on the second frame, holding it through the next first frame.  This
-        # makes the half-rate path causal (one-frame latency) and independent
-        # of host callback partitioning.
+        # The nonlinear state-variable filter runs at half rate, then is
+        # linearly held back to the audio rate. This keeps 8-voice performance
+        # safely inside the real-time callback while retaining the warm band that
+        # an analog low-pass is meant to shape.
+        if n > 1:
+            pair_count = n // 2
+            left_half = (left[: pair_count * 2 : 2] + left[1 : pair_count * 2 : 2]) * 0.5
+            right_half = (right[: pair_count * 2 : 2] + right[1 : pair_count * 2 : 2]) * 0.5
+            env_half = env[: pair_count * 2 : 2]
+            lfo_half = lfo[: pair_count * 2 : 2]
+            if n % 2:
+                left_half = np.append(left_half, left[-1])
+                right_half = np.append(right_half, right[-1])
+                env_half = np.append(env_half, env[-1])
+                lfo_half = np.append(lfo_half, lfo[-1])
+        else:
+            left_half, right_half, env_half, lfo_half = left, right, env, lfo
         filter_rate = sr * 0.5
+        cutoff = patch.cutoff * np.exp2(
+            patch.filter_env * env_half * 4.5 + patch.lfo_filter * lfo_half * 3.0
+        )
+        cutoff = np.clip(cutoff, 30.0, filter_rate * 0.44)
+        high_blend = np.clip((cutoff - filter_rate * 0.28) / (filter_rate * 0.16), 0.0, 1.0)
+        g = np.tan(np.pi * cutoff / filter_rate)
         k = 2.0 - 1.92 * min(0.98, max(0.0, patch.resonance))
+        filtered_l = np.empty(len(left_half), dtype=np.float64)
+        filtered_r = np.empty(len(right_half), dtype=np.float64)
         drive = 1.0 + max(0.0, patch.drive) * 9.0
-        filtered_l = np.empty(n, dtype=np.float64)
-        filtered_r = np.empty(n, dtype=np.float64)
-        for i in range(n):
-            if self._half_pending:
-                pair_l = math.tanh((self._half_left + left[i]) * 0.5 * drive)
-                pair_r = math.tanh((self._half_right + right[i]) * 0.5 * drive)
-                cutoff = patch.cutoff * math.exp2(
-                    patch.filter_env * self._half_envelope * 4.5
-                    + patch.lfo_filter * self._half_lfo * 3.0
-                )
-                cutoff = min(filter_rate * 0.44, max(30.0, cutoff))
-                blend = min(
-                    1.0,
-                    max(0.0, (cutoff - filter_rate * 0.28) / (filter_rate * 0.16)),
-                )
-                g = math.tan(math.pi * cutoff / filter_rate)
-                a1 = 1.0 / (1.0 + g * (g + k))
-                a2 = g * a1
-                a3 = g * a2
-                v3 = pair_l - self.ic2_l
+        left_half = np.tanh(left_half * drive)
+        right_half = np.tanh(right_half * drive)
+        if NATIVE is not None:
+            self._filter_state[:] = (self.ic1_l, self.ic2_l, self.ic1_r, self.ic2_r)
+            NATIVE.filter(left_half, right_half, g, self._filter_state, filtered_l, filtered_r, k)
+            self.ic1_l, self.ic2_l, self.ic1_r, self.ic2_r = map(float, self._filter_state)
+        else:
+            for i in range(len(left_half)):
+                a1 = 1.0 / (1.0 + g[i] * (g[i] + k))
+                a2 = g[i] * a1
+                a3 = g[i] * a2
+                v3 = left_half[i] - self.ic2_l
                 v1 = a1 * self.ic1_l + a2 * v3
                 v2 = self.ic2_l + a2 * self.ic1_l + a3 * v3
                 self.ic1_l, self.ic2_l = 2.0 * v1 - self.ic1_l, 2.0 * v2 - self.ic2_l
-                v2_l = v2
-                v3 = pair_r - self.ic2_r
+                filtered_l[i] = v2
+                v3 = right_half[i] - self.ic2_r
                 v1 = a1 * self.ic1_r + a2 * v3
                 v2 = self.ic2_r + a2 * self.ic1_r + a3 * v3
                 self.ic1_r, self.ic2_r = 2.0 * v1 - self.ic1_r, 2.0 * v2 - self.ic2_r
-                v2_r = v2
-                self._half_hold_left = v2_l * (1.0 - blend) + pair_l * blend
-                self._half_hold_right = v2_r * (1.0 - blend) + pair_r * blend
-                self._half_pending = False
-            else:
-                self._half_pending = True
-                self._half_left = float(left[i])
-                self._half_right = float(right[i])
-                self._half_envelope = float(env[i])
-                self._half_lfo = float(lfo[i])
-            filtered_l[i] = self._half_hold_left
-            filtered_r[i] = self._half_hold_right
-        gain = env * min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume)
+                filtered_r[i] = v2
+
+        # Open-filter settings blend the saturated signal back in, restoring
+        # the airy top octave that the efficient half-rate filter omits.
+        filtered_l = filtered_l * (1.0 - high_blend) + left_half * high_blend
+        filtered_r = filtered_r * (1.0 - high_blend) + right_half * high_blend
+        filtered_l = np.repeat(filtered_l, 2)[:n]
+        filtered_r = np.repeat(filtered_r, 2)[:n]
+        gain = env * min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume) * self.expression_gain
         dest[offset:, 0] += (filtered_l * gain).astype(np.float32)
         dest[offset:, 1] += (filtered_r * gain).astype(np.float32)
         self.age += n

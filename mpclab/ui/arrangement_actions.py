@@ -20,7 +20,7 @@ from ..model import (
     uid,
 )
 from .. import separate
-from .playlist import RULER_H
+from .playlist import ROW_H, RULER_H
 
 
 def set_playlist_focus(window, on: bool):
@@ -32,10 +32,12 @@ def set_playlist_focus(window, on: bool):
             not window.browser_frame.isHidden(),
             not window.pad_side.isHidden(),
         )
-        # Focus should expand the arrangement in the window the producer
-        # is already using.  In particular, do not restore a maximized
-        # Studio window: that made F11 visibly *shrink* the workspace on
-        # desktop environments where it is most useful.
+        # Focus mode exists so the timeline can sit beside another window.
+        # A maximized window ignores resize(), so leave that state — and
+        # remember it, to put the workspace back the way it was on exit.
+        window._was_maximized = window.isMaximized()
+        if window._was_maximized:
+            window.showNormal()
         window.browser_frame.hide()
         window.pad_side.hide()
         window.tabs.setCurrentIndex(2)
@@ -44,19 +46,13 @@ def set_playlist_focus(window, on: bool):
         window.browser_frame.setVisible(visible[0])
         window.pad_side.setVisible(visible[1])
         window.main_splitter.setSizes(window._normal_split_sizes or [304, 1066, 300])
+        if getattr(window, "_was_maximized", False):
+            window.showMaximized()
+            window._was_maximized = False
     for widget in window.transport_focus_hidden:
         widget.setVisible(not on)
-    window._sync_responsive_panels()
     window._sync_compact_playlist_ui()
     window.btn_playlist_focus.setText("⛶ EXIT" if on else "⛶ FOCUS")
-    if hasattr(window, "btn_workspace_focus"):
-        window.btn_workspace_focus.setChecked(on)
-        window.btn_workspace_focus.setText("EXIT FOCUS" if on else "ARRANGE")
-        window.btn_workspace_focus.setToolTip(
-            "Restore Browser and Inspector (F11)"
-            if on
-            else "Give Song Arrange the full workspace (F11)"
-        )
     # Showing and hiding widgets only *queues* the layout requests that
     # move the window's minimum size.  Flush them here, after every
     # visibility change above, or the first resize following a focus-mode
@@ -72,14 +68,6 @@ def _sync_compact_playlist_ui(window):
         return
     focused = bool(getattr(window, "_playlist_focus", False))
     narrow = window.width() < 1200
-    if hasattr(window, "playlist_tool_scroll"):
-        window.playlist_tool_scroll.setVisible(not focused)
-        window.playlist_tool_selector.setVisible(focused)
-        layout = window.playlist_placement_layout
-        layout.invalidate()
-        layout.parentWidget().setMinimumWidth(
-            max(layout.sizeHint().width(), layout.minimumSize().width())
-        )
     window.playlist_hint.setVisible(not focused and window.width() >= 1450)
     window.playlist_place_label.setVisible(not focused and not narrow)
     window.playlist_snap_label.setVisible(not focused and not narrow)
@@ -95,31 +83,10 @@ def set_playlist_tool(window, tool: str):
     button = window.playlist_tool_buttons.get(tool)
     if button and not button.isChecked():
         button.setChecked(True)
-    window._sync_playlist_tool_accessibility(tool)
     window.status.showMessage(f"Playlist tool · {tool}", 1200)
 
 
-def _sync_playlist_tool_accessibility(window, active_tool: str):
-    selector = window.playlist_tool_selector
-    selector.blockSignals(True)
-    selector.setCurrentIndex(selector.findData(active_tool))
-    selector.blockSignals(False)
-    """Expose compact Playlist edit-mode glyphs as a named live choice."""
-    if active_tool not in window._playlist_tool_details:
-        return
-    active_name, _ = window._playlist_tool_details[active_tool]
-    for tool, button in window.playlist_tool_buttons.items():
-        name, tip = window._playlist_tool_details[tool]
-        state = "Selected editing mode" if tool == active_tool else "Not selected"
-        button.setAccessibleDescription(f"{tip}. {state}.")
-    window.playlist_tool_mode_label.setText(f"MODE · {active_name.upper()}")
-    window.playlist_tool_mode_label.setAccessibleDescription(
-        f"Playlist editing mode: {active_name}."
-    )
-
-
 def _playlist_selection_changed(window, clip):
-    window._sync_compact_playlist_ui()
     if clip is not None:
         source = (clip.kind, clip.ref)
         if clip.kind == "pattern" and not any(
@@ -171,25 +138,21 @@ def _playlist_selection_changed(window, clip):
     for index, track in enumerate(window.project.tracks):
         window.clip_track.addItem(f"{index + 1} · {track.name}", index)
     window.clip_crossfade.blockSignals(True)
-    window.clip_length.blockSignals(True)
     window.btn_clip_loop.setChecked(bool(audio and clip.loop))
     window.btn_clip_reverse.setChecked(bool(audio and clip.reverse))
     window.clip_gain.setValue(round((clip.gain if clip else 1.0) * 100))
     window.clip_track.setCurrentIndex(clip.track if clip else 0)
     window.clip_crossfade.setValue((clip.loop_crossfade if audio else 0.0) * 1000.0)
-    window.clip_length.setValue(clip.length_beats if clip else 1.0)
     window.btn_clip_loop.blockSignals(False)
     window.btn_clip_reverse.blockSignals(False)
     window.clip_gain.blockSignals(False)
     window.clip_track.blockSignals(False)
     window.clip_crossfade.blockSignals(False)
-    window.clip_length.blockSignals(False)
     window.btn_clip_loop.setEnabled(audio)
     window.btn_clip_reverse.setEnabled(audio)
     window.clip_gain.setEnabled(bool(clip))
     window.clip_track.setEnabled(audio)
     window.clip_crossfade.setEnabled(audio)
-    window.clip_length.setEnabled(audio)
 
 
 def rename_song_row(window, row):
@@ -274,16 +237,7 @@ def export_selected_clip(window):
         copies = int(np.ceil(arranged / len(segment)))
         segment = np.tile(segment, (copies, 1))[:arranged]
     else:
-        # Match the engine's clip-rate calculation so a saved clip has
-        # the same duration and pitch as Song playback.
-        source_positions = np.linspace(0, len(segment) - 1, arranged)
-        source_frames = np.arange(len(segment))
-        segment = np.column_stack(
-            [
-                np.interp(source_positions, source_frames, segment[:, channel])
-                for channel in range(segment.shape[1])
-            ]
-        ).astype(np.float32, copy=False)
+        segment = segment[:arranged]
     segment = np.clip(segment * clip.gain, -1.0, 1.0)
     source_name = window.library.clips.get(clip.ref).name
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -332,7 +286,7 @@ def add_vocal_track(window):
     window.track_capture.arm(row)
     window.playlist.refresh()
     window.prepare_vocal_recording()
-    window.song_scroll.ensureVisible(0, int(RULER_H + index * window.playlist.row_height))
+    window.song_scroll.ensureVisible(0, RULER_H + index * ROW_H)
 
 
 def open_vocal_clip(window, clip=None):
@@ -352,8 +306,7 @@ def add_song_row(window):
     window.track_controls_button.setChecked(True)
     window.playlist.refresh()
     window.song_scroll.ensureVisible(
-        int(window.playlist.beat_to_x(0)),
-        int(RULER_H + len(window.project.rows) * window.playlist.row_height),
+        int(window.playlist.beat_to_x(0)), RULER_H + len(window.project.rows) * ROW_H
     )
 
 
@@ -401,14 +354,3 @@ def adopt_stems(window, job) -> list[str]:
         archived.parent.mkdir(parents=True, exist_ok=True)
         os.replace(folder, archived)
     return imported
-
-
-def _selected_clip_length(window, value: float):
-    clip = window.playlist.selected_clip
-    length = max(0.03125, float(value))
-    if clip and clip.kind == "audio" and abs(clip.length_beats - length) > 1e-9:
-        window.snapshot()
-        clip.length_beats = length
-        window._set_dirty(True)
-        window.playlist.refresh()
-        window.status.showMessage(f"audio stretched to {length:g} beats · source unchanged", 2500)

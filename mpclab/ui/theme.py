@@ -83,15 +83,15 @@ def label_font(point_size: float = 8.0, bold: bool = False) -> "QFont":
     return font
 
 
-# Warm grey studio surfaces with a muted blush default accent. Distinct track
+# Graphite studio surfaces with a warm amber default accent. Distinct track
 # hues carry musical structure; transport red and signal green retain their
 # established meanings. Projects may still choose their own accent.
 
 LIGHT = {
     # surfaces
-    "bg": "#e8e3e5",  # window
-    "bg2": "#f4f0f2",  # panels
-    "bg3": "#e3dcdf",  # headers, buttons
+    "bg": "#e6e7e9",  # window
+    "bg2": "#f1f2f3",  # panels
+    "bg3": "#dfe1e5",  # headers, buttons
     "line": "#c6c9cf",
     "canvas": "#fafafb",  # waveform / timeline background
     "input_bg": "#fafafb",
@@ -124,10 +124,10 @@ LIGHT = {
     "hover": "#d9dce2",
     "hover_line": "#8d939e",
     "press": "#c9cdd4",
-    "disabled_bg": "#e8e3e5",
+    "disabled_bg": "#e6e7e9",
     "item_hover": "#e3e5e9",
     "item_sel": "#e5dccb",
-    "scroll_track": "#e8e3e5",
+    "scroll_track": "#e6e7e9",
     "scroll_thumb": "#b6bac3",
     "scroll_thumb_hi": "#8d939e",
     "tip_bg": "#fafafb",
@@ -163,26 +163,26 @@ LIGHT = {
 }
 
 DARK = {
-    "bg": "#201e22",
-    "bg2": "#29262b",
-    "bg3": "#343037",
-    "line": "#49434b",
-    "canvas": "#1c1a1e",
-    "input_bg": "#242126",
-    "surface_hi": "#343037",
-    "surface_lo": "#343037",
-    "surface_hi2": "#433c45",  # hover
-    "surface_lo2": "#433c45",
-    "edge": "#49434b",
-    "sunken": "#242126",
+    "bg": "#080e15",
+    "bg2": "#0d1721",
+    "bg3": "#152331",
+    "line": "#283e50",
+    "canvas": "#070f17",
+    "input_bg": "#09131d",
+    "surface_hi": "#152331",
+    "surface_lo": "#152331",
+    "surface_hi2": "#213447",  # hover
+    "surface_lo2": "#213447",
+    "edge": "#283e50",
+    "sunken": "#09131d",
     "glow": "#8e754f",
     "accent_deep": "#6a512d",
     "fg": "#e8e9ed",
     "dim": "#b0b4be",
     "dim2": "#858b98",
-    "accent": "#c692a4",
-    "accent_hi": "#e0b2c1",
-    "accent2": "#e0b2c1",
+    "accent": "#d6ab65",
+    "accent_hi": "#ebc58b",
+    "accent2": "#ebc58b",
     "accent_ink": "#f1d5ad",
     "rec": "#df7c85",
     "ok": "#73bca3",
@@ -190,18 +190,18 @@ DARK = {
     "on_accent2": "#191a1d",
     "on_ok": "#14211c",
     "on_rec": "#251417",
-    "hover": "#433c45",
+    "hover": "#213447",
     "hover_line": "#747b89",
-    "press": "#302b32",
-    "disabled_bg": "#29262b",
-    "item_hover": "#363037",
-    "item_sel": "#463640",
-    "scroll_track": "#201e22",
-    "scroll_thumb": "#5b515c",
+    "press": "#101d29",
+    "disabled_bg": "#0d1721",
+    "item_hover": "#172938",
+    "item_sel": "#423a2e",
+    "scroll_track": "#080e15",
+    "scroll_thumb": "#304658",
     "scroll_thumb_hi": "#727a89",
-    "tip_bg": "#343037",
-    "prog_track": "#242126",
-    "wave": "#dba8ba",
+    "tip_bg": "#152331",
+    "prog_track": "#09131d",
+    "wave": "#dfb979",
     "wavedim": "#705b3c",
     "pad": "#33363d",
     "pad_empty": "#27292f",
@@ -214,7 +214,7 @@ DARK = {
     "cell_beat": "#383d47",
     "cell_bar": "#666e7c",
     "cell_line": "#464c57",
-    "cell_on_line": "#e0b2c1",
+    "cell_on_line": "#ebc58b",
     "clip_pat": "#655338",
     "clip_pat_line": "#c8a66f",
     "clip_pat_ink": "#f1dfc5",
@@ -223,7 +223,7 @@ DARK = {
     "clip_aud_ink": "#d8e8ee",
     "clip_muted": "#343841",
     "clip_title_ink": "#e8e9ed",
-    "meter_mid": "#c692a4",
+    "meter_mid": "#d6ab65",
 }
 
 # Track colors distinguish drums, bass, chords, melody and vocal lanes.
@@ -238,7 +238,7 @@ TRACK_COLORS_LIGHT = [
     "#656d7b",
 ]
 TRACK_COLORS_DARK = [
-    "#c692a4",
+    "#d6ab65",
     "#64b8aa",
     "#c5b465",
     "#a487b6",
@@ -254,7 +254,7 @@ PALETTES = {"light": LIGHT, "dark": DARK}
 # in place rather than rebound. Starts dark — black is half the scheme.
 # Detected-sample colors use the same studio family as arrangement lanes.
 HIT_COLORS_DARK = {
-    "kick": "#c692a4",
+    "kick": "#d6ab65",
     "snare": "#64b8aa",
     "clap": "#d38999",
     "hat": "#c5b465",
@@ -406,10 +406,7 @@ QLabel {{ background: transparent; }}
 QMainWindow, QDialog {{ background: {C["bg"]}; }}
 
 /* ── surfaces ─────────────────────────────────────────── */
-QFrame#panel {{
-    background: {C["bg2"]};
-    border: 1px solid {C["line"]}; border-radius: 5px;
-}}
+QFrame#panel {{ background: {C["bg2"]}; border: none; }}
 QWidget#strip {{
     background: {C["bg2"]};
     border: 1px solid {C["line"]}; border-radius: 2px;
@@ -436,15 +433,15 @@ QFrame#jobCard {{
     border: 1px solid {C["line"]}; border-radius: 2px;
 }}
 QWidget#projectBar {{
-    background: {C["bg3"]}; border-bottom: 2px solid {C["accent"]};
+    background: {C["bg2"]}; border-bottom: 1px solid {C["line"]};
 }}
 QWidget#projectBar QLabel#logo {{ font-size: 17px; }}
 QLabel#workspaceTitle {{
     color: {C["fg"]}; font-size: 17px; font-weight: 600; padding: 4px 0 8px 0;
 }}
 QWidget#transportBar {{
-    background: {C["bg3"]};
-    border-bottom: 1px solid {C["hover_line"]};
+    background: {C["bg2"]};
+    border-bottom: 1px solid {C["line"]};
 }}
 QWidget#toolbar {{
     background: {C["bg2"]}; border-bottom: 1px solid {C["line"]};
@@ -466,9 +463,8 @@ QStatusBar::item {{ border: none; }}
 
 /* ── lettering ────────────────────────────────────────── */
 QLabel#header {{
-    background: {C["bg3"]}; color: {C["accent2"]};
-    padding: 6px 9px; font-size: 11px; font-weight: 700;
-    border-left: 3px solid {C["accent"]};
+    background: {C["bg3"]}; color: {C["dim"]};
+    padding: 5px 8px; font-size: 11px; font-weight: 500;
     border-bottom: 1px solid {C["line"]};
 }}
 QLabel#hint {{ color: {C["dim2"]}; font-size: 11px; }}
@@ -480,20 +476,6 @@ QLabel#counter {{
     border: 1px solid {C["line"]}; border-radius: 2px;
     padding: 3px 9px; font-size: 17px;
     font-family: {MONO_FONT};
-}}
-QComboBox#transportScope {{
-    font-weight: 600;
-    padding-left: 8px;
-    padding-right: 18px;
-}}
-QComboBox#transportScope[scope="pattern"] {{
-    color: {C["fg"]};
-    border-color: {C["ok"]};
-}}
-QComboBox#transportScope[scope="song"] {{
-    background: {C["item_sel"]};
-    color: {C["accent"]};
-    border-color: {C["accent"]};
 }}
 QDoubleSpinBox, QSpinBox, QLabel#readout {{ font-family: {MONO_FONT}; }}
 QLabel#readout {{ color: {C["dim"]}; }}
@@ -520,18 +502,6 @@ QPushButton:pressed, QToolButton:pressed {{
 QPushButton#mini {{
     padding: 3px 6px; font-size: 11px; border-radius: 2px;
 }}
-QPushButton#editTool {{
-    background: {C["bg2"]}; color: {C["dim"]};
-    border: 1px solid {C["line"]}; border-radius: 5px;
-    padding: 5px 10px; font-weight: 600;
-}}
-QPushButton#editTool:hover {{
-    background: {C["hover"]}; color: {C["fg"]}; border-color: {C["accent"]};
-}}
-QPushButton#editTool:checked {{
-    background: {C["accent"]}; color: {C["on_accent"]}; border-color: {C["accent_hi"]};
-}}
-QPushButton#editTool:focus {{ border: 1px dashed {C["fg"]}; }}
 
 QPushButton#go, QPushButton#go2 {{
     background: {C["item_sel"]};
@@ -569,16 +539,16 @@ QPushButton#play:checked {{
 }}
 QPushButton#workspaceTab {{
     background: transparent; color: {C["dim"]};
-    border: 1px solid transparent; border-bottom: 3px solid transparent;
-    border-radius: 4px 4px 0 0; padding: 5px 10px; font-weight: 600;
+    border: none; border-bottom: 2px solid transparent;
+    border-radius: 0; padding: 4px 9px; font-weight: 500;
 }}
 QPushButton#workspaceTab:hover {{
     background: {C["item_hover"]}; color: {C["fg"]};
     border-bottom: 2px solid {C["hover_line"]};
 }}
 QPushButton#workspaceTab:checked {{
-    background: {C["item_sel"]}; color: {C["accent2"]};
-    border: 1px solid {C["glow"]}; border-bottom: 3px solid {C["accent"]}; font-weight: 700;
+    background: {C["bg3"]}; color: {C["fg"]};
+    border-bottom: 2px solid {C["accent"]}; font-weight: 600;
 }}
 QPushButton:focus, QToolButton:focus, QPushButton#mini:focus,
 QPushButton#go:focus, QPushButton#go2:focus, QPushButton#accent2:focus,
@@ -720,9 +690,9 @@ QTabBar::tab {{
 }}
 QTabBar::tab:hover {{ color: {C["fg"]}; }}
 QTabBar::tab:selected {{
-    background: {C["item_sel"]};
-    color: {C["accent2"]};
-    border-bottom: 3px solid {C["accent"]}; font-weight: 700;
+    background: {C["bg3"]};
+    color: {C["fg"]};
+    border-bottom: 2px solid {C["accent"]};
 }}
 
 QMenuBar {{

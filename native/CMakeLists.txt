@@ -96,6 +96,3 @@ install(TARGETS anharmonic_native
     RUNTIME DESTINATION bin
 )
 endif()
-
-# Shared native pitch engine for desktop and browser companion.
-add_subdirectory(vendor)

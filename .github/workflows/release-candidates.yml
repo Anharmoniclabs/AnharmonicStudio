@@ -52,7 +52,7 @@ jobs:
         run: |
           sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libportaudio2 libsndfile1 libasound2-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxext-dev libxinerama-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev
+          sudo apt-get install -y build-essential ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libportaudio2 libsndfile1
       - name: macOS build dependencies
         if: runner.os == 'macOS'
         run: brew install ffmpeg portaudio openssl@3
@@ -71,7 +71,6 @@ jobs:
           uv sync --locked --group dev
           uv pip install -r requirements-build.txt
           uv run --no-sync python scripts/build_native.py
-          uv run --no-sync python scripts/build_rubberband.py
       - name: Native application regressions
         run: >-
           uv run --no-sync python -m pytest -q tests/test_native_dsp.py tests/test_native_core.py tests/test_native_output.py
@@ -109,9 +108,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version || '0.1.0-rc.2' }}
         shell: bash
-        run: |
-          uv run --no-sync python scripts/build_prism.py dist/prism-${{ matrix.target }}
-          uv run --no-sync python scripts/build_release.py dist/${{ matrix.target }} --version "$RELEASE_VERSION"
+        run: uv run --no-sync python scripts/build_release.py dist/${{ matrix.target }} --version "$RELEASE_VERSION"
       - name: Encrypt paid candidates before upload
         run: uv run --no-sync python scripts/seal_release.py dist/${{ matrix.target }} sealed/${{ matrix.target }}.enc
       - name: Upload only encrypted binaries

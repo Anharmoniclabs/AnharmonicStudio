@@ -12,7 +12,6 @@ import os
 import hashlib
 
 SOURCE_DIRS = {
-    "plugins",
     "mpclab",
     "native",
     "assets",

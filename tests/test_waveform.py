@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtTest import QTest
 
-from mpclab.ui.waveform import WaveformView, range_duration_text, range_endpoint_text
+from mpclab.ui.waveform import WaveformView
 
 
 class WaveformSelectionTests(unittest.TestCase):
@@ -119,20 +119,6 @@ class WaveformSelectionTests(unittest.TestCase):
         self.view.snap_mode = "1/16 grid"
         self.view.set_selection(1.31, 2.69, snap=True)
         self.assertEqual(self.view.selection(), (1.25, 2.75))
-
-    def test_range_hud_formats_precise_editor_and_musical_units(self):
-        self.assertEqual(range_endpoint_text("START", 2.5), "START 2.500s")
-        self.assertEqual(range_duration_text(2.5, 120.0), "2.500s  ·  5.00 beats")
-        self.assertEqual(range_duration_text(2.5), "2.500s")
-
-    def test_range_hud_paints_at_file_edges_and_on_a_narrow_active_trim(self):
-        # The badges must clamp into the canvas at either end of a sample and
-        # reduce to the active end while a very short range is being trimmed.
-        self.view.set_selection(0.0, 2.5)
-        self.assertFalse(self.view.grab().isNull())
-        self.view.set_selection(9.96, 10.0)
-        self.view._drag_selection = "end"
-        self.assertFalse(self.view.grab().isNull())
 
 
 class DetectedSliceTests(unittest.TestCase):

@@ -129,23 +129,118 @@ def loopback_stimulus(sample_rate: int = AUDIO_SAMPLE_RATE, duration: float = 0.
     return audio
 
 
-def run_loopback_calibration(
-    input_device=None, output_device=None, sample_rate: int = AUDIO_SAMPLE_RATE
-) -> LatencyCalibration:
-    """Play and capture the calibration click through a physical loopback.
+def correlate_loopback(stimulus, captured, sample_rate=AUDIO_SAMPLE_RATE):
+    """FFT correlation tolerates polarity reversal and multiple test transients."""
+    reference = np.asarray(stimulus, dtype=np.float64).reshape(-1)
+    received = np.asarray(captured, dtype=np.float64).reshape(-1)
+    if not len(reference) or not len(received) or not np.isfinite(reference).all() or not np.isfinite(received).all():
+        raise ValueError("Invalid loopback samples")
+    size = 1 << (len(reference) + len(received) - 1).bit_length()
+    correlation = np.fft.irfft(np.conj(np.fft.rfft(reference, size)) * np.fft.rfft(received, size), size)
+    search = np.abs(correlation[:min(len(received), int(sample_rate * 0.5))])
+    lag = int(np.argmax(search))
+    energy = float(np.linalg.norm(reference) * np.linalg.norm(received))
+    confidence = min(1.0, float(search[lag]) / max(1e-12, energy))
+    if np.max(np.abs(received)) < 1e-4 or confidence < 0.35:
+        raise ValueError("Loopback signal was not detected reliably; check the cable and input")
+    return LatencyCalibration(lag, sample_rate, confidence)
 
-    This short blocking helper is called by the setup dialog before it starts
-    or while it temporarily owns no engine callback.  It stays separate from
-    both the live engine and vocal recorder.
+
+def run_loopback_calibration(input_device=None, output_device=None,
+                             sample_rate=AUDIO_SAMPLE_RATE, *, blocksize=512,
+                             input_channel=0, output_channels=(0, 1)):
+    """Measure the selected host route including the production output FIFO.
+
+    A duplex calibration stream establishes a common sample timeline. A render
+    producer feeds the same native output queue used by production. Capture is
+    preallocated; no files or widgets are touched by the callback. This test
+    measures the dry route, not a project with latency-inducing plugins.
     """
+    import ctypes as ct
+    import threading
+    import time
     import sounddevice as sd
+    from .native_dsp import NATIVE
+    from .native_output import OutputQueue
 
-    stimulus = loopback_stimulus(sample_rate)
-    device = (input_device, output_device)
-    captured = sd.playrec(
-        stimulus, samplerate=sample_rate, channels=1, dtype="float32", device=device, blocking=True
-    )
-    return estimate_loopback_latency(stimulus, captured, sample_rate)
+    if NATIVE is None:
+        raise RuntimeError("Build native audio before measuring the production route")
+    if blocksize not in (128, 256, 512, 1024):
+        raise ValueError("Choose a supported calibration buffer")
+    if type(input_channel) is not int or not 0 <= input_channel < 64:
+        raise ValueError("Invalid loopback input channel")
+    mapping = tuple(output_channels)
+    if len(mapping) != 2 or any(type(c) is not int or not 0 <= c < 64 for c in mapping):
+        raise ValueError("Invalid loopback output pair")
+    total = int(sample_rate * 1.5)
+    stimulus = np.zeros(total, np.float32)
+    for at, gain in ((0.1, .15), (.29, -.12), (.53, .18), (.81, .1)):
+        start = int(at * sample_rate)
+        stimulus[start:start + 64] = np.hanning(64) * gain
+    captured = np.zeros(total, np.float32)
+    fifo = OutputQueue(NATIVE.lib, blocksize * 2)
+    set_channels = NATIVE.lib.anh_output_channels
+    set_channels.argtypes, set_channels.restype = [ct.c_void_p, ct.c_size_t, ct.c_size_t, ct.c_size_t], ct.c_int
+    if set_channels(fifo.handle, max(mapping) + 1, *mapping):
+        fifo.close()
+        raise ValueError("Could not prepare output channels")
+    stop = threading.Event()
+    finished = threading.Event()
+    error = []
+    position = 0
+    faults = 0
+    block = np.zeros((blocksize, 2), np.float32)
+    fifo.write(np.zeros((blocksize * 2, 2), np.float32))
+
+    def produce():
+        generated = 0
+        try:
+            while not stop.is_set():
+                if fifo.available <= blocksize:
+                    block.fill(0)
+                    count = max(0, min(blocksize, total - generated))
+                    if count:
+                        block[:count] = stimulus[generated:generated + count, None]
+                    generated += blocksize
+                    if not fifo.write(block):
+                        raise RuntimeError("Calibration producer exceeded its queue")
+                else:
+                    stop.wait(0.0005)
+        except Exception as exc:
+            error.append(str(exc))
+            finished.set()
+
+    def callback(indata, outdata, frames, timing, status):
+        nonlocal position, faults
+        count = max(0, min(frames, total - position))
+        captured[position:position + count] = indata[:count, input_channel]
+        position += count
+        faults += bool(status)
+        fifo.lib.anh_output_callback(None, outdata.ctypes.data, frames, None, 0, fifo.handle)
+        if position >= total:
+            finished.set()
+
+    worker = threading.Thread(target=produce, name="Loopback signal", daemon=True)
+    worker.start()
+    try:
+        with sd.Stream(device=(input_device, output_device), samplerate=sample_rate,
+                       blocksize=blocksize, channels=(input_channel + 1, max(mapping) + 1),
+                       dtype="float32", latency="low", callback=callback):
+            deadline = time.monotonic() + 5
+            while not finished.wait(0.05):
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Loopback timed out; check the selected devices")
+        if error:
+            raise RuntimeError(error[0])
+        if faults or fifo.underruns:
+            raise RuntimeError("Loopback dropped audio; increase the buffer and measure again")
+        return correlate_loopback(stimulus, captured, sample_rate)
+    finally:
+        stop.set()
+        worker.join(timeout=3)
+        if worker.is_alive():
+            raise RuntimeError("Calibration producer is still stopping")
+        fifo.close()
 
 
 def profile_description(frames: int) -> str:

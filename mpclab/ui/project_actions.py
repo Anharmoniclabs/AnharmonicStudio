@@ -26,7 +26,6 @@ from ..model import (
     uid,
     safe_filename,
 )
-from ..project_io import load_project_file
 from ..export import ExportJob
 from . import theme
 from .theme import stylesheet
@@ -114,6 +113,9 @@ def _apply_project_state(window, project: Project):
     window.pads.update()
     window.step_grid.refresh()
     window.playlist.refresh()
+    # Sample resolution belongs to the GUI/worker side. This includes
+    # Playlist media and reverse buffers, so the callback never reads disk
+    # or copies a whole song on the first hit.
     window.engine.preload_project_audio(project)
     window._playlist_selection_changed(window.playlist.selected_clip)
 
@@ -276,7 +278,7 @@ def load_project_path(window, path: Path, *, prepare_patch, clear_session: bool 
         window.status.showMessage("Save or discard the vocal take before opening a project", 5000)
         return False
     try:
-        project = load_project_file(Path(path))
+        project = Project.load(Path(path))
         prepare_patch(project.synth)
     except Exception as exc:
         QMessageBox.warning(window, "Load failed", str(exc))

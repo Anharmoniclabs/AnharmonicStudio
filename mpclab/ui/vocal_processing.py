@@ -5,12 +5,11 @@ The caller retains Qt/project ownership; these operations receive it explicitly.
 
 from __future__ import annotations
 import threading
-import copy
+from dataclasses import replace
 import numpy as np
 from .window_client import emit_if_alive
 from ..vocal import (
     ProcessingCancelled,
-    PITCH_VOICING_THRESHOLD,
     detect_key,
     note_name,
     render_autotune,
@@ -28,7 +27,7 @@ def detect_source_key(owner, *, analyze):
     if audio is None:
         owner.analysis_label.setText("Choose a source take first.")
         return
-    settings = copy.deepcopy(owner.app.project.vocal)
+    settings = replace(owner.app.project.vocal)
     owner._key_source_id = clip_id
     owner._key_project = owner.app.project
     owner._key_job_id += 1
@@ -77,7 +76,7 @@ def render_take(owner):
         owner.analysis_label.setText("Choose a source take first.")
         return
     source_name = owner.app.library.clips[clip_id].name
-    settings = copy.deepcopy(owner.app.project.vocal)
+    settings = replace(owner.app.project.vocal)
     owner._render_project = owner.app.project
     owner._tune_job_id += 1
     job_id = owner._tune_job_id
@@ -94,25 +93,13 @@ def render_take(owner):
 
     def worker():
         try:
-            if settings.backend == "v2":
-                from ..autotune.service import render
-
-                rendered, analysis = render(
-                    audio,
-                    settings,
-                    sample_rate,
-                    clip_id,
-                    lambda value: emit_if_alive(owner, "tuneProgress", job_id, int(value * 100)),
-                    cancel.is_set,
-                )
-            else:
-                rendered, analysis = render_autotune(
-                    audio,
-                    settings,
-                    sample_rate,
-                    lambda value: emit_if_alive(owner, "tuneProgress", job_id, int(value * 100)),
-                    cancel.is_set,
-                )
+            rendered, analysis = render_autotune(
+                audio,
+                settings,
+                sample_rate,
+                lambda value: emit_if_alive(owner, "tuneProgress", job_id, int(value * 100)),
+                cancel.is_set,
+            )
             emit_if_alive(
                 owner,
                 "tuneFinished",
@@ -196,15 +183,7 @@ def _tune_finished(owner, job_id: int, audio, analysis, name: str):
         source_id = owner._render_source_id
         source = owner.app.library.clips.get(source_id)
         parent = source.parent if source and source.kind == "vocal-tuned" else source_id
-        from ..autotune.service import RenderedTake
-
-        if isinstance(audio, RenderedTake):
-            clip = owner.app.library.import_file(
-                audio.path, name, kind="vocal-tuned", parent=parent, render_recipe=audio.recipe
-            )
-            audio.close()
-        else:
-            clip = owner.app.library.add_audio(audio, name, kind="vocal-tuned", parent=parent)
+        clip = owner.app.library.add_audio(audio, name, kind="vocal-tuned", parent=parent)
     except Exception as exc:
         if hasattr(owner.app, "discard_snapshot"):
             owner.app.discard_snapshot()
@@ -220,11 +199,7 @@ def _tune_finished(owner, job_id: int, audio, analysis, name: str):
     owner._render_project = None
     owner.refresh_takes(select=wanted)
     owner.app._library_changed()
-    voiced = (
-        (analysis.detected_hz > 0.0)
-        & np.isfinite(analysis.detected_midi)
-        & (analysis.confidence >= PITCH_VOICING_THRESHOLD)
-    )
+    voiced = analysis.confidence > 0.35
     median = (
         note_name(float(np.nanmedian(analysis.detected_midi[voiced]))) if np.any(voiced) else "—"
     )

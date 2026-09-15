@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-import math
 
 from .window_client import WindowClient
 
-from PySide6.QtCore import Qt, QRectF, QSize, QPointF, Signal, QTimer, QEvent
+from PySide6.QtCore import Qt, QRectF, QSize, QPointF, Signal, QTimer
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QWidget, QMenu
 
@@ -17,7 +16,6 @@ from .sample_drag import RANGE_MIME
 from ..timeline_markers import marker_items
 
 from . import playlist_rendering, playlist_edits, playlist_drop
-from .playlist_rendering import audio_stretch_label as audio_stretch_label
 from .playlist_geometry import (
     HEAD_W as HEAD_W,
     ROW_H as ROW_H,
@@ -40,7 +38,6 @@ class PlaylistView(WindowClient, QWidget):
         super().__init__(parent)
         self.app = app
         self.px_per_beat = 26.0
-        self.row_height = ROW_H
         self.snap = 4.0
         self.place = None  # ("pattern"|"audio", ref)
         self.place_template: Clip | None = None
@@ -68,63 +65,6 @@ class PlaylistView(WindowClient, QWidget):
         self._timer.start(33)
         self._last_beat = -1.0
         self.setFocusPolicy(Qt.StrongFocus)
-
-    def zoom_time(self, factor, position=None):
-        scroll = self.app.song_scroll.horizontalScrollBar()
-        viewport_x = (
-            self.app.song_scroll.viewport().width() / 2
-            if position is None
-            else position.x() - scroll.value()
-        )
-        beat = self.x_to_beat(scroll.value() + viewport_x)
-        self.px_per_beat = min(512, max(0.01, self.px_per_beat * factor))
-        self.refresh()
-        scroll.setValue(round(self.beat_to_x(beat) - viewport_x))
-        self.app.zoom.blockSignals(True)
-        self.app.zoom.setValue(round(self.px_per_beat))
-        self.app.zoom.blockSignals(False)
-
-    def zoom_height(self, factor, position=None):
-        scroll = self.app.song_scroll.verticalScrollBar()
-        viewport_y = (
-            self.app.song_scroll.viewport().height() / 2
-            if position is None
-            else position.y() - scroll.value()
-        )
-        row = (scroll.value() + viewport_y - RULER_H) / self.row_height
-        self.row_height = min(240, max(36, self.row_height * factor))
-        self.refresh()
-        scroll.setValue(round(RULER_H + row * self.row_height - viewport_y))
-
-    def fit_song(self):
-        end = max(4, self.app.project.song_end(), self.app.project.loop_end)
-        desired = max(0.01, (self.app.song_scroll.viewport().width() - HEAD_W - 24) / end)
-        self.zoom_time(desired / self.px_per_beat)
-        self.app.song_scroll.horizontalScrollBar().setValue(0)
-
-    def reset_zoom(self):
-        self.row_height = ROW_H
-        self.zoom_time(26 / self.px_per_beat)
-        self.app.song_scroll.horizontalScrollBar().setValue(0)
-        self.app.song_scroll.verticalScrollBar().setValue(0)
-
-    def event(self, ev):
-        if ev.type() == QEvent.NativeGesture and ev.gestureType() == Qt.ZoomNativeGesture:
-            self.zoom_time(math.exp(ev.value()), ev.position())
-            ev.accept()
-            return True
-        return super().event(ev)
-
-    def wheelEvent(self, ev):
-        if ev.modifiers() & (Qt.ControlModifier | Qt.AltModifier):
-            pixel = ev.pixelDelta()
-            delta = pixel.y() / 240 if not pixel.isNull() else ev.angleDelta().y() / 540
-            if delta:
-                method = self.zoom_height if ev.modifiers() & Qt.AltModifier else self.zoom_time
-                method(math.exp(delta), ev.position())
-            ev.accept()
-            return
-        super().wheelEvent(ev)
 
     def update_cursor(self):
         cursors = {
@@ -189,7 +129,7 @@ class PlaylistView(WindowClient, QWidget):
         )
         return QSize(
             int(HEAD_W + length * self.px_per_beat + 40),
-            int(RULER_H + len(self.rows()) * self.row_height + 20),
+            int(RULER_H + len(self.rows()) * ROW_H + 20),
         )
 
     def refresh(self):
@@ -206,7 +146,7 @@ class PlaylistView(WindowClient, QWidget):
     def row_at(self, y: float) -> int:
         if y < RULER_H:
             return -1
-        i = int((y - RULER_H) // self.row_height)
+        i = int((y - RULER_H) // ROW_H)
         return i if 0 <= i < len(self.rows()) else -1
 
     def _snap(self, beat: float) -> float:
@@ -222,20 +162,9 @@ class PlaylistView(WindowClient, QWidget):
         row = self.rows()[ri]
         for clip in reversed(row.clips):
             if clip.start_beat <= beat <= clip.start_beat + clip.length_beats:
-                left_distance = abs(self.beat_to_x(clip.start_beat) - x)
-                right_distance = abs(self.beat_to_x(clip.start_beat + clip.length_beats) - x)
-                left = left_distance < 7
-                right = right_distance < 7
-                # Edge targets overlap on clips narrower than 14 px.  Select
-                # the closest end so their exact endpoints remain usable;
-                # retain the left edge on a midpoint tie.
-                edge = (
-                    "left"
-                    if left and (not right or left_distance <= right_distance)
-                    else "right"
-                    if right
-                    else None
-                )
+                left = abs(self.beat_to_x(clip.start_beat) - x) < 7
+                right = abs(self.beat_to_x(clip.start_beat + clip.length_beats) - x) < 7
+                edge = "left" if left else ("right" if right else None)
                 return ri, row, clip, edge
         return None
 
@@ -337,17 +266,8 @@ class PlaylistView(WindowClient, QWidget):
             self._drag = {
                 "snapshot": copied,
                 "mode": (
-                    # Both audio and pattern blocks can be shortened from
-                    # their left edge.  Audio additionally moves its source
-                    # window; a pattern simply advances its Arrange start.
                     "trim-left"
-                    if edge == "left"
-                    else "trim-right"
-                    if edge == "right"
-                    and clip.kind == "audio"
-                    and ev.modifiers() & Qt.ShiftModifier
-                    else "stretch"
-                    if edge == "right" and clip.kind == "audio"
+                    if edge == "left" and clip.kind == "audio"
                     else "resize"
                     if edge
                     else "move"
@@ -461,23 +381,7 @@ class PlaylistView(WindowClient, QWidget):
                             target.clips.append(selected)
                     self._drag["row"] = self.row_for_clip(clip)
                     self._drag["row_index"] = primary_origin + row_delta
-            elif self._drag["mode"] == "trim-right":
-                original_length = self._drag["length"]
-                minimum = min(original_length, self.snap or 0.25)
-                length = min(original_length, max(minimum, self._snap(beat - clip.start_beat)))
-                meta = self.app.library.clips.get(clip.ref)
-                source = self._drag["source_length"] or (
-                    max(0.0, meta.duration - self._drag["offset"]) if meta else 0.0
-                )
-                if length != clip.length_beats and not self._drag.get("snapshot", True):
-                    self.app.snapshot()
-                    self._drag["snapshot"] = True
-                clip.length_beats = length
-                if source > 0 and not clip.loop:
-                    clip.source_length = source * length / original_length
-                    if clip.reverse:
-                        clip.offset = self._drag["offset"] + source - clip.source_length
-            elif self._drag["mode"] in ("resize", "draw", "stretch"):
+            elif self._drag["mode"] in ("resize", "draw"):
                 minimum = self.snap or 0.25
                 length = max(minimum, self._snap(beat - clip.start_beat) or minimum)
                 if length != clip.length_beats and not self._drag.get("snapshot", True):
@@ -489,26 +393,16 @@ class PlaylistView(WindowClient, QWidget):
                 new_start = min(end - (self.snap or 0.25), self._snap(beat))
                 delta = new_start - self._drag["start"]
                 spb = 60.0 / self.app.project.bpm
-                stretched_audio = (
-                    clip.kind == "audio"
-                    and not clip.loop
-                    and self._drag["source_length"] > 0
-                    and self._drag["length"] > 0
-                )
-                source_per_beat = (
-                    self._drag["source_length"] / self._drag["length"] if stretched_audio else spb
-                )
-                max_back = self._drag["offset"] / source_per_beat
+                max_back = self._drag["offset"] / spb
                 delta = max(delta, -max_back)
                 if abs(delta) > 1e-9 and not self._drag.get("snapshot", True):
                     self.app.snapshot()
                     self._drag["snapshot"] = True
                 clip.start_beat = self._drag["start"] + delta
                 clip.length_beats = end - clip.start_beat
-                source_delta = delta * source_per_beat
-                clip.offset = max(0.0, self._drag["offset"] + source_delta)
+                clip.offset = max(0.0, self._drag["offset"] + delta * spb)
                 if self._drag["source_length"] > 0:
-                    clip.source_length = max(0.001, self._drag["source_length"] - source_delta)
+                    clip.source_length = max(0.001, self._drag["source_length"] - delta * spb)
             self.update()
             return
 
@@ -543,13 +437,13 @@ class PlaylistView(WindowClient, QWidget):
             selected = list(self._marquee_selection)
             self._marquee_selection = []
             for ri, row in enumerate(self.rows()):
-                y = RULER_H + ri * self.row_height
+                y = RULER_H + ri * ROW_H
                 for clip in row.clips:
                     cr = QRectF(
                         self.beat_to_x(clip.start_beat),
                         y,
                         clip.length_beats * self.px_per_beat,
-                        self.row_height,
+                        ROW_H,
                     )
                     if rect.intersects(cr) and clip not in selected:
                         selected.append(clip)
@@ -568,16 +462,10 @@ class PlaylistView(WindowClient, QWidget):
             return
         if self._drag:
             changed = self._drag.get("snapshot", True)
-            mode = self._drag["mode"]
-            clip = self._drag["clip"]
             self._drag = None
             if changed:
                 self.changed.emit()
             self.refresh()
-            if changed and mode == "stretch":
-                self.app.status.showMessage(
-                    f"audio stretched to {clip.length_beats:g} beats · source unchanged", 2500
-                )
 
     def select_clip(self, clip: Clip | None, additive: bool = False) -> None:
         if additive and clip:
@@ -647,18 +535,15 @@ class PlaylistView(WindowClient, QWidget):
             self.app.set_playlist_tool(TOOL_KEYS[ev.key()])
         elif ev.key() in (Qt.Key_Delete, Qt.Key_Backspace):
             self.delete_selected()
-        # Editing commands deliberately require the *exact* modifier.  A
-        # Ctrl+Shift chord is often a global/window command and must not also
-        # select, duplicate, or paste clips underneath it.
-        elif ev.key() == Qt.Key_A and ev.modifiers() == Qt.ControlModifier:
+        elif ev.key() == Qt.Key_A and ev.modifiers() & Qt.ControlModifier:
             self.set_selection([c for row in self.rows() for c in row.clips])
-        elif ev.key() == Qt.Key_D and ev.modifiers() == Qt.ControlModifier:
+        elif ev.key() == Qt.Key_D and ev.modifiers() & Qt.ControlModifier:
             self.duplicate_clip()
-        elif ev.key() == Qt.Key_C and ev.modifiers() == Qt.ControlModifier:
+        elif ev.key() == Qt.Key_C and ev.modifiers() & Qt.ControlModifier:
             self.copy_selected()
-        elif ev.key() == Qt.Key_X and ev.modifiers() == Qt.ControlModifier:
+        elif ev.key() == Qt.Key_X and ev.modifiers() & Qt.ControlModifier:
             self.copy_selected(cut=True)
-        elif ev.key() == Qt.Key_V and ev.modifiers() == Qt.ControlModifier:
+        elif ev.key() == Qt.Key_V and ev.modifiers() & Qt.ControlModifier:
             self.paste_clips()
         elif ev.key() in (Qt.Key_Left, Qt.Key_Right) and not ev.modifiers():
             self.nudge_selected(beats=(self.snap or 0.25) * (1 if ev.key() == Qt.Key_Right else -1))
@@ -669,7 +554,7 @@ class PlaylistView(WindowClient, QWidget):
                 self.app.open_pattern_clip(self.selected_clip)
             else:
                 self.app.sample_workflow.from_arrangement(self.selected_clip)
-        elif ev.key() == Qt.Key_S and ev.modifiers() == Qt.ShiftModifier:
+        elif ev.key() == Qt.Key_S and ev.modifiers() & Qt.ShiftModifier:
             self.split_clip()
         else:
             super().keyPressEvent(ev)

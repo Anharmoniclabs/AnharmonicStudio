@@ -44,15 +44,7 @@ class SampleWorkflow(WindowClient):
         self.held_instruments = {}
 
     def send(
-        self,
-        sample_id,
-        start=0.0,
-        end=None,
-        *,
-        destination="beats",
-        index=None,
-        source_clip=None,
-        sync_beats=0.0,
+        self, sample_id, start=0.0, end=None, *, destination="beats", index=None, source_clip=None
     ):
         app = self.app
         clip = app.library.clips.get(sample_id)
@@ -123,11 +115,6 @@ class SampleWorkflow(WindowClient):
                 reverse=source_clip.reverse,
                 loop_crossfade=source_clip.loop_crossfade,
                 mode="loop" if source_clip.loop else "gate",
-                # An Arrange clip can be longer than its selected source.
-                # Keep the whole selection and make its pad play for the same
-                # musical length, instead of silently cutting it to the first
-                # portion of the source.
-                sync_beats=sync_beats,
             )
 
         app.snapshot()
@@ -171,14 +158,12 @@ class SampleWorkflow(WindowClient):
             if clip.source_length > 0
             else meta.duration
         )
-        sync_beats = 0.0
         if not clip.loop:
-            arranged_seconds = clip.length_beats * 60 / app.project.bpm
-            source_seconds = end - start
-            # Both expansion and compression play the complete source range.
-            # Preserve the same repitch ratio when making a playable pad.
-            if abs(arranged_seconds - source_seconds) > 1e-9:
-                sync_beats = clip.length_beats
+            duration = min(end - start, clip.length_beats * 60 / app.project.bpm)
+            if clip.reverse:
+                start = end - duration
+            else:
+                end = start + duration
         mode = "loop" if clip.loop else "gate"
         for index, pad in enumerate(app.project.pads):
             if (
@@ -190,20 +175,12 @@ class SampleWorkflow(WindowClient):
                 and pad.gain == clip.gain
                 and pad.mode == mode
                 and pad.loop_crossfade == clip.loop_crossfade
-                and pad.sync_beats == sync_beats
             ):
                 app.select_pad(index)
                 self.open_notes(index)
                 app.piano_roll.canvas.setFocus()
                 return index
-        index = self.send(
-            clip.ref,
-            start,
-            end,
-            destination="notes",
-            source_clip=clip,
-            sync_beats=sync_beats,
-        )
+        index = self.send(clip.ref, start, end, destination="notes", source_clip=clip)
         if index is not None:
             app.piano_roll.canvas.setFocus()
         return index
@@ -257,7 +234,10 @@ class SampleWorkflow(WindowClient):
         if slot is None:
             instrument = getattr(app.piano_roll, "target_instrument", None)
             self.held_instruments[note] = instrument
-            app.play_synth_note(note, velocity, instrument_id=instrument)
+            if instrument is None:
+                app.play_synth_note(note, velocity)
+            else:
+                app.play_synth_note(note, velocity, instrument_id=instrument)
             return
         if app.project.pads[slot].empty:
             app.status.showMessage("This instrument has no sound. Load or replace it first.", 4000)
@@ -266,11 +246,9 @@ class SampleWorkflow(WindowClient):
         if capture is not None:
             capture.note_on(note, velocity, slot)
         if app.engine.recording and app.engine.playing and app.engine.mode == "pattern":
-            app._snapshot_recording_take()
+            app.snapshot()
             self.recorded[note] = (app.project.pattern().id, app.engine.beat, velocity, slot)
-        token = app.engine.sample_note_on(slot, note, velocity)
-        if note in self.recorded:
-            self.recorded[note] = (*self.recorded[note], token)
+        app.engine.sample_note_on(slot, note, velocity)
         if app.typing_keyboard is not None:
             app.typing_keyboard.keyboard.set_note_active(note, True)
 
@@ -281,21 +259,22 @@ class SampleWorkflow(WindowClient):
         slot = self.held.pop(note)
         if slot is None:
             instrument = self.held_instruments.pop(note, None)
-            app.release_synth_note(note, instrument_id=instrument)
+            if instrument is None:
+                app.release_synth_note(note)
+            else:
+                app.release_synth_note(note, instrument_id=instrument)
             return
         capture = getattr(app, "track_capture", None)
         if capture is not None:
             capture.note_off(note, slot)
         recorded = self.recorded.pop(note, None)
         if recorded:
-            pattern_id, start, velocity, recorded_slot, *tokens = recorded
+            pattern_id, start, velocity, recorded_slot = recorded
             pattern = next((p for p in app.project.patterns if p.id == pattern_id), None)
             if pattern:
                 beat = start % pattern.length_beats
                 duration = min(max(0.03125, app.engine.beat - start), pattern.length_beats - beat)
-                captured = Note(note, beat, duration, velocity, recorded_slot)
-                pattern.notes.append(captured)
-                app.engine.bind_recorded_note(pattern, captured, tokens[0] if tokens else None)
+                pattern.notes.append(Note(note, beat, duration, velocity, recorded_slot))
                 app._set_dirty(True)
                 app.piano_roll.canvas.refresh()
         app.engine.sample_note_off(slot, note)

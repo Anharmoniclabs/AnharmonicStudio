@@ -95,13 +95,3 @@ def test_native_smoothing_matches_fft_reference_through_parameter_changes(monkey
                 blocks.append(smoother.process(source[offset : offset + 127].copy(), coefficient))
         outputs.append(np.concatenate(blocks))
     np.testing.assert_allclose(outputs[0], outputs[1], atol=2e-6, rtol=3e-5)
-
-
-def test_native_rejects_previous_synth_state_and_mono_noise_buffers():
-    output = np.zeros((8, 2), dtype=np.float32)
-    params = np.zeros(23)
-    state = np.zeros(19)
-    with pytest.raises(ValueError):
-        NATIVE.synth(output, np.zeros(16), params, np.zeros(12), 0, -1)
-    with pytest.raises(ValueError):
-        NATIVE.synth(output, np.zeros(8), params, state, 0, -1)

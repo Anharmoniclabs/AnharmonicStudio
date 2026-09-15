@@ -24,10 +24,9 @@ jobs:
         run: |
           sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential cmake libportaudio2
+          sudo apt-get install --no-install-recommends -y build-essential libportaudio2
           uv sync --locked
           uv run --no-sync python scripts/build_native.py
-          uv run --no-sync python scripts/build_rubberband.py
       - name: Ten minute paced mixed-instrument session (no audio devices)
         run: >-
           uv run --no-sync python scripts/soak_production.py --seconds 600 --frames 512

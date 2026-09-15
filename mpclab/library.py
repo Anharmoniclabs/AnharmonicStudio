@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import shutil
 import tempfile
@@ -67,15 +66,6 @@ class Library:
         self._reversed: dict[str, np.ndarray] = {}
         self.scan()
         self.journal = LibraryJournal(self)
-
-    @property
-    def sample_rate(self) -> int:
-        """The canonical rate of audio stored by this library.
-
-        Keeping this explicit lets capture code preserve a take's real input
-        rate until it has been converted into the library's playback domain.
-        """
-        return int(self.sr)
 
     # ── paths ────────────────────────────────────────────────
     def folder(self, clip_id: str) -> Path:
@@ -235,7 +225,6 @@ class Library:
         parent: str | None = None,
         stem: str | None = None,
         move: bool = False,
-        render_recipe: dict | None = None,
     ) -> Clip:
         src = Path(src)
         clip_id = uuid.uuid4().hex[:12]
@@ -244,12 +233,12 @@ class Library:
         dst = folder / "audio.wav"
         try:
             dsp.to_wav(src, dst, sr=self.sr)
-            info = sf.info(str(dst))
-            with dst.open("r+b") as output:
-                os.fsync(output.fileno())
         except Exception:
             shutil.rmtree(folder, ignore_errors=True)
             raise
+        if move:
+            src.unlink(missing_ok=True)
+        info = sf.info(str(dst))
         clip = Clip(
             id=clip_id,
             name=slug(name or src.stem),
@@ -259,7 +248,6 @@ class Library:
             duration=round(info.frames / info.samplerate, 4),
             sample_rate=info.samplerate,
             channels=info.channels,
-            render_recipe=render_recipe,
         )
         self.clips[clip_id] = clip
         try:
@@ -272,22 +260,10 @@ class Library:
             if folder.exists():
                 os.replace(folder, recovery)
             raise
-        if move:
-            try:
-                src.unlink(missing_ok=True)
-            except OSError as exc:
-                # The import is already durable. Keep both copies rather than
-                # reporting failure and encouraging a duplicate retry.
-                logging.getLogger(__name__).warning("Imported %s; original retained: %s", src, exc)
         return clip
 
     def add_audio(
-        self,
-        data: np.ndarray,
-        name: str,
-        kind: str = "render",
-        parent: str | None = None,
-        source_sample_rate: int | None = None,
+        self, data: np.ndarray, name: str, kind: str = "render", parent: str | None = None
     ) -> Clip:
         """Store generated stereo audio directly without an ffmpeg round trip."""
         audio = np.asarray(data, dtype=np.float32)
@@ -295,18 +271,6 @@ class Library:
             audio = audio[:, None]
         if audio.ndim != 2 or audio.shape[1] not in (1, 2) or not len(audio):
             raise ValueError("generated audio must contain mono or stereo frames")
-        source_rate = self.sample_rate if source_sample_rate is None else source_sample_rate
-        if isinstance(source_rate, bool) or not isinstance(source_rate, (int, float)):
-            raise ValueError("source sample rate must be a positive number")
-        source_rate = int(round(float(source_rate)))
-        if source_rate <= 0:
-            raise ValueError("source sample rate must be a positive number")
-        # A recorded take is timestamped by its input device, not by the
-        # output device.  Convert it once at the library boundary so every
-        # sequencer, pad and renderer sees frames in one clock domain.  Without
-        # this, a 44.1 kHz input handed to a 48 kHz engine plays fast.
-        if source_rate != self.sample_rate:
-            audio = _resample(audio, source_rate, self.sample_rate)
         clip_id = uuid.uuid4().hex[:12]
         folder = self.folder(clip_id)
         folder.mkdir(parents=True, exist_ok=True)

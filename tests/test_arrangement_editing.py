@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtGui import QMouseEvent
 
 from mpclab.model import Clip, Project, Row
 from mpclab.music import Note
@@ -79,22 +79,6 @@ def test_ctrl_marquee_adds_to_existing_selection(playlist):
     pointer(playlist, QMouseEvent.MouseButtonPress, 7, 0, Qt.ControlModifier)
     pointer(playlist, QMouseEvent.MouseMove, 11, 1, Qt.ControlModifier)
     pointer(playlist, QMouseEvent.MouseButtonRelease, 11, 1, Qt.ControlModifier)
-    assert playlist.selected_clips == [first, second]
-
-
-def test_playlist_edit_shortcuts_require_the_exact_modifier(playlist):
-    """Ctrl+Shift commands belong to their global owner, not Arrange too."""
-    first = Clip(start_beat=1, length_beats=2)
-    second = Clip(start_beat=8, length_beats=2)
-    playlist.rows()[0].clips.extend([first, second])
-    playlist.set_selection([first])
-
-    playlist.keyPressEvent(
-        QKeyEvent(QKeyEvent.KeyPress, Qt.Key_A, Qt.ControlModifier | Qt.ShiftModifier)
-    )
-    assert playlist.selected_clips == [first]
-
-    playlist.keyPressEvent(QKeyEvent(QKeyEvent.KeyPress, Qt.Key_A, Qt.ControlModifier))
     assert playlist.selected_clips == [first, second]
 
 

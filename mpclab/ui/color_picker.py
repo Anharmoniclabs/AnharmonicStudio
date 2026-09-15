@@ -27,9 +27,6 @@ class ColorWheel(QWidget):
         self.hue = color.hsvHue() if color.hsvHue() >= 0 else 0
         self.setMinimumSize(190, 190)
         self.setCursor(Qt.CrossCursor)
-        self.setFocusPolicy(Qt.StrongFocus)
-        self.setAccessibleName("Accent hue wheel")
-        self.setToolTip("Choose hue; arrow keys adjust by 1°, Shift by 15°")
 
     def sizeHint(self) -> QSize:
         return QSize(220, 220)
@@ -42,16 +39,6 @@ class ColorWheel(QWidget):
         self.hue = int(math.degrees(math.atan2(-dy, dx))) % 360
         self.colorChanged.emit(QColor.fromHsv(self.hue, 255, 255))
         self.update()
-
-    def keyPressEvent(self, ev):
-        if ev.key() in (Qt.Key_Left, Qt.Key_Down, Qt.Key_Right, Qt.Key_Up):
-            step = 15 if ev.modifiers() & Qt.ShiftModifier else 1
-            direction = -1 if ev.key() in (Qt.Key_Left, Qt.Key_Down) else 1
-            self.hue = (self.hue + direction * step) % 360
-            self.colorChanged.emit(QColor.fromHsv(self.hue, 255, 255))
-            self.update()
-            return
-        super().keyPressEvent(ev)
 
     def mousePressEvent(self, ev):
         if ev.button() == Qt.LeftButton:
@@ -68,7 +55,7 @@ class ColorWheel(QWidget):
         radius = max(20.0, min(self.width(), self.height()) / 2 - 10)
         grad = QConicalGradient(centre, 0)
         for degree in range(0, 361, 15):
-            grad.setColorAt(degree / 360.0, QColor.fromHsv(degree % 360, 255, 255))
+            grad.setColorAt(degree / 360.0, QColor.fromHsv((360 - degree) % 360, 255, 255))
         p.setPen(Qt.NoPen)
         p.setBrush(grad)
         p.drawEllipse(centre, radius, radius)

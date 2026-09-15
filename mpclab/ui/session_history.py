@@ -15,7 +15,6 @@ from PySide6.QtWidgets import QMessageBox
 from .. import APP_NAME
 from ..library import LibraryHistoryError
 from ..model import Project, uid
-from ..project_io import load_history_file, load_project_file
 
 
 class SessionHistoryMixin:
@@ -108,10 +107,8 @@ class SessionHistoryMixin:
         self._undo.clear()
         self._redo.clear()
         try:
-            payload = load_history_file(Path(path))
+            payload = json.loads(Path(path).read_text())
         except (OSError, ValueError, TypeError):
-            return
-        if not isinstance(payload, dict):
             return
 
         def validated(items) -> list[str]:
@@ -183,30 +180,11 @@ class SessionHistoryMixin:
         return "cancel"
 
     def _archive_session_recovery(self) -> Path:
-        """Archive the autosave and its history without leaving a split pair.
-
-        The project file is moved first because it is the recovery root. If the
-        history move then fails, put the project back so startup can retry the
-        same recovery pair rather than silently separating project and history.
-        """
         stamp = time.strftime("%Y%m%d-%H%M%S")
         archived = self.projects_dir / f"recovery-skipped-{stamp}-{uid()}.json"
-        archived_history = self._project_history_path(archived)
-        history_exists = self.session_history_path.exists()
         os.replace(self.session_path, archived)
-        if not history_exists:
-            return archived
-        try:
-            os.replace(self.session_history_path, archived_history)
-        except OSError as exc:
-            try:
-                os.replace(archived, self.session_path)
-            except OSError as rollback_exc:
-                raise OSError(
-                    "recovery archive split after the history move failed; "
-                    f"project remains at {archived}: {rollback_exc}"
-                ) from exc
-            raise
+        if self.session_history_path.exists():
+            os.replace(self.session_history_path, self._project_history_path(archived))
         return archived
 
     def _restore_session(self, choice: str | None = None):
@@ -214,7 +192,7 @@ class SessionHistoryMixin:
             self._set_dirty(False)
             return
         try:
-            project = load_project_file(self.session_path)
+            project = Project.load(self.session_path)
         except Exception:
             self._archive_session_recovery()
             self._set_dirty(False)

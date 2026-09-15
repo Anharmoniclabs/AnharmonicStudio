@@ -222,13 +222,8 @@ def test_loop_note_takes_preserve_each_instrument_and_midi_channel(window):
     window.track_capture.finish()
 
     lane = window.project.rows[window.project.rows.index(row) + 1]
-    pattern = next(
-        pattern for pattern in window.project.patterns if pattern.id == lane.clips[0].ref
-    )
-    assert [
-        (note.instrument, note.channel, note.pitch, note.start, note.duration)
-        for note in pattern.notes
-    ] == [
+    pattern = next(pattern for pattern in window.project.patterns if pattern.id == lane.clips[0].ref)
+    assert [(note.instrument, note.channel, note.pitch, note.start, note.duration) for note in pattern.notes] == [
         (instrument.id, 5, 60, 0.5, 0.5),
         (None, 2, 60, 1.25, 0.5),
     ]

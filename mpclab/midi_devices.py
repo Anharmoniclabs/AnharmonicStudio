@@ -11,14 +11,7 @@ import time
 
 from .model import MAX_TRACKS
 
-
-CONTROL_TARGETS = {
-    "play",
-    "stop",
-    "record",
-    "master",
-    *(f"track:{i}" for i in range(MAX_TRACKS)),
-}
+CONTROL_TARGETS = {"play", "stop", "record", "master", "bank_next", "bank_previous", *(f"track:{i}" for i in range(MAX_TRACKS))}
 
 
 def controller_settings(value):
@@ -61,6 +54,14 @@ def controller_settings(value):
                 channel, cc = map(int, number.split(":"))
                 if channel < 16 and cc < 128:
                     valid["cc"][number] = target
+        for field, default, low, high in (("transpose", 0, -48, 48), ("channel", -1, -1, 15)):
+            v = config.get(field, default)
+            valid[field] = v if type(v) is int and low <= v <= high else default
+        valid["velocity_curve"] = config.get("velocity_curve", "linear") if config.get("velocity_curve", "linear") in ("linear", "soft", "hard", "fixed") else "linear"
+        valid["clock"] = config.get("clock", False) is True
+        valid["transport"] = config.get("transport", True) is True
+        valid["encoder"] = config.get("encoder", "absolute") if config.get("encoder", "absolute") in ("absolute", "relative") else "absolute"
+        valid["soft_takeover"] = config.get("soft_takeover", False) is True
         result[key] = valid
     return result
 
@@ -107,6 +108,7 @@ class MidiService:
         self._stop = threading.Event()
         self._rescan = threading.Event()
         self._thread = None
+        self.callback_ports = set()
 
     def start(self):
         if self._stop.is_set():
@@ -124,9 +126,9 @@ class MidiService:
         self.disabled = self.disabled - {port_id} if enabled else self.disabled | {port_id}
         self.rescan()
 
-    def _emit(self, port_id, message):
+    def _emit(self, port_id, message, timestamp=None):
         try:
-            self.events.put_nowait((port_id, tuple(message), time.monotonic()))
+            self.events.put_nowait((port_id, tuple(message), time.monotonic() if timestamp is None else timestamp))
         except queue.Full:
             self.overflow = True
 
@@ -150,6 +152,8 @@ class MidiService:
     @staticmethod
     def _dispose(port):
         try:
+            if hasattr(port, "cancel_callback"):
+                port.cancel_callback()
             port.close_port()
         except Exception:
             pass
@@ -209,6 +213,7 @@ class MidiService:
                             current is not None and addresses.get(key) != names[current.index]
                         ):
                             self._dispose(opened.pop(key))
+                            self.callback_ports.discard(key)
                             addresses.pop(key, None)
                             self._emit(key, ())
                     rows = []
@@ -219,10 +224,15 @@ class MidiService:
                             try:
                                 port = factory()
                                 port.ignore_types(sysex=True, timing=False, active_sense=True)
+                                # Recheck the list on this native handle before opening an index.
                                 current_names = port.get_ports()
                                 current = stable_ports(current_names, backend)
                                 match = next(item for item in current if item.id == p.id)
                                 port.open_port(match.index, "Anharmonic Studio input")
+                                if hasattr(port, "set_callback"):
+                                    # Timestamp at backend delivery, before any UI processing.
+                                    port.set_callback(lambda event, _data=None, key=p.id: self._emit(key, event[0]))
+                                    self.callback_ports.add(p.id)
                                 opened[p.id] = port
                                 addresses[p.id] = current_names[match.index]
                             except Exception as exc:
@@ -232,6 +242,8 @@ class MidiService:
                         rows.append(MidiPort(p.id, p.name, p.index, p.id in opened, error))
                     self.ports = tuple(rows)
                 for key, port in list(opened.items()):
+                    if key in self.callback_ports:
+                        continue
                     try:
                         for _ in range(128):
                             event = port.get_message()
@@ -276,15 +288,25 @@ class MidiRouter:
         self.last_event = "Waiting for MIDI"
         self.control_values = {}
         self.expression = expression or (lambda message: None)
-        self.channel_destination = lambda channel, note: None
-        self.channel_note_on = lambda destination, velocity: None
-        self.channel_note_off = lambda destination: None
+        self.clock = lambda port, message, timestamp: None
+        self.resolve_note = lambda note, port, channel: ("note", note)
+        self.sostenuto = set()
+        self.sostenuto_notes = set()
+        self.soft = set()
+        self.timestamp = 0.0
+        self.channel = 0
+        self.port_id = ""
+        self.release_velocity = 0
+        self.current_values = lambda target: None
+        self.takeover = set()
 
     def release_port(self, port_id=None):
         for key in list(self.held):
             if port_id is None or key[0] == port_id:
                 self._release(key)
         self.pedals = {key for key in self.pedals if port_id is not None and key[0] != port_id}
+        for name in ("sostenuto", "sostenuto_notes", "soft", "takeover"):
+            setattr(self, name, {key for key in getattr(self, name) if port_id is not None and key[0] != port_id})
         self.control_values = {
             key: value
             for key, value in self.control_values.items()
@@ -293,45 +315,43 @@ class MidiRouter:
 
     def _release(self, key):
         self.sustained.discard(key)
+        self.sostenuto_notes.discard(key)
         destination = self.held.pop(key, None)
         if destination is None or destination in self.held.values():
             return
         kind, number = destination
-        if kind == "routed":
-            self.channel_note_off(number)
-        else:
-            (self.pad_off if kind == "pad" else self.note_off)(number)
+        (self.pad_off if kind == "pad" else self.note_off)(number)
 
     def handle(self, port_id, message, _timestamp=0):
+        self.timestamp, self.port_id = _timestamp, port_id
         if not message:
             self.release_port(port_id or None)
             return
         status = message[0]
         if not isinstance(status, int) or not 0x80 <= status <= 0xFF:
             return
-        if status in (0xFA, 0xFB, 0xFC):
-            self.control("stop" if status == 0xFC else "play", 127)
+        settings = self.settings.setdefault(port_id, {})
+        if status in (0xF8, 0xFA, 0xFB, 0xFC, 0xF2):
+            if settings.get("clock", False):
+                self.clock(port_id, message, _timestamp)
+            elif status in (0xFA, 0xFB, 0xFC) and settings.get("transport", True):
+                self.control("stop" if status == 0xFC else "play", 127)
             return
         if status >= 0xF0:
             return
         kind, channel = status & 0xF0, status & 15
-        if kind == 0xD0:
-            if len(message) < 2 or type(message[1]) is not int or not 0 <= message[1] < 128:
-                return
-            value = message[1]
-            self.last_event = f"Ch {channel + 1} · Channel pressure · {value}"
-            self.expression([status, value])
+        self.channel = channel
+        if settings.get("channel", -1) not in (-1, channel):
             return
-        if len(message) < 3 or any(type(v) is not int or not 0 <= v < 128 for v in message[1:3]):
+        needed = 2 if kind in (0xC0, 0xD0) else 3
+        if len(message) != needed or any(type(v) is not int or not 0 <= v < 128 for v in message[1:]):
+            return
+        if kind in (0xA0, 0xC0, 0xD0):
+            self.expression(list(message))
             return
         number, value = message[1:3]
-        settings = self.settings.setdefault(port_id, {})
         if kind == 0xE0:
             self.last_event = f"Ch {channel + 1} · Pitch bend"
-            self.expression([status, number, value])
-            return
-        if kind == 0xA0:
-            self.last_event = f"Ch {channel + 1} · Poly pressure {number} · {value}"
             self.expression([status, number, value])
             return
         if kind == 0x90 and value == 0:
@@ -351,7 +371,8 @@ class MidiRouter:
             return
         key = (port_id, channel, number)
         if kind == 0x80:
-            if (port_id, channel) in self.pedals:
+            self.release_velocity = value
+            if (port_id, channel) in self.pedals or key in self.sostenuto_notes:
                 self.sustained.add(key)
             else:
                 self._release(key)
@@ -369,17 +390,13 @@ class MidiRouter:
                     return
                 destination = ("pad", self.bank() * 16 + local)
             else:
-                routed = self.channel_destination(channel, number)
-                destination = ("routed", routed) if routed is not None else ("note", number)
+                destination = self.resolve_note(min(127, max(0, number + settings.get("transpose", 0))), port_id, channel)
             already_held = destination in self.held.values()
             self.held[key] = destination
             if not already_held:
-                if destination[0] == "routed":
-                    self.channel_note_on(destination[1], value / 127)
-                else:
-                    (self.pad_on if destination[0] == "pad" else self.note_on)(
-                        destination[1], value / 127
-                    )
+                (self.pad_on if destination[0] == "pad" else self.note_on)(
+                    destination[1], self.velocity(value, settings, (port_id, channel) in self.soft)
+                )
         elif kind == 0xB0:
             if number in (120, 123):
                 self.release_port(port_id)
@@ -390,13 +407,48 @@ class MidiRouter:
                 else:
                     self.pedals.discard(pedal)
                     for held in list(self.sustained):
-                        if held[:2] == pedal:
+                        if held[:2] == pedal and held not in self.sostenuto_notes:
                             self._release(held)
+            elif number == 66:
+                pedal = (port_id, channel)
+                if value >= 64 and pedal not in self.sostenuto:
+                    self.sostenuto.add(pedal)
+                    self.sostenuto_notes.update(k for k in self.held if k[:2] == pedal and k not in self.sustained)
+                elif value < 64:
+                    self.sostenuto.discard(pedal)
+                    keys = [k for k in self.sostenuto_notes if k[:2] == pedal]
+                    for held in keys:
+                        self.sostenuto_notes.discard(held)
+                        if held in self.sustained and pedal not in self.pedals:
+                            self._release(held)
+            elif number == 67:
+                (self.soft.add if value >= 64 else self.soft.discard)((port_id, channel))
             target = settings.get("cc", {}).get(f"{channel}:{number}")
             if target:
                 previous = self.control_values.get(key, 0)
                 self.control_values[key] = value
-                if target not in {"play", "stop", "record"} or value >= 64 > previous:
+                buttons = {"play", "stop", "record", "bank_next", "bank_previous"}
+                if target in buttons:
+                    if value >= 64 > previous:
+                        self.control(target, value)
+                elif settings.get("encoder") == "relative":
+                    delta = value if value < 64 else value - 128
+                    current = self.current_values(target)
+                    self.control(target, max(0, min(127, (current if current is not None else previous) + delta)))
+                else:
+                    current = self.current_values(target)
+                    if settings.get("soft_takeover") and key not in self.takeover and current is not None:
+                        if min(previous, value) <= current <= max(previous, value) or abs(current - value) <= 2:
+                            self.takeover.add(key)
+                        else:
+                            return
                     self.control(target, value)
             elif number not in (64, 120, 123):
                 self.expression([status, number, value])
+
+    @staticmethod
+    def velocity(value, settings, soft=False):
+        curve = settings.get("velocity_curve", "linear")
+        v = value / 127.0
+        v = v ** 0.6 if curve == "soft" else v ** 1.6 if curve == "hard" else 1.0 if curve == "fixed" else v
+        return max(1 / 127, v * (0.7 if soft else 1.0))

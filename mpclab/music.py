@@ -7,6 +7,36 @@ import numpy as np
 
 
 @dataclass
+class MidiControl:
+    beat: float
+    message: list[int]
+    instrument: str | None = None
+    pad: int | None = None
+
+    def __post_init__(self):
+        if not isinstance(self.beat, (int, float)) or not math.isfinite(self.beat) or not 0 <= self.beat <= 1_000_000:
+            raise ValueError("MIDI control position must be finite and nonnegative")
+        if not isinstance(self.message, list) or not self.message:
+            raise ValueError("MIDI control message is required")
+        status = self.message[0]
+        if type(status) is not int or status & 0xF0 not in (0xA0, 0xB0, 0xC0, 0xD0, 0xE0):
+            raise ValueError("Unsupported MIDI control status")
+        count = 2 if status & 0xF0 in (0xC0, 0xD0) else 3
+        if len(self.message) != count or any(type(v) is not int or not 0 <= v < 128 for v in self.message[1:]):
+            raise ValueError("Invalid MIDI control data")
+        if self.instrument is not None and (not isinstance(self.instrument, str) or not 0 < len(self.instrument) <= 128):
+            raise ValueError("Invalid MIDI control instrument")
+        if self.pad is not None and (type(self.pad) is not int or not 0 <= self.pad < 64 or self.instrument is not None):
+            raise ValueError("Invalid MIDI control sample slot")
+
+
+def read_midi_controls(data):
+    if not isinstance(data, list) or len(data) > 100000 or any(not isinstance(item, dict) for item in data):
+        raise ValueError("MIDI controls must be an array of at most 100000 events")
+    return [MidiControl(**item) for item in data]
+
+
+@dataclass
 class Note:
     pitch: int = 60
     start: float = 0.0
@@ -68,8 +98,8 @@ class AutomationLane:
     def __post_init__(self):
         if self.target not in automation_targets():
             raise ValueError(f"unsupported automation target: {self.target}")
-        if self.interpolation not in ("linear", "step", "smooth"):
-            raise ValueError("automation interpolation must be linear, step or smooth")
+        if self.interpolation not in ("linear", "step"):
+            raise ValueError("automation interpolation must be linear or step")
         lo, hi = target_range(self.target)
         if any(not lo <= p.value <= hi for p in self.points):
             raise ValueError("automation value outside target range")
@@ -81,31 +111,14 @@ class AutomationLane:
         points = self.points if points is None else points
         if not points:
             raise ValueError("Cannot evaluate an empty automation lane")
-        positions = np.asarray([p.beat for p in points], dtype=np.float64)
-        values = np.asarray([p.value for p in points], dtype=np.float64)
-        samples = np.asarray(beats, dtype=np.float64)
+        positions = [p.beat for p in points]
+        values = [p.value for p in points]
         if self.interpolation == "step":
             indices = np.clip(
-                np.searchsorted(positions, samples, side="right") - 1, 0, len(values) - 1
+                np.searchsorted(positions, beats, side="right") - 1, 0, len(values) - 1
             )
-            return values[indices]
-        if self.interpolation == "smooth" and len(points) > 1:
-            left = np.clip(
-                np.searchsorted(positions, samples, side="right") - 1,
-                0,
-                len(values) - 2,
-            )
-            start = positions[left]
-            span = positions[left + 1] - start
-            t = np.clip((samples - start) / span, 0.0, 1.0)
-            eased = t * t * (3.0 - 2.0 * t)
-            result = values[left] + (values[left + 1] - values[left]) * eased
-            return np.where(
-                samples <= positions[0],
-                values[0],
-                np.where(samples >= positions[-1], values[-1], result),
-            )
-        return np.interp(samples, positions, values)
+            return np.asarray(values)[indices]
+        return np.interp(beats, positions, values)
 
     def put(self, beat, value):
         lo, hi = target_range(self.target)
@@ -151,36 +164,25 @@ def read_automation(data, *, track_count=None):
     if not isinstance(data, list) or len(data) > len(targets):
         raise ValueError(f"automation must be an array of at most {len(targets)} lanes")
     lanes = []
-    allowed_lane_keys = {"target", "points", "enabled", "interpolation"}
-    allowed_point_keys = {"beat", "value"}
     for item in data:
         if not isinstance(item, dict):
             raise ValueError("automation lanes must be objects")
-        if set(item) - allowed_lane_keys:
-            raise ValueError("automation lane contains unsupported fields")
-        target = item.get("target", "master")
-        if not isinstance(target, str) or target not in targets:
-            raise ValueError(f"unsupported automation target: {target}")
-        enabled = item.get("enabled", True)
-        if type(enabled) is not bool:
-            raise ValueError("automation enabled must be a boolean")
+        if (
+            not isinstance(item.get("target", "master"), str)
+            or item.get("target", "master") not in targets
+        ):
+            raise ValueError(f"unsupported automation target: {item.get('target')}")
         points = item.get("points", [])
         if not isinstance(points, list) or len(points) > 100_000:
             raise ValueError("automation points must be an array of at most 100000 points")
         if any(not isinstance(p, dict) for p in points):
             raise ValueError("automation points must be objects")
-        if any(set(point) - allowed_point_keys for point in points):
-            raise ValueError("automation point contains unsupported fields")
-        try:
-            parsed_points = [AutomationPoint(**point) for point in points]
-        except (TypeError, ValueError) as exc:
-            raise ValueError("automation point is invalid") from exc
         lanes.append(
             AutomationLane(
-                target=target,
-                enabled=enabled,
+                target=item.get("target", "master"),
+                enabled=bool(item.get("enabled", True)),
                 interpolation=item.get("interpolation", "linear"),
-                points=parsed_points,
+                points=[AutomationPoint(**p) for p in points],
             )
         )
     if len({lane.target for lane in lanes}) != len(lanes):

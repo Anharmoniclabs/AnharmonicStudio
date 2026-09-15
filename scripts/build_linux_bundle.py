@@ -37,14 +37,7 @@ def main():
     if output.exists():
         parser.error(f"Output already exists: {output}")
     root = Path(__file__).resolve().parent.parent
-    if not (root / "plugins/bundled/Anharmonic Prism.vst3").is_dir():
-        raise RuntimeError(
-            "Build the bundled instrument first: python scripts/build_prism.py /new/plugin-pack"
-        )
     native = build()
-    from scripts.build_rubberband import build as build_pitch_engine
-
-    pitch_engine = build_pitch_engine()
     output.parent.mkdir(parents=True, exist_ok=True)
     packages = (
         "numpy",
@@ -58,6 +51,8 @@ def main():
         "pycparser",
         "python-rtmidi",
         "pedalboard",
+        "verovio",
+        "onnxruntime",
     )
     with tempfile.TemporaryDirectory(prefix="linux-build-", dir=output.parent) as temporary:
         stage = Path(temporary)
@@ -84,24 +79,15 @@ def main():
             f"{root / 'mpclab/native'}:mpclab/native",
             "--add-binary",
             f"{native}:.native",
-            "--add-binary",
-            f"{pitch_engine}:.",
-            "--add-data",
-            f"{root / 'mpclab/companion'}:mpclab/companion",
-            "--add-data",
-            f"{root / 'mpclab/prism_expansion.json'}:mpclab",
-            "--add-data",
-            f"{root / 'mpclab/prism_arps.json'}:mpclab",
-            "--add-data",
-            f"{root / 'mpclab/prism_parameters.json'}:mpclab",
             "--collect-all",
             "pedalboard",
             "--collect-all",
             "rtmidi",
+            "--collect-all",
+            "verovio",
+            "--collect-all",
+            "onnxruntime",
         ]
-        bundled = root / "plugins/bundled"
-        if bundled.is_dir():
-            command.extend(["--add-data", f"{bundled}:plugins/bundled"])
         for name in (
             "torch",
             "torchaudio",
@@ -118,12 +104,6 @@ def main():
         command.append(str(root / "scripts/frozen_entry.py"))
         subprocess.run(command, cwd=root, check=True)
         bundle = stage / "dist/AnharmonicStudio"
-        shutil.copytree(
-            root / "native/vendor/rubberband", bundle / "notices/rubberband-4.0.0-source"
-        )
-        shutil.copy2(
-            root / "native/vendor/CMakeLists.txt", bundle / "notices/rubberband-CMakeLists.txt"
-        )
         for name in ("LICENSE", "THIRD_PARTY.md"):
             shutil.copy2(root / name, bundle / name)
         # Some wheels keep notices outside their .dist-info directory. Preserve

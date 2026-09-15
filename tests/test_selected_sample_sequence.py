@@ -235,31 +235,13 @@ def test_nudge_selection_preserves_spacing_and_clamps_at_track_boundary(window):
     assert window.project.to_dict() == before
 
 
-@pytest.mark.parametrize("reverse", [False, True])
-def test_write_notes_preserves_full_source_and_rate_of_compressed_clip(window, reverse):
+@pytest.mark.parametrize("reverse,expected", [(False, (0.25, 0.5)), (True, (0.5, 0.75))])
+def test_write_notes_uses_audible_side_of_shortened_clip(window, reverse, expected):
     window.project.bpm = 120
     clip = source_clip(window, length_beats=0.5, reverse=reverse)
     slot = window.sample_workflow.from_arrangement(clip)
     pad = window.project.pads[slot]
-    assert (pad.start, pad.end, pad.sync_beats) == (0.25, 0.75, 0.5)
-    voice = window.engine._voice_for_pad(pad, 1.0, note=pad.root_note)
-    assert voice.length == window.engine.sr // 4
-
-
-def test_write_notes_preserves_a_stretched_clip_and_its_arranged_duration(window):
-    """Converting a warp-stretched Arrange clip must not lose its tail."""
-    window.project.bpm = 120
-    clip = source_clip(window, length_beats=4, reverse=False)
-
-    slot = window.sample_workflow.from_arrangement(clip)
-    pad = window.project.pads[slot]
-
-    # The complete .5 s selected range is retained, then repitched to the
-    # two seconds occupied by four beats at 120 BPM.
-    assert (pad.start, pad.end, pad.sync_beats) == (0.25, 0.75, 4)
-    voice = window.engine._voice_for_pad(pad, 1.0, note=pad.root_note)
-    assert voice is not None
-    assert voice.length == 2 * window.engine.sr
+    assert (pad.start, pad.end) == expected
 
 
 def test_unreadable_reversed_sample_does_not_create_instrument_or_history(window, monkeypatch):

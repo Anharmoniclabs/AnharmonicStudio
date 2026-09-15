@@ -3,7 +3,6 @@
 from dataclasses import replace
 from collections import deque
 import math
-
 import numpy as np
 
 from .window_client import WindowClient
@@ -24,7 +23,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
 )
 
-from ..model import Clip, Pattern
+from ..model import Clip, Pattern, Row
+from ..recording_timing import take_placement
 from ..music import Note
 from ..vocal import VocalRecorder, input_device_inventory
 
@@ -38,18 +38,16 @@ class TrackCapture(WindowClient, QObject):
         self.recorder = VocalRecorder(
             app.engine.sr, app.engine.blocksize, temp_dir=app.root / "projects" / "recordings"
         )
+        self.recorder.engine = app.engine
         self.armed_id = None
         self.target = None
         self.active = False
         self.pending = False
         self.unsaved = None
-        self._capture_sample_rate = None
         self.notes = []
+        self.midi_take = None
         self.held = {}
         self.peaks = deque(maxlen=4096)
-        # Retain a truthful diagnostic after stopping.  A quiet take is still
-        # the user's take; this is guidance, never a reason to delete it.
-        self.take_peak = None
         self.message = "Select a track, choose its source, then arm and record."
 
     @property
@@ -59,35 +57,6 @@ class TrackCapture(WindowClient, QObject):
     @property
     def recovery_pending(self):
         return not self.recorder.recording and self.recorder.temporary_path is not None
-
-    @staticmethod
-    def level_db(peak):
-        """Return a bounded, user-facing dBFS value for an input peak."""
-        if peak is None or peak <= 0:
-            return None
-        return 20.0 * math.log10(max(float(peak), 1e-8))
-
-    def input_feedback(self, row=None):
-        """Give the inspector a specific, non-destructive routing diagnosis."""
-        row = row or self.target
-        if row is None or row.record_source != "audio":
-            return ""
-        destination = (
-            f"Mixer {row.record_track + 1} · {self.app.project.tracks[row.record_track].name}"
-        )
-        peak = self.recorder.input_peak if self.active else self.take_peak
-        db = self.level_db(peak)
-        if self.active:
-            if peak is None or peak < 0.001:
-                return f"NO INPUT · check Audio input setup → {destination}"
-            if peak >= 0.98:
-                return f"CLIPPING · lower Input gain → {destination}"
-            return f"Input {db:.1f} dBFS → {destination}"
-        if self.take_peak is not None and self.take_peak < 0.001:
-            return "No signal was detected in this saved take · it was kept unchanged"
-        if self.armed_id == row.id:
-            return f"Ready · input will record to {destination}"
-        return ""
 
     def arm(self, row):
         if self.busy:
@@ -118,7 +87,6 @@ class TrackCapture(WindowClient, QObject):
         self.pending = True
         self.notes, self.held = [], {}
         self.peaks.clear()
-        self.take_peak = None
         self.changed.emit()
         return True
 
@@ -127,7 +95,6 @@ class TrackCapture(WindowClient, QObject):
             return
         self.pending = False
         app = self.app
-        self._cue_error = ""
         try:
             if self.target.record_source == "audio":
                 device = None
@@ -142,25 +109,13 @@ class TrackCapture(WindowClient, QObject):
                         )
                 self.recorder.sample_rate = app.engine.sr
                 self.recorder.blocksize = app.engine.blocksize
-                from ..autotune.live import LiveMonitor, MonitorRoute
-
-                route = MonitorRoute(self.recorder, app.engine, self.settings.monitor_gain)
-                # Start dry capture first, then initialize using its negotiated rate.
-                self.recorder.start(
-                    device, self.settings.input_gain_db, route if self.settings.monitor else None
+                monitor = (
+                    (lambda block: app.engine.queue_monitor(block, self.settings.monitor_gain))
+                    if self.settings.monitor
+                    else None
                 )
-                if self.settings.monitor and self.settings.corrected_monitor:
-                    try:
-                        self._live_monitor = LiveMonitor(
-                            self.project.vocal, self.recorder.sample_rate, route
-                        )
-                        self.recorder.monitor_callback = self._live_monitor.push
-                    except Exception as exc:
-                        self._cue_error = f"Corrected cue unavailable; monitoring dry · {exc}"
-                # Input devices may negotiate a different rate to the output
-                # stream.  Keep that rate with this take; Library.add_audio()
-                # converts it exactly once into the library/engine domain.
-                self._capture_sample_rate = self.recorder.sample_rate
+                self.recorder.input_channels = tuple(self.settings.input_channels)
+                self.recorder.start(device, self.settings.input_gain_db, monitor)
         except Exception as exc:
             self.message = f"Input could not start · {exc}"
             self.target = None
@@ -171,11 +126,13 @@ class TrackCapture(WindowClient, QObject):
         self.previous_loop = app.engine.loop_song
         app.engine.loop_song = False
         app.engine.set_position(self.start_beat)
+        app.engine.capture_anchor = None
+        app.engine.capture_anchor_requested = self.target.record_source == "audio"
         if self.target.record_source == "notes":
+            self.midi_take = app.engine.midi.begin_take(self.start_beat)
             app.engine.arp_note_capture = (self.notes, self.start_beat)
         app.engine.play()
-        route = f"Mixer {self.target.record_track + 1} · {app.project.tracks[self.target.record_track].name}"
-        self.message = f"Recording · {self.target.name} → {route} · Stop saves the take"
+        self.message = f"Recording · {self.target.name} · Stop saves the take"
         app.status.showMessage(self.message)
         self.changed.emit()
 
@@ -215,9 +172,11 @@ class TrackCapture(WindowClient, QObject):
             return
         if not self.active:
             return
-        if getattr(self, "_live_monitor", None):
-            self._live_monitor.close()
-            self._live_monitor = None
+        if self.midi_take is not None:
+            completed = self.app.engine.midi.end_take()
+            if completed is not None:
+                self.notes.extend(completed.notes)
+                self.midi_take = completed
         self.app.engine.arp_note_capture = None
         for key in tuple(self.held):
             self.note_off(key[0], key[1], instrument=key[2] if len(key) > 2 else None)
@@ -231,14 +190,11 @@ class TrackCapture(WindowClient, QObject):
             self.changed.emit()
             self.app.status.showMessage(self.message, 8000)
             return
-        if audio is not None and len(audio):
-            self.take_peak = float(np.max(np.abs(audio)))
-        # Only discard when no frames were captured at all.  A very short or
-        # silent performance is valuable evidence when debugging a route and
-        # must remain available for the musician to inspect, edit, or retry.
-        if (audio is not None and not len(audio)) or (audio is None and not self.notes):
+        if (audio is not None and len(audio) < self.app.engine.sr * 0.08) or (
+            audio is None and not self.notes
+        ):
             self.recorder.discard()
-            self.message = "No take saved · the input device delivered no audio frames"
+            self.message = "No take saved · no notes or less than 80 ms of audio"
             self.target = None
             self.changed.emit()
             return
@@ -271,27 +227,32 @@ class TrackCapture(WindowClient, QObject):
         app.snapshot()
         try:
             name = f"{self.target.name} · Take {len(row.clips) + 1}"
+            additional_rows = []
             if audio is not None:
-                source = app.library.add_audio(
-                    audio,
-                    name,
-                    kind="recording",
-                    source_sample_rate=self._capture_sample_rate,
-                )
-                length = source.duration * app.project.bpm / 60.0
-                latency = self.settings.input_latency_ms * app.project.bpm / 60000.0
-                clip = Clip(
-                    kind="audio",
-                    ref=source.id,
-                    start_beat=max(0.0, self.start_beat - latency),
-                    length_beats=length,
-                    source_length=source.duration,
-                    track=self.target.record_track,
-                )
+                split = self.settings.split_inputs or audio.shape[1] > 2
+                sources = []
+                for channel in range(len(self.settings.input_channels) if split else 1):
+                    block = np.repeat(audio[:, channel:channel + 1], 2, axis=1) if split else audio
+                    label = f"{name} · Input {self.settings.input_channels[channel] + 1}" if split else name
+                    sources.append(app.library.add_audio(block, label, kind="recording"))
+                for channel, source in enumerate(sources):
+                    beat, trim, length = take_placement(self.start_beat, source.duration, app.project.bpm,
+                        self.settings.input_latency_ms, first_capture=self.recorder.first_capture_monotonic,
+                        anchor=app.engine.capture_anchor)
+                    placed = Clip(kind="audio", ref=source.id, start_beat=beat, offset=trim,
+                                  length_beats=max(1 / app.engine.sr, length), source_length=source.duration,
+                                  track=min(len(app.project.tracks) - 1, self.target.record_track + channel))
+                    if channel == 0:
+                        clip = placed
+                    else:
+                        additional_rows.append(Row(name=f"{self.target.name} · Input {self.settings.input_channels[channel] + 1}",
+                                                   clips=[placed], record_track=placed.track))
             else:
                 length = max(n.start + n.duration for n in notes)
                 pattern = Pattern(name=name, bars=max(1, math.ceil(length / 4)))
                 pattern.notes = notes
+                if self.midi_take is not None:
+                    pattern.midi_controls = list(self.midi_take.controls)
                 app.project.patterns.append(pattern)
                 clip = Clip(
                     kind="pattern",
@@ -302,14 +263,8 @@ class TrackCapture(WindowClient, QObject):
                 app.project.current_pattern = pattern.id
                 app._sync_pattern_controls()
             row.clips.append(clip)
-            # The audio callback deliberately never reads from disk.  A take
-            # can be larger than the library's ordinary in-memory cache, so
-            # ``add_audio`` alone does not guarantee it is RT-ready.  Prepare
-            # the newly placed source before the user next presses Play;
-            # otherwise the first pass through a recorded lane is silent and
-            # only increments the engine's cache-miss counter.
-            if audio is not None:
-                app.engine.preload_project_audio()
+            position = app.project.rows.index(row) + 1
+            app.project.rows[position:position] = additional_rows
         except Exception as exc:
             app.discard_snapshot()
             app._redo[:] = previous_redo
@@ -320,14 +275,13 @@ class TrackCapture(WindowClient, QObject):
             return
         self.recorder.commit()
         self.unsaved = None
+        self.midi_take = None
         self.target = None
         app._library_changed()
         app._refresh_place_box()
         app.playlist.refresh()
         app.playlist.select_clip(clip)
         self.message = f"Saved · {name}"
-        if audio is not None and self.take_peak is not None and self.take_peak < 0.001:
-            self.message += " · no input detected (take kept unchanged)"
         if self.recorder.dropped_frames:
             self.message += f" · {1000 * self.recorder.dropped_frames / self.recorder.sample_rate:.1f} ms dropout filled with silence"
         app.status.showMessage(self.message, 5000)
@@ -412,12 +366,6 @@ class TrackInspector(WindowClient, QWidget):
         self.monitor.setToolTip("Listen to the input while recording. Use headphones.")
         self.monitor.toggled.connect(self.settings_changed)
         form.addRow(self.monitor)
-        self.corrected_monitor = QCheckBox("Pitch-corrected cue · V2")
-        self.corrected_monitor.setToolTip(
-            "Uses the Vocal pitch settings. Adds processing delay; recording stays dry."
-        )
-        self.corrected_monitor.toggled.connect(self.settings_changed)
-        form.addRow(self.corrected_monitor)
 
         self.arm = QPushButton("Arm track")
         self.arm.setCheckable(True)
@@ -436,10 +384,6 @@ class TrackInspector(WindowClient, QWidget):
         form.addRow(self.meter)
         layout.addWidget(self.details)
         self.details.hide()
-        self.input_feedback = QLabel()
-        self.input_feedback.setObjectName("inputFeedback")
-        self.input_feedback.setWordWrap(True)
-        layout.addWidget(self.input_feedback)
         self.state = QLabel()
         self.state.setWordWrap(True)
         secondary = QHBoxLayout()
@@ -522,15 +466,10 @@ class TrackInspector(WindowClient, QWidget):
 
     def settings_changed(self):
         rec = self.app.project.vocal_record
-        values = (
-            self.count.currentData(),
-            self.gain.value(),
-            self.monitor.isChecked(),
-            self.corrected_monitor.isChecked(),
-        )
-        if values != (rec.count_in_bars, rec.input_gain_db, rec.monitor, rec.corrected_monitor):
+        values = (self.count.currentData(), self.gain.value(), self.monitor.isChecked())
+        if values != (rec.count_in_bars, rec.input_gain_db, rec.monitor):
             self.app.snapshot()
-            rec.count_in_bars, rec.input_gain_db, rec.monitor, rec.corrected_monitor = values
+            rec.count_in_bars, rec.input_gain_db, rec.monitor = values
             self.app.vocal_panel.sync()
 
     def sync(self):
@@ -551,7 +490,6 @@ class TrackInspector(WindowClient, QWidget):
         for widget, value in (
             (self.gain, rec.input_gain_db),
             (self.monitor, rec.monitor),
-            (self.corrected_monitor, rec.corrected_monitor),
             (self.arm, bool(row and capture.armed_id == row.id)),
         ):
             widget.blockSignals(True)
@@ -568,37 +506,9 @@ class TrackInspector(WindowClient, QWidget):
             bool(row) and not (capture.unsaved is not None or capture.recovery_pending)
         )
         self.state.setText(capture.message)
-        self.update_input_feedback()
         self.retry.setVisible(capture.unsaved is not None or capture.recovery_pending)
         self.discard.setVisible(capture.unsaved is not None or capture.recovery_pending)
         self.notes_help.setVisible(bool(row and row.record_source == "notes"))
         self.output.setEnabled(bool(row and row.record_source == "audio" and not capture.busy))
-        for widget in (
-            self.count,
-            self.gain,
-            self.monitor,
-            self.corrected_monitor,
-            self.input_button,
-        ):
+        for widget in (self.count, self.gain, self.monitor, self.input_button):
             widget.setEnabled(not capture.busy)
-
-    def update_input_feedback(self):
-        """Refresh live level/routing guidance without changing capture state."""
-        text = self.app.track_capture.input_feedback(self.row())
-        live = getattr(self.app.track_capture, "_live_monitor", None)
-        if live is not None:
-            text += " · " + (
-                live.error or f"Corrected cue: ~{live.latency_ms:.0f} ms processing delay"
-            )
-        elif self.app.track_capture.active and getattr(self.app.track_capture, "_cue_error", ""):
-            text += " · " + self.app.track_capture._cue_error
-        self.input_feedback.setText(text)
-        self.input_feedback.setVisible(bool(text))
-        peak = self.app.track_capture.recorder.input_peak
-        db = self.app.track_capture.level_db(peak)
-        if self.app.track_capture.active and db is not None:
-            self.meter.setFormat(f"Input {db:.1f} dBFS")
-        elif self.app.track_capture.active:
-            self.meter.setFormat("Input — dBFS")
-        else:
-            self.meter.setFormat("Input %p%")

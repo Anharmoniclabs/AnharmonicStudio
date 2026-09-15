@@ -37,8 +37,6 @@ class Clip:
     category: str | None = None
     comp_id: str | None = None  # persisted link back to a project vocal comp
 
-    render_recipe: dict | None = None
-
     @property
     def label(self) -> str:
         return self.name
