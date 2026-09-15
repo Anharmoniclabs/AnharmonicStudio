@@ -45,6 +45,11 @@ class DevicesController(WindowClient, QObject):
 
     def _channel_destination(self, channel, note):
         ids = tuple(i.id for i in self.app.project.instruments if i.midi_channel == channel)
+        if not ids and self.app.studio.selected == self.app.TAB_SYNTH:
+            # Match musical typing: Instruments owns unassigned MIDI keys.
+            # The router retains this destination until release, even if the
+            # player changes workspace or selected instrument while holding it.
+            ids = (self.app.project.selected_instrument,)
         return (channel, note, ids) if ids else None
 
     def _channel_note_on(self, destination, velocity):
