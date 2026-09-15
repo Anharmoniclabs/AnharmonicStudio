@@ -1,0 +1,393 @@
+name: Final local DAW and Prism recovery
+
+on:
+  push:
+    branches: [integration/local-handfx-recovery-20260915]
+    paths: [.github/workflows/final-local-recovery.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    env:
+      PATCH_URL: "https://sdmntprcentralus.oaiusercontent.com/files/00000000-7b54-81f5-9501-173e53380562/raw?se=2026-09-15T18%3A46%3A42Z&sp=r&sv=2026-02-06&sr=b&scid=387d5673-6731-5f37-b3b4-a28468998b20&skoid=78501c7f-f65d-4e8d-9110-bed29e1beb41&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-15T14%3A41%3A09Z&ske=2026-09-16T14%3A41%3A09Z&sks=b&skv=2026-02-06&sig=yRtQ28dsCfbcXuJBK6ePvQCE9W48gD5kfcW3myx/TtM%3D"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: integration/local-handfx-recovery-20260915
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
+
+      - name: Apply exact local Prism and Hand FX patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 "$PATCH_URL" -o /tmp/prism-local-fixes.zip
+          unzip -q /tmp/prism-local-fixes.zip -d /tmp/prism-local-fixes
+          gunzip -c /tmp/prism-local-fixes/prism-local-fixes.patch.gz > /tmp/prism-local-fixes.patch
+          git apply --3way --index /tmp/prism-local-fixes.patch || true
+          actual="$(git diff --name-only --diff-filter=U | sort)"
+          expected="$(printf '%s\n' mpclab/engine_offline.py mpclab/external_dsp.py uv.lock | sort)"
+          if [ "$actual" != "$expected" ]; then
+            echo "Unexpected merge conflicts:" >&2
+            printf '%s\n' "$actual" >&2
+            exit 1
+          fi
+
+      - name: Reconcile DAW, voice ownership, MIDI and Prism behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          # Preserve MIDI channel metadata and Prism tempo delivery offline.
+          p = Path('mpclab/engine_offline.py')
+          s = p.read_text()
+          s = s.replace('''<<<<<<< ours
+                          [(*event[:4], event[5]) for event in synth_events if event[4] is None],
+          =======
+                          [event[:4] for event in synth_events if event[4] is None],
+                          proj.bpm,
+          >>>>>>> theirs''','''                [(*event[:4], event[5]) for event in synth_events if event[4] is None],
+                          proj.bpm,''')
+          if '<<<<<<<' in s:
+              raise SystemExit('engine_offline conflict was not resolved')
+          p.write_text(s)
+
+          # Preserve per-event VST ownership while keeping Prism's no-reset panic path.
+          p = Path('mpclab/external_dsp.py')
+          s = p.read_text()
+          s = s.replace('''<<<<<<< ours
+                  self.voices.clear()
+                  self._gate_owners.clear()
+                  self.reset_requested = True
+          =======
+                  # Prism handles CC123 by clearing both synth layers, held notes and
+                  # sustain itself. A host reset recreates its processor and stalls the
+                  # live worker long enough to overflow the audio queue, including on
+                  # the panic sent immediately after loading the instrument.
+                  self.reset_requested = (
+                      getattr(self.instrument, "info", {}).get("name") != "Anharmonic Prism"
+                  )
+          >>>>>>> theirs''','''        self.voices.clear()
+                  self._gate_owners.clear()
+                  # Prism handles CC123 by clearing both synth layers, held notes and
+                  # sustain itself. A host reset recreates its processor and stalls the
+                  # live worker long enough to overflow the audio queue, including on
+                  # the panic sent immediately after loading the instrument.
+                  self.reset_requested = (
+                      getattr(self.instrument, "info", {}).get("name") != "Anharmonic Prism"
+                  )''')
+          if '<<<<<<<' in s:
+              raise SystemExit('external_dsp conflict was not resolved')
+          old = '''    def note_on(self, note, velocity, offset=0, gate=None, live=True, channel=None):
+                  channel = (0 if live else 1) if channel is None else channel
+                  self.events.append(
+                      ([0x90 | channel, note, max(1, min(127, round(velocity * 127)))], offset)
+                  )
+                  if gate is not None:
+                      ending = (offset + gate, channel, note)
+                      self.ends.append(ending)
+                      self._gate_owners[id(ending)] = voice
+          '''
+          new = '''    def note_on(
+                  self,
+                  note,
+                  velocity,
+                  offset=0,
+                  gate=None,
+                  live=True,
+                  channel=None,
+                  *,
+                  event_source=None,
+                  trigger_id=None,
+              ):
+                  channel = (0 if live else 1) if channel is None else channel
+                  message = [0x90 | channel, note, max(1, min(127, round(velocity * 127)))]
+                  voice = ExternalNote(self, note, channel, event_source, trigger_id, onset=message)
+                  self.voices.append(voice)
+                  self.events.append((message, offset))
+                  if gate is not None:
+                      ending = (offset + gate, channel, note)
+                      self.ends.append(ending)
+                      self._gate_owners[id(ending)] = voice
+          '''
+          if old not in s:
+              raise SystemExit('external note_on shape changed unexpectedly')
+          p.write_text(s.replace(old, new, 1))
+
+          # One scheduler event must carry both source identity and MIDI expression metadata.
+          p = Path('mpclab/event_source.py')
+          s = p.read_text()
+          old = '''class ScheduledNote(tuple):
+              """Keep the five-field scheduling protocol, with realtime-only ownership."""
+
+              def __new__(cls, values, source):
+                  event = super().__new__(cls, values)
+                  event.source = source
+                  return event
+          '''
+          new = '''class ScheduledNote(tuple):
+              """Five-field scheduler event with realtime ownership and MIDI metadata."""
+
+              def __new__(cls, values, source=None, channel=0, release_velocity=0):
+                  event = super().__new__(cls, values)
+                  event.source = source
+                  event.channel = channel
+                  event.release_velocity = release_velocity
+                  return event
+          '''
+          if old not in s:
+              raise SystemExit('ScheduledNote ownership shape changed unexpectedly')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('mpclab/engine_scheduling.py')
+          s = p.read_text().replace(
+              'from .midi_playback import ScheduledNote, sustained_duration',
+              'from .midi_playback import sustained_duration',
+          )
+          old = '''                    out.append(
+                              ScheduledNote(
+                                  (beat, destination, note.velocity, gate, sequence_id),
+                                  note.channel,
+                                  note.release_velocity,
+                              )
+                          )'''
+          new = '''                    out.append(
+                              ScheduledNote(
+                                  (beat, destination, note.velocity, gate, sequence_id),
+                                  source=EventSource(pat, note=note, note_index=note_index),
+                                  channel=note.channel,
+                                  release_velocity=note.release_velocity,
+                              )
+                          )'''
+          if old not in s:
+              raise SystemExit('note scheduling shape changed unexpectedly')
+          p.write_text(s.replace(old, new, 1))
+
+          # Carry source identity all the way through internal and VST synth voices.
+          p = Path('mpclab/engine.py')
+          s = p.read_text()
+          old = '''        instrument_id: str | None = None,
+                  midi_channel: int = 0,
+                  midi_owner: str | None = None,
+              ) -> None:'''
+          new = '''        instrument_id: str | None = None,
+                  midi_channel: int = 0,
+                  midi_owner: str | None = None,
+                  event_source=None,
+                  trigger_id=None,
+              ) -> None:'''
+          if old not in s:
+              raise SystemExit('_spawn_synth signature changed unexpectedly')
+          s = s.replace(old, new, 1)
+          old = '''            self.external.note_on(
+                          note, velocity, offset, gate_frames, live_trigger, channel=midi_channel
+                      )'''
+          new = '''            self.external.note_on(
+                          note,
+                          velocity,
+                          offset,
+                          gate_frames,
+                          live_trigger,
+                          channel=midi_channel,
+                          event_source=event_source,
+                          trigger_id=trigger_id,
+                      )'''
+          if old not in s:
+              raise SystemExit('external synth routing changed unexpectedly')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('mpclab/engine_mixing.py')
+          s = p.read_text()
+          old = '''        for event in notes:
+                  beat, pad_idx, vel, _gate, sequence_id = event
+                  off = int(max(0.0, (beat - b0) / bps))'''
+          new = '''        for event in notes:
+                  beat, pad_idx, vel, _gate, sequence_id = event
+                  source = getattr(event, "source", None)
+                  off = int(max(0.0, (beat - b0) / bps))'''
+          if old not in s:
+              raise SystemExit('realtime event loop changed unexpectedly')
+          s = s.replace(old, new, 1)
+          old = '''                    live_trigger=False,
+                              instrument_id=instrument_id,
+                              midi_channel=getattr(event, "channel", 0),
+                          )'''
+          new = '''                    live_trigger=False,
+                              instrument_id=instrument_id,
+                              midi_channel=getattr(event, "channel", 0),
+                              event_source=source,
+                          )'''
+          if old not in s:
+              raise SystemExit('realtime synth call changed unexpectedly')
+          p.write_text(s.replace(old, new, 1))
+
+          # Keep the current partition-invariant fallback filter and layer the local MIDI
+          # expression controls into it instead of reviving the older callback-sensitive path.
+          p = Path('mpclab/synth.py')
+          s = p.read_text()
+          main = subprocess.check_output(
+              ['git', 'show', '09cd01e6a333903a609745a24177a70f81df4a4c:mpclab/synth.py'],
+              text=True,
+          )
+          start_marker = '        sr = float(self.sample_rate)\n'
+          end_marker = '        self.age += n\n\n\nclass ArpState:'
+          ms = main.index(start_marker)
+          me = main.index(end_marker, ms) + len('        self.age += n\n')
+          block = main[ms:me]
+          block = block.replace(
+              'base = midi_to_hz(self.note)', 'base = midi_to_hz(self.note + self.pitch_bend)'
+          )
+          block = block.replace(
+              'pitch_mod = np.exp2(lfo * patch.lfo_pitch / 1200.0)',
+              'pitch_mod = np.exp2(lfo * (patch.lfo_pitch + self.modulation * 40) / 1200.0)',
+          )
+          block = block.replace(
+              '''                cutoff = patch.cutoff * math.exp2(
+                              patch.filter_env * self._half_envelope * 4.5
+                              + patch.lfo_filter * self._half_lfo * 3.0
+                          )''',
+              '''                cutoff = patch.cutoff * (1.0 + self.pressure) * math.exp2(
+                              patch.filter_env * self._half_envelope * 4.5
+                              + patch.lfo_filter * self._half_lfo * 3.0
+                          )''',
+          )
+          block = block.replace(
+              '        gain = env * min(1.0, max(0.0, self.velocity)) * max(0.0, patch.volume)',
+              '''        gain = (
+                      env
+                      * min(1.0, max(0.0, self.velocity))
+                      * max(0.0, patch.volume)
+                      * self.expression_gain
+                  )''',
+          )
+          cs = s.index(start_marker, s.index('class SynthVoice'))
+          ce = s.index('\n\nclass ArpState:', cs)
+          p.write_text(s[:cs] + block + s[ce:])
+
+          # Merge the current corrected-monitor behavior with the local multichannel and MIDI take work.
+          p = Path('mpclab/ui/track_recording.py')
+          s = p.read_text()
+          s = s.replace(
+              'from collections import deque\nimport math\nimport numpy as np\n\nimport numpy as np\n',
+              'from collections import deque\nimport math\n\nimport numpy as np\n',
+              1,
+          )
+          old = '''                self.recorder.sample_rate = app.engine.sr
+                          self.recorder.blocksize = app.engine.blocksize
+                          from ..autotune.live import LiveMonitor, MonitorRoute
+
+                          route = MonitorRoute(self.recorder, app.engine, self.settings.monitor_gain)
+                          # Start dry capture first, then initialize using its negotiated rate.
+                          self.recorder.start(
+                              device, self.settings.input_gain_db, route if self.settings.monitor else None
+                          )
+                          self.recorder.input_channels = tuple(self.settings.input_channels)
+                          self.recorder.start(device, self.settings.input_gain_db, monitor)'''
+          new = '''                self.recorder.sample_rate = app.engine.sr
+                          self.recorder.blocksize = app.engine.blocksize
+                          self.recorder.input_channels = tuple(self.settings.input_channels)
+                          from ..autotune.live import LiveMonitor, MonitorRoute
+
+                          route = MonitorRoute(self.recorder, app.engine, self.settings.monitor_gain)
+                          self.recorder.start(
+                              device, self.settings.input_gain_db, route if self.settings.monitor else None
+                          )
+                          if self.settings.monitor and self.settings.corrected_monitor:
+                              try:
+                                  self._live_monitor = LiveMonitor(
+                                      self.project.vocal, self.recorder.sample_rate, route
+                                  )
+                                  self.recorder.monitor_callback = self._live_monitor.push
+                              except Exception as exc:
+                                  self._cue_error = f"Corrected cue unavailable; monitoring dry · {exc}"
+                          self._capture_sample_rate = self.recorder.sample_rate'''
+          if old not in s:
+              raise SystemExit('track recorder start shape changed unexpectedly')
+          s = s.replace(old, new, 1)
+          old = '''        if self.midi_take is not None:
+                  completed = self.app.engine.midi.end_take()
+                  if completed is not None:
+                      self.notes.extend(completed.notes)
+                      self.midi_take = completed
+              self.app.engine.arp_note_capture = None'''
+          new = '''        if getattr(self, "_live_monitor", None):
+                  self._live_monitor.close()
+                  self._live_monitor = None
+              if self.midi_take is not None:
+                  completed = self.app.engine.midi.end_take()
+                  if completed is not None:
+                      self.notes.extend(completed.notes)
+                      self.midi_take = completed
+              self.app.engine.arp_note_capture = None'''
+          if old not in s:
+              raise SystemExit('track recorder finish shape changed unexpectedly')
+          s = s.replace(old, new, 1)
+          old = '                    sources.append(app.library.add_audio(block, label, kind="recording"))'
+          new = '''                    sources.append(
+                                  app.library.add_audio(
+                                      block,
+                                      label,
+                                      kind="recording",
+                                      source_sample_rate=self._capture_sample_rate,
+                                  )
+                              )'''
+          if old not in s:
+              raise SystemExit('multichannel library add shape changed unexpectedly')
+          s = s.replace(old, new, 1)
+          old = '''            row.clips.append(clip)
+                      position = app.project.rows.index(row) + 1
+                      app.project.rows[position:position] = additional_rows'''
+          new = '''            row.clips.append(clip)
+                      position = app.project.rows.index(row) + 1
+                      app.project.rows[position:position] = additional_rows
+                      if audio is not None:
+                          app.engine.preload_project_audio()'''
+          if old not in s:
+              raise SystemExit('recording placement shape changed unexpectedly')
+          s = s.replace(old, new, 1)
+          old = '''        self.unsaved = None
+              self.target = None
+              self.notes.clear()'''
+          new = '''        self.unsaved = None
+              self.midi_take = None
+              self.target = None
+              self.notes.clear()'''
+          if old not in s:
+              raise SystemExit('discard shape changed unexpectedly')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git checkout --ours uv.lock
+          git add -A
+          git diff --cached --check
+
+      - name: Regenerate lockfile and enforce source quality
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv lock --python 3.12
+          uv sync --locked --group dev
+          uv run --no-sync ruff format mpclab tests scripts
+          uv run --no-sync ruff check mpclab tests scripts
+          uv run --no-sync python -m compileall -q mpclab tests scripts
+          git add -A
+          git diff --cached --check
+
+      - name: Commit and push recovered local work
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Anharmoniclabs recovery"
+          git config user.email "132678602+Anharmoniclabs@users.noreply.github.com"
+          git commit -m "Integrate recovered local DAW and Prism Hand FX work"
+          git push origin HEAD:integration/local-handfx-recovery-20260915
