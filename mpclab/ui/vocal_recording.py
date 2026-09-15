@@ -20,6 +20,8 @@ def _record_settings_changed(owner, *_):
     owner.app.snapshot()
     rec = owner.app.project.vocal_record
     rec.input_device = str(owner.input_box.currentData() or "")
+    if hasattr(owner, "input_channel"):
+        rec.input_channels = [int(owner.input_channel.currentData() or 0)]
     rec.input_gain_db = owner.input_gain.value()
     rec.input_latency_ms = owner.input_latency.value()
     rec.monitor = owner.monitor.isChecked()
@@ -99,6 +101,36 @@ def _apply_preset(owner, name: str):
         owner._batch_tune_edit = False
 
 
+def _populate_input_channels(owner):
+    if not hasattr(owner, "input_channel"):
+        return
+    rec = owner.app.project.vocal_record
+    key = str(owner.input_box.currentData() or "")
+    selected = next((item for item in owner._inputs if item["key"] == key), None)
+    if selected is None:
+        try:
+            _inputs, default = input_device_inventory()
+        except Exception:
+            default = None
+        selected = next((item for item in owner._inputs if item["index"] == default), None)
+    channels = max(1, int(selected.get("channels", 1))) if selected is not None else 1
+    wanted = rec.input_channels[0] if rec.input_channels else 0
+    owner.input_channel.blockSignals(True)
+    owner.input_channel.clear()
+    for channel in range(channels):
+        owner.input_channel.addItem(f"Channel {channel + 1}", channel)
+    index = owner.input_channel.findData(wanted)
+    owner.input_channel.setCurrentIndex(index if index >= 0 else 0)
+    owner.input_channel.blockSignals(False)
+
+
+def input_device_changed(owner, *_):
+    if owner._syncing:
+        return
+    _populate_input_channels(owner)
+    _record_settings_changed(owner)
+
+
 def scan_inputs(owner):
     try:
         inputs, default = input_device_inventory()
@@ -118,6 +150,7 @@ def scan_inputs(owner):
     index = owner.input_box.findData(wanted)
     owner.input_box.setCurrentIndex(max(0, index))
     owner.input_box.blockSignals(False)
+    _populate_input_channels(owner)
     owner.record_status.setText(f"{len(inputs)} microphone input(s) available")
 
 
@@ -199,7 +232,9 @@ def _start_capture(owner):
         owner.recorder.engine = owner.app.engine
         owner.recorder.sample_rate = owner.app.engine.sr
         owner.recorder.blocksize = owner.app.engine.blocksize
-        owner.recorder.input_channels = tuple(rec.input_channels[:2])
+        # Vocal capture is intentionally mono and owns only the explicitly
+        # selected microphone channel. MIDI/pad recording never enters this path.
+        owner.recorder.input_channels = (int(rec.input_channels[0]),)
         owner.recorder.start(device, rec.input_gain_db, monitor_callback)
         if (
             getattr(owner, "_live_monitor", None)

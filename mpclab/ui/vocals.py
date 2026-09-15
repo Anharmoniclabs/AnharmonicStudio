@@ -226,6 +226,9 @@ class VocalPanel(WindowClient, QWidget):
     def scan_inputs(self):
         return vocal_recording.scan_inputs(self)
 
+    def _input_device_changed(self, *args):
+        return vocal_recording.input_device_changed(self, *args)
+
     def toggle_recording(self):
         return vocal_recording.toggle_recording(self)
 
