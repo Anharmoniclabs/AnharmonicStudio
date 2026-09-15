@@ -8,7 +8,7 @@ import pytest
 import soundfile as sf
 from PySide6.QtWidgets import QApplication
 
-from mpclab.model import Project, Clip, Row
+from mpclab.model import Project, Clip
 from mpclab.music import Note
 from mpclab.scoring import collect_score, musicxml
 from mpclab.transcription import (
@@ -42,7 +42,7 @@ def test_real_model_recovers_chord_melody_and_silence(musical_audio, tmp_path):
     assert result.bpm == 120 and result.duration == 6
     notes = result.parts[0].notes
     assert [note.pitch for note in notes] == [60, 64, 67, 62, 69]
-    for note, onset in zip(notes, [1, 1, 1, 3, 4]):
+    for note, onset in zip(notes, [1, 1, 1, 3, 4], strict=True):
         assert abs(note.start - onset) < .08
         assert abs(note.end - (onset + .75)) < .08
     silence = tmp_path / "silence.wav"
