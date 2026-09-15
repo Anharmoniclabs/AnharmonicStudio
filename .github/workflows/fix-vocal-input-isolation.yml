@@ -1,0 +1,118 @@
+name: Fix vocal input isolation
+
+on:
+  push:
+    branches: [fix/vocal-input-isolation-20260915]
+    paths: [.github/workflows/fix-vocal-input-isolation.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: fix/vocal-input-isolation-20260915
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
+      - name: Install UI runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libegl1 libgl1 libopengl0 libxkbcommon0
+      - name: Apply vocal and track capture separation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              text = p.read_text()
+              if new in text:
+                  return
+              if old not in text:
+                  raise SystemExit(f"{label}: source shape not found")
+              p.write_text(text.replace(old, new, 1))
+
+          # Vocal panel: make the microphone channel explicit next to the device.
+          replace_once(
+              "mpclab/ui/vocal_layout.py",
+              '''    owner.input_box = QComboBox()\n    owner.input_box.addItem("System default input", "")\n    owner.input_box.setMinimumWidth(260)\n    owner.input_box.currentIndexChanged.connect(owner._record_settings_changed)\n    grid.addWidget(owner.input_box, 0, 1, 1, 3)\n    scan = QPushButton("RESCAN")\n    scan.setObjectName("mini")\n    scan.clicked.connect(owner.scan_inputs)\n    grid.addWidget(scan, 0, 4)''',
+              '''    owner.input_box = QComboBox()\n    owner.input_box.addItem("System default input", "")\n    owner.input_box.setMinimumWidth(220)\n    owner.input_box.currentIndexChanged.connect(owner._input_device_changed)\n    grid.addWidget(owner.input_box, 0, 1, 1, 2)\n    owner.input_channel = QComboBox()\n    owner.input_channel.addItem("Channel 1", 0)\n    owner.input_channel.setAccessibleName("Vocal input channel")\n    owner.input_channel.setToolTip("Choose the physical interface input where your microphone is connected.")\n    owner.input_channel.currentIndexChanged.connect(owner._record_settings_changed)\n    grid.addWidget(owner.input_channel, 0, 3)\n    scan = QPushButton("RESCAN")\n    scan.setObjectName("mini")\n    scan.clicked.connect(owner.scan_inputs)\n    grid.addWidget(scan, 0, 4)''',
+              "vocal input row",
+          )
+
+          # Vocal panel wrapper for channel repopulation when a device changes.
+          replace_once(
+              "mpclab/ui/vocals.py",
+              '''    def scan_inputs(self):\n        return vocal_recording.scan_inputs(self)\n\n    def toggle_recording(self):''',
+              '''    def scan_inputs(self):\n        return vocal_recording.scan_inputs(self)\n\n    def _input_device_changed(self, *args):\n        return vocal_recording.input_device_changed(self, *args)\n\n    def toggle_recording(self):''',
+              "vocal device-change wrapper",
+          )
+
+          # Persist a single explicit vocal channel and rebuild channel choices per device.
+          replace_once(
+              "mpclab/ui/vocal_recording.py",
+              '''    rec.input_device = str(owner.input_box.currentData() or "")\n    rec.input_gain_db = owner.input_gain.value()''',
+              '''    rec.input_device = str(owner.input_box.currentData() or "")\n    if hasattr(owner, "input_channel"):\n        rec.input_channels = [int(owner.input_channel.currentData() or 0)]\n    rec.input_gain_db = owner.input_gain.value()''',
+              "save explicit vocal channel",
+          )
+          replace_once(
+              "mpclab/ui/vocal_recording.py",
+              '''def scan_inputs(owner):\n    try:\n        inputs, default = input_device_inventory()''',
+              '''def _populate_input_channels(owner):\n    if not hasattr(owner, "input_channel"):\n        return\n    rec = owner.app.project.vocal_record\n    key = str(owner.input_box.currentData() or "")\n    selected = next((item for item in owner._inputs if item["key"] == key), None)\n    if selected is None:\n        try:\n            _inputs, default = input_device_inventory()\n        except Exception:\n            default = None\n        selected = next((item for item in owner._inputs if item["index"] == default), None)\n    channels = max(1, int(selected.get("channels", 1))) if selected is not None else 1\n    wanted = rec.input_channels[0] if rec.input_channels else 0\n    owner.input_channel.blockSignals(True)\n    owner.input_channel.clear()\n    for channel in range(channels):\n        owner.input_channel.addItem(f"Channel {channel + 1}", channel)\n    index = owner.input_channel.findData(wanted)\n    owner.input_channel.setCurrentIndex(index if index >= 0 else 0)\n    owner.input_channel.blockSignals(False)\n\n\ndef input_device_changed(owner, *_):\n    if owner._syncing:\n        return\n    _populate_input_channels(owner)\n    _record_settings_changed(owner)\n\n\ndef scan_inputs(owner):\n    try:\n        inputs, default = input_device_inventory()''',
+              "vocal channel population helper",
+          )
+          replace_once(
+              "mpclab/ui/vocal_recording.py",
+              '''    owner.input_box.setCurrentIndex(max(0, index))\n    owner.input_box.blockSignals(False)\n    owner.record_status.setText(f"{len(inputs)} microphone input(s) available")''',
+              '''    owner.input_box.setCurrentIndex(max(0, index))\n    owner.input_box.blockSignals(False)\n    _populate_input_channels(owner)\n    owner.record_status.setText(f"{len(inputs)} microphone input(s) available")''',
+              "populate vocal channels after scan",
+          )
+          replace_once(
+              "mpclab/ui/vocal_recording.py",
+              '''        owner.recorder.blocksize = owner.app.engine.blocksize\n        owner.recorder.input_channels = tuple(rec.input_channels[:2])\n        owner.recorder.start(device, rec.input_gain_db, monitor_callback)''',
+              '''        owner.recorder.blocksize = owner.app.engine.blocksize\n        # Vocal capture is intentionally mono and owns only the explicitly\n        # selected microphone channel. MIDI/pad recording never enters this path.\n        owner.recorder.input_channels = (int(rec.input_channels[0]),)\n        owner.recorder.start(device, rec.input_gain_db, monitor_callback)''',
+              "vocal mono channel capture",
+          )
+
+          # Generic Song audio-input capture stays dry and cannot inherit vocal cue/autotune state.
+          replace_once(
+              "mpclab/ui/track_recording.py",
+              '''        self.project = self.app.project\n        self.settings = replace(self.project.vocal_record)\n        self.start_beat = float(self.app.engine.beat)''',
+              '''        self.project = self.app.project\n        # Snapshot only device/channel/gain/latency values. Song audio-input\n        # recording is a dry capture path; vocal monitoring/tuning is exclusive\n        # to the dedicated Vocal recorder and MIDI/sample capture stays event-only.\n        self.settings = replace(\n            self.project.vocal_record, monitor=False, corrected_monitor=False\n        )\n        self.start_beat = float(self.app.engine.beat)''',
+              "track capture isolated settings",
+          )
+          replace_once(
+              "mpclab/ui/track_recording.py",
+              '''                self.recorder.input_channels = tuple(self.settings.input_channels)\n                from ..autotune.live import LiveMonitor, MonitorRoute\n\n                route = MonitorRoute(self.recorder, app.engine, self.settings.monitor_gain)\n                self.recorder.start(\n                    device, self.settings.input_gain_db, route if self.settings.monitor else None\n                )\n                if self.settings.monitor and self.settings.corrected_monitor:\n                    try:\n                        self._live_monitor = LiveMonitor(\n                            self.project.vocal, self.recorder.sample_rate, route\n                        )\n                        self.recorder.monitor_callback = self._live_monitor.push\n                    except Exception as exc:\n                        self._cue_error = f"Corrected cue unavailable; monitoring dry · {exc}"\n                self._capture_sample_rate = self.recorder.sample_rate''',
+              '''                self.recorder.input_channels = tuple(self.settings.input_channels)\n                # Song audio-input takes are dry. Do not construct the vocal\n                # pitch-correction monitor or share its callback state here.\n                self.recorder.start(device, self.settings.input_gain_db, None)\n                self._capture_sample_rate = self.recorder.sample_rate''',
+              "dry generic audio capture",
+          )
+          PY
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+      - name: Format and validate
+        run: |
+          uv run --no-sync ruff format mpclab/ui/vocal_layout.py mpclab/ui/vocal_recording.py mpclab/ui/vocals.py mpclab/ui/track_recording.py
+          uv run --no-sync ruff check mpclab/ui/vocal_layout.py mpclab/ui/vocal_recording.py mpclab/ui/vocals.py mpclab/ui/track_recording.py
+          uv run --no-sync python -m compileall -q mpclab/ui
+          uv run --no-sync pytest -q tests/test_vocal.py tests/test_vocal_panel.py tests/test_recording_connectivity.py tests/test_track_recording.py tests/test_midi_devices.py tests/test_devices_ui.py
+      - name: Commit and push fix
+        run: |
+          git config user.name "Anharmoniclabs repair"
+          git config user.email "132678602+Anharmoniclabs@users.noreply.github.com"
+          git add mpclab/ui/vocal_layout.py mpclab/ui/vocal_recording.py mpclab/ui/vocals.py mpclab/ui/track_recording.py
+          if ! git diff --cached --quiet; then
+            git commit -m "Separate vocal, audio-input and MIDI capture paths"
+            git push origin HEAD:fix/vocal-input-isolation-20260915
+          fi
