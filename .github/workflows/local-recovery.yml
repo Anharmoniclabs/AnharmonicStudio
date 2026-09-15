@@ -17,27 +17,15 @@ jobs:
           fetch-depth: 0
           ref: integration/local-handfx-recovery-20260915
 
-      - name: Recover local DAW and Prism work
+      - name: Recover local DAW work
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "Anharmoniclabs recovery"
           git config user.email "132678602+Anharmoniclabs@users.noreply.github.com"
-
-          # The DAW capability branch is a separate history. Cherry-pick only the
-          # local work commits instead of replacing the public repository tree.
           git fetch --no-tags origin feature/daw-capability-foundations
           git cherry-pick -X theirs 7cc580086684d4d8a3192db0b8e364c945351cf4
           git cherry-pick -X theirs ed885c43cf90d96167e425707a8243e00551a3b1
-
-          # The Prism editor / hand-gesture work was pushed into the accidental
-          # AnharmonicStudiomain repository. Replay those commits on top of the
-          # recovered public branch, preserving unrelated public files.
-          git remote add localfix https://github.com/Anharmoniclabs/AnharmonicStudiomain.git
-          git fetch --no-tags localfix main
-          git cherry-pick -X theirs babba39490d9e0076607ff26e6b944e75dead46a
-          git cherry-pick -X theirs 76018be3de0d85f4dcebb4bdaf6efa20d97941ec
-          git cherry-pick -X theirs f17db2574e6663cbf565723d153cdecc9180edc1
 
       - name: Normalize recovered Python source
         shell: bash
@@ -49,7 +37,7 @@ jobs:
           python -m compileall -q mpclab tests scripts
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "Normalize recovered local DAW and Prism changes"
+            git commit -m "Normalize recovered local DAW changes"
           fi
 
       - name: Push recovered branch
