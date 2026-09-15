@@ -1,0 +1,29 @@
+name: Export recovery snapshot
+
+on:
+  push:
+    branches: [integration/local-handfx-recovery-20260915]
+    paths: [.github/workflows/export-recovery-snapshot.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: integration/local-handfx-recovery-20260915
+      - name: Pack repository with git history
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf /tmp/anharmonic-recovery-repo.tar.gz --exclude=.venv --exclude='native/build' .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: anharmonic-recovery-repo
+          path: /tmp/anharmonic-recovery-repo.tar.gz
+          if-no-files-found: error
+          retention-days: 2
