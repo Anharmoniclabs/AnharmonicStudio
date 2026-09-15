@@ -117,7 +117,10 @@ class TrackCapture(WindowClient, QObject):
             return False
         self.target = replace(row, clips=[])
         self.project = self.app.project
-        self.settings = replace(self.project.vocal_record)
+        # Snapshot only device/channel/gain/latency values. Song audio-input
+        # recording is a dry capture path; vocal monitoring/tuning is exclusive
+        # to the dedicated Vocal recorder and MIDI/sample capture stays event-only.
+        self.settings = replace(self.project.vocal_record, monitor=False, corrected_monitor=False)
         self.start_beat = float(self.app.engine.beat)
         self.pending = True
         self.notes, self.held = [], {}
@@ -147,20 +150,9 @@ class TrackCapture(WindowClient, QObject):
                 self.recorder.sample_rate = app.engine.sr
                 self.recorder.blocksize = app.engine.blocksize
                 self.recorder.input_channels = tuple(self.settings.input_channels)
-                from ..autotune.live import LiveMonitor, MonitorRoute
-
-                route = MonitorRoute(self.recorder, app.engine, self.settings.monitor_gain)
-                self.recorder.start(
-                    device, self.settings.input_gain_db, route if self.settings.monitor else None
-                )
-                if self.settings.monitor and self.settings.corrected_monitor:
-                    try:
-                        self._live_monitor = LiveMonitor(
-                            self.project.vocal, self.recorder.sample_rate, route
-                        )
-                        self.recorder.monitor_callback = self._live_monitor.push
-                    except Exception as exc:
-                        self._cue_error = f"Corrected cue unavailable; monitoring dry · {exc}"
+                # Song audio-input takes are dry. Do not construct the vocal
+                # pitch-correction monitor or share its callback state here.
+                self.recorder.start(device, self.settings.input_gain_db, None)
                 self._capture_sample_rate = self.recorder.sample_rate
         except Exception as exc:
             self.message = f"Input could not start · {exc}"
