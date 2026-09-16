@@ -15,20 +15,20 @@ editor in another DAW does not yet include the camera panel.
 
 1. Open **Instruments → Prism → Hand control**.
 2. Choose the laptop camera and click **Start camera**.
-3. Show one hand. Pinch thumb and index together for a moment to engage.
-4. Move while holding the pinch. Release to disengage.
+3. Show one hand and hold an open palm, closed fist, or thumb/index pinch.
+4. Move your hand to shape the selected effect; change pose to switch effects.
 
 | Gesture | Default destination |
 | --- | --- |
-| Hand left / right | Tone |
-| Hand up / down | Space |
-| Spread middle-to-little fingertips | Texture |
+| Open palm + hand left / right | Filter |
+| Closed fist + hand up / down | Echo |
+| Thumb/index pinch + hand left / right | Texture |
 
-The three selectors can also choose layer blend, motion, cutoff, resonance, delay
+The three pose selectors can also choose layer blend, motion, cutoff, resonance, delay
 mix, and reverb mix. Choose three different destinations. Movement sensitivity
 controls how far a gesture moves a parameter. Values pick up from the current
-sound; a newly detected pinch does not snap a parameter to an absolute position.
-The preview is mirrored, with fingertip markers and a hand skeleton.
+sound; a newly detected pose does not snap a parameter to an absolute position.
+The preview is mirrored with a whole-hand pose indicator and hand skeleton.
 
 ### Record or overdub movements
 
@@ -37,7 +37,7 @@ Enable **Write gestures during Song playback**, then play the arrangement in
 record controls, or perform a gesture pass over a take you already recorded.
 This checkbox records control curves; it does not start audio recording.
 
-Release the pinch to finish each touched section. Existing points outside that
+Change pose or remove the hand to finish each touched section. Existing points outside that
 section are retained, with a return to the previous curve when one exists. A new
 curve holds its last value. Looping starts another write pass. Movement while
 stopped or in Pattern mode still controls Prism, but does not write arrangement
@@ -46,7 +46,7 @@ curves. The panel reports whether it is armed or actually writing.
 **Edit recorded curves** opens the existing Automation editor on a Prism lane.
 Move/add/delete points, choose interpolation, or bypass the lane. Save the project
 to retain curves. Song playback and song export apply enabled Prism curves with
-the camera off. While a pinch is engaged, its mapped controls temporarily override
+the camera off. While a hand pose is engaged, its mapped controls temporarily override
 playback curves.
 
 ## Camera setup on a source installation

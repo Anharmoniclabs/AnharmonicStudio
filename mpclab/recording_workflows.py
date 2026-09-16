@@ -396,7 +396,7 @@ def install_recording_capture_extensions() -> None:
             session
             and session["mode"] == "loop"
             and capture.active
-            and capture.target.record_source == "notes"
+            and capture.target.record_source in ("notes", "sampler")
         ):
             return original_note_on(
                 capture, pitch, velocity, pad, instrument=instrument, channel=channel
@@ -411,7 +411,7 @@ def install_recording_capture_extensions() -> None:
             session
             and session["mode"] == "loop"
             and capture.active
-            and capture.target.record_source == "notes"
+            and capture.target.record_source in ("notes", "sampler")
         ):
             return original_note_off(capture, pitch, pad, instrument=instrument)
         key = (pitch, pad) if instrument is None else (pitch, pad, instrument)
@@ -451,7 +451,7 @@ def install_recording_capture_extensions() -> None:
         if (
             session["mode"] == "loop"
             and capture.target is not None
-            and capture.target.record_source == "notes"
+            and capture.target.record_source in ("notes", "sampler")
             and capture.project.arp.enabled
         ):
             audio, notes = capture.unsaved

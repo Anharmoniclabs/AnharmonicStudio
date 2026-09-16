@@ -83,8 +83,9 @@ def test_audio_stays_on_armed_lane_when_selection_and_order_change(window, monke
     assert window.library.audio(clip.ref) is not None
 
 
-def test_synth_and_sample_notes_keep_off_grid_timing_in_song(window):
-    row = arm(window, source="notes")
+@pytest.mark.parametrize("source", ["notes", "sampler"])
+def test_synth_and_sample_notes_keep_off_grid_timing_in_song(window, source):
+    row = arm(window, source=source)
     window.engine.beat = 12.5
     window.btn_rec.click()
     window.engine._process_commands()
@@ -178,6 +179,7 @@ def test_input_failure_leaves_session_editable(window, monkeypatch):
         lambda *_: (_ for _ in ()).throw(RuntimeError("Input unplugged")),
     )
     window.btn_rec.click()
+    assert not window.btn_rec.isChecked()
     window._tick()
     assert not window.track_capture.busy
     assert not window.btn_rec.isChecked()
