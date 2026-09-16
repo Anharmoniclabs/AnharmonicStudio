@@ -49,12 +49,10 @@ jobs:
           path: /tmp/anharmonic-web-checks/
           retention-days: 7
 
-  test:
+  test-foundation:
+    name: Python test foundation
     runs-on: ubuntu-24.04
-    # The full suite is intentionally kept whole for shared-state coverage.
-    # The vocal writer deadlock is fixed; retain faulthandler_timeout=30 and
-    # allow the complete post-fix suite enough wall-clock time to publish JUnit.
-    timeout-minutes: 30
+    timeout-minutes: 12
     env:
       QT_QPA_PLATFORM: offscreen
       OPENBLAS_NUM_THREADS: '1'
@@ -87,18 +85,89 @@ jobs:
           uv run --no-sync ruff format --check mpclab tests scripts
       - name: Check application startup and export offscreen
         run: uv run --no-sync python -m mpclab --self-check
-      - name: Run tests with a memory limit
+
+  test-shards:
+    name: Python tests (shard ${{ matrix.shard }})
+    needs: test-foundation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
+      - name: Install system dependencies
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential cmake pkg-config ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libsndfile1 libportaudio2 portaudio19-dev libasound2-dev liblilv-dev
+      - name: Install Python dependencies
+        run: uv sync --locked --group dev
+      - name: Build native helpers
+        run: |
+          uv run --no-sync python scripts/build_native.py
+          uv run --no-sync python scripts/build_rubberband.py
+          bash scripts/build-native.sh
+      - name: Select deterministic weighted shard
+        run: |
+          mapfile -t TEST_FILES < <(
+            uv run --no-sync python scripts/select_test_shard.py \
+              --shard "${{ matrix.shard }}" --count 6
+          )
+          printf '%s\n' "${TEST_FILES[@]}" | tee /tmp/test-files.txt
+          test "${#TEST_FILES[@]}" -gt 0
+      - name: Run shard with memory and hang limits
         run: >-
-          uv run --no-sync python scripts/run_tests.py --report /tmp/anharmonic-ci/memory.json
-          -- -q -o faulthandler_timeout=30 --junitxml=/tmp/anharmonic-ci/tests.xml
+          uv run --no-sync python scripts/run_tests.py
+          --report /tmp/anharmonic-ci/memory-${{ matrix.shard }}.json --
+          -q -o faulthandler_timeout=30
+          --junitxml=/tmp/anharmonic-ci/tests-${{ matrix.shard }}.xml
+          $(cat /tmp/test-files.txt)
       - name: Preserve test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: test-results-shard-${{ matrix.shard }}
           path: /tmp/anharmonic-ci/
           retention-days: 7
           if-no-files-found: ignore
+
+  test-followups:
+    name: Python fallback and callback gates
+    needs: test-shards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      QT_QPA_PLATFORM: offscreen
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
+      - name: Install system dependencies
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential cmake pkg-config ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libsndfile1 libportaudio2 portaudio19-dev libasound2-dev liblilv-dev
+      - name: Install Python dependencies
+        run: uv sync --locked --group dev
+      - name: Build native helpers
+        run: |
+          uv run --no-sync python scripts/build_native.py
+          uv run --no-sync python scripts/build_rubberband.py
+          bash scripts/build-native.sh
       - name: Python DSP fallback
         run: >-
           MPC_NATIVE_DSP=0 uv run --no-sync python scripts/run_tests.py -- -q
