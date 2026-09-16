@@ -33,6 +33,11 @@ CONNECTIONS = (
     (0, 17),
 )
 
+# The no-camera illustration represents the three whole-hand effect poses.
+# Keep its marker count tied to HAND_EFFECTS so paintEvent can never index past
+# its labels when the gesture vocabulary changes.
+PLACEHOLDER_TIPS = ((-65, -72), (0, -108), (65, -72))
+
 
 class HandPreview(QWidget):
     def __init__(self):
@@ -60,7 +65,7 @@ class HandPreview(QWidget):
             for radius in (75, 115, 155):
                 p.drawEllipse(at(0, 0), radius * scale, radius * scale)
             wrist = at(0, 95)
-            tips = [(-65, -72), (-20, -108), (27, -91), (67, -50)]
+            tips = PLACEHOLDER_TIPS
             for i, (x, y) in enumerate(tips):
                 color = QColor(HAND_EFFECTS[i % len(HAND_EFFECTS)][4])
                 p.setPen(QPen(QColor("#657781"), 9 * scale, Qt.SolidLine, Qt.RoundCap))

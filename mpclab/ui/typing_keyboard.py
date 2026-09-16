@@ -288,7 +288,14 @@ class TypingKeyboardWindow(WindowClient, QDialog):
         if event.type() == QEvent.KeyRelease and self._handle_release(event):
             event.accept()
             return True
-        if watched.window() not in (self, self.app) or self._text_control(watched):
+        # Some Studio dialogs historically store their owning MainWindow in an
+        # instance attribute named ``window``. That shadows QWidget.window() and
+        # made the global musical-typing filter call a MainWindow object as a
+        # function, producing an exception storm that can make Qt look hung.
+        top = watched
+        while isinstance(top.parentWidget(), QWidget):
+            top = top.parentWidget()
+        if top not in (self, self.app) or self._text_control(watched):
             return False
         if event.type() == QEvent.ShortcutOverride:
             if not self._has_command_modifier(event.modifiers()) and event.key() in (
