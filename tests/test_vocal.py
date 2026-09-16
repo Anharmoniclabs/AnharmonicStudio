@@ -401,7 +401,7 @@ def test_dropped_capture_blocks_keep_the_timeline(monkeypatch, tmp_path, trailin
         stream.push(np.full(6, 0.3))
         assert recorder.dropped_frames == 6
         release.set()
-        recorder._queue.join()
+        recorder.wait_until_flushed()
         if not trailing:
             stream.push(np.full(4, 0.4))
         audio = recorder.stop()

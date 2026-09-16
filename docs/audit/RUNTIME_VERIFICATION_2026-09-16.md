@@ -98,3 +98,18 @@ persistence selection then passed 32/32.
 - Tranche 4: **not safe to begin** until a root-capable/CI-equivalent Ubuntu
   environment runs the full Qt recording and persistence suites, offscreen
   startup, Chromium, and packaging gates.
+
+## Tranche 3.7 stabilization before rerun
+
+- Root cause of the canceled vocal test: `VocalRecorder.start()` created the
+  bounded queue but never started `_write_capture`, so every successful `put`
+  remained unfinished forever.
+- Added writer startup and bounded `wait_until_flushed()` synchronization while
+  preserving dropped-frame silence insertion.
+- Focused pure VocalRecorder suite: 31/31 passed.
+- Dropped-block test repeated 20/20 passed.
+- Focused live/offline external-plugin compatibility tests: 37 passed, 2 skipped.
+- Fixed live and offline `ExternalDSP` render signature mismatches in a separate
+  engine commit.
+- Source Checks test timeout was raised from 20 to 30 minutes only after the
+  deadlock fix, retaining the 30-second per-test faulthandler diagnostic.

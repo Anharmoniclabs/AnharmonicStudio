@@ -51,7 +51,10 @@ jobs:
 
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # The full suite is intentionally kept whole for shared-state coverage.
+    # The vocal writer deadlock is fixed; retain faulthandler_timeout=30 and
+    # allow the complete post-fix suite enough wall-clock time to publish JUnit.
+    timeout-minutes: 30
     env:
       QT_QPA_PLATFORM: offscreen
       OPENBLAS_NUM_THREADS: '1'

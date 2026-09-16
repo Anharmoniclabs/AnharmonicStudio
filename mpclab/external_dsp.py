@@ -164,7 +164,7 @@ class ExternalDSP:
 
 
 class OfflinePlugins:
-    def __init__(self, specifications, sample_rate, synth_events):
+    def __init__(self, specifications, sample_rate, synth_events, bpm=None):
         from .plugin_host import IsolatedPlugin, PluginError
 
         self.stack = ExitStack()
@@ -194,7 +194,7 @@ class OfflinePlugins:
             self.stack.close()
             raise
 
-    def render_instrument(self, destination, start, frames):
+    def render_instrument(self, destination, start, frames, parameters=None):
         if self.instrument is None:
             return
         midi = []
@@ -202,7 +202,7 @@ class OfflinePlugins:
             at, message = self.events[self.index]
             midi.append((message, max(0, at - start) / self.sample_rate))
             self.index += 1
-        destination += self.instrument.render(None, frames, midi)
+        destination += self.instrument.render(None, frames, midi, parameters=parameters)
 
     def render_effect(self, block):
         if self.effect is not None:

@@ -34,6 +34,18 @@ def test_live_instrument_accepts_engine_bpm_and_parameter_arguments():
     assert plugin.blocks[0][2]["parameters"] == {"54": 0.6}
 
 
+def test_offline_instrument_accepts_engine_bpm_and_parameter_arguments(monkeypatch):
+    class Plugin(CapturePlugin):
+        info = {"instrument": True}
+
+    monkeypatch.setattr("mpclab.plugin_host.IsolatedPlugin", lambda *_args: Plugin())
+    routing = OfflinePlugins({"instrument": {}}, 48_000, [], 120)
+    destination = np.zeros((8, 2), np.float32)
+    routing.render_instrument(destination, 0, 8, {"54": 0.6})
+    assert routing.instrument.blocks[0][2]["parameters"] == {"54": 0.6}
+    routing.close()
+
+
 def test_live_gate_crosses_block_boundary_and_panic_clears_future_notes():
     routing = ExternalDSP()
     routing.instrument = plugin = CapturePlugin()

@@ -12,6 +12,7 @@ import os
 import queue
 import threading
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -198,6 +199,20 @@ class VocalRecorder:
                 )
         self._writer = None
 
+    def wait_until_flushed(self, timeout: float = 2.0) -> None:
+        """Wait for queued capture blocks without exposing Queue internals."""
+        pending = self._queue
+        if pending is None:
+            return
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        while pending.unfinished_tasks:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError(
+                    f"capture writer did not flush; recovery file: {self._temp_path}"
+                )
+            time.sleep(min(0.01, remaining))
+
     def _remove_temp(self) -> None:
         path, self._temp_path = self._temp_path, None
         if path is not None:
@@ -240,6 +255,10 @@ class VocalRecorder:
         self._gain = float(10.0 ** (float(gain_db) / 20.0))
         self.monitor_callback = monitor_callback
         self._temp_path = self._make_temp_path()
+        self._writer = threading.Thread(
+            target=self._write_capture, name="vocal-capture-writer", daemon=True
+        )
+        self._writer.start()
 
         def callback(indata, _frames, _time_info, status):
             if bool(status) and getattr(status, "input_overflow", True):

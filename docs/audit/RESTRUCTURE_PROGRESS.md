@@ -70,6 +70,16 @@ behind one manager, `TrackCapture` retains compatibility lifecycle flags, and
 - No Tranche 4 work should begin until a root-capable CI-equivalent environment
   runs the full Qt, Chromium, offscreen startup, and packaging gates.
 
+## Tranche 3.7 Python stabilization
+
+- Fixed the missing VocalRecorder writer-thread startup that caused the CI
+  `queue.join()` deadlock in `test_dropped_capture_blocks_keep_the_timeline`.
+- Added bounded `wait_until_flushed()` synchronization and retained dropped-frame
+  silence timeline semantics.
+- Repaired separate live/offline ExternalDSP render-call compatibility contracts.
+- Increased the Source Checks Python job timeout to 30 minutes only after the
+  deadlock fix; per-test faulthandler diagnostics remain enabled.
+
 ## Hard boundary
 
 No production modules have been moved, renamed, deleted, or broadly rewritten in
