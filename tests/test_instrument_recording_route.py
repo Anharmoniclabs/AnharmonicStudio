@@ -130,3 +130,14 @@ def test_midi_records_visible_prism_despite_stale_sample_selection(window, monke
         2,
     )
     assert not window.sample_workflow.recorded
+
+
+def test_midi_router_uses_selected_instrument_destination(window, monkeypatch):
+    window.show_tab(window.TAB_SYNTH)
+    calls = []
+    monkeypatch.setattr(
+        window, "play_synth_note", lambda *args, **kwargs: calls.append((args, kwargs))
+    )
+    window.project.selected_instrument = None
+    window.devices.router.handle("keys", [0x90, 60, 100])
+    assert calls == [((60, 100 / 127), {"instrument_id": None, "channel": 0})]

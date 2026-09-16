@@ -6,6 +6,19 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 
 
+def prism_tempo_events(plugin, bpm):
+    """Return the Prism MIDI CC protocol for a tempo update."""
+    if type(bpm) not in (int, float) or not 20 <= bpm <= 400:
+        raise ValueError("Prism tempo must be between 20 and 400 BPM")
+    value = round(float(bpm) * 100)
+    return [
+        ([0xBF, 99, 125], 0),
+        ([0xBF, 98, 80 + (value >> 14)], 0),
+        ([0xBF, 6, (value >> 7) & 127], 0),
+        ([0xBF, 38, value & 127], 0),
+    ]
+
+
 @dataclass(eq=False)
 class ExternalNote:
     routing: object

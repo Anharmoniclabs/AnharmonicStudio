@@ -87,6 +87,9 @@ class DevicesController(WindowClient, QObject):
         except (OSError, ValueError, TypeError):
             pass
         self.router = window.engine.midi.router
+        self.router.resolve_note = self._channel_destination
+        self.router.channel_note_on = self._channel_note_on
+        self.router.channel_note_off = self._channel_note_off
         window.engine.midi.source = self.service
         try:
             config = json.loads(str(window.settings.value("midi/controllers", "{}")))

@@ -465,6 +465,9 @@ class VocalRecordSettings:
     mixer_track: int = 3
 
     def __post_init__(self):
+        self.validate()
+
+    def validate(self):
         if (
             not isinstance(self.input_channels, list)
             or not 1 <= len(self.input_channels) <= 64
@@ -474,6 +477,27 @@ class VocalRecordSettings:
             raise ValueError("Recording inputs must be distinct channel numbers from 1 to 64")
         if type(self.split_inputs) is not bool:
             raise ValueError("Separate-input recording must be enabled or disabled")
+        for name, low, high in (
+            ("input_gain_db", -24.0, 24.0),
+            ("input_latency_ms", 0.0, 500.0),
+            ("monitor_gain", 0.0, 1.5),
+        ):
+            value = getattr(self, name)
+            if (
+                type(value) not in (int, float)
+                or not math.isfinite(value)
+                or not low <= value <= high
+            ):
+                raise ValueError(f"{name} must be between {low:g} and {high:g}")
+        for name in ("monitor", "corrected_monitor", "auto_place"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
+        if type(self.count_in_bars) is not int or not 0 <= self.count_in_bars <= 4:
+            raise ValueError("count_in_bars must be an integer from 0 to 4")
+        if type(self.playlist_row) is not int or not -1 <= self.playlist_row < 128:
+            raise ValueError("playlist_row must be an integer from -1 to 127")
+        if type(self.mixer_track) is not int or not 0 <= self.mixer_track < MAX_TRACKS:
+            raise ValueError("mixer_track must be an integer from 0 to 127")
 
 
 @dataclass
@@ -788,6 +812,7 @@ class Project:
         self._validate_track_ids()
         self._validate_track_references()
         self._validate_instruments()
+        self.vocal_record.validate()
         validate_project_plugins(self.plugins)
         d = asdict(self)
         # The schema version describes the document contract, never whether a
