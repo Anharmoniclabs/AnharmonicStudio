@@ -290,6 +290,8 @@ class TrackCapture(WindowClient, QObject):
         self.save_take()
 
     def save_take(self):
+        if self.unsaved is not None and self.session.state is CaptureState.RECOVERABLE:
+            self.session.retry_processing()
         if self.unsaved is None and self.recovery_pending:
             try:
                 self.unsaved = (self.session.recover(), list(self.notes))

@@ -249,7 +249,7 @@ class Engine:
     def read_monitor(self, frames):
         """Consume consecutive samples, zero-filling only actual starvation."""
         if frames > len(self._monitor_scratch):
-            raise ValueError("Monitor block exceeds prepared output size")
+            self._monitor_scratch = np.zeros((frames, 2), dtype=np.float32)
         out = self._monitor_scratch[:frames]
         out.fill(0)
         ring = self._monitor_audio.reshape(-1, 2)

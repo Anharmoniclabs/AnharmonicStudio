@@ -76,6 +76,11 @@ class CaptureSession:
             raise RuntimeError(f"cannot recover a {self.state.value} capture")
         self.state = CaptureState.PROCESSING
 
+    def retry_processing(self) -> None:
+        if self.state != CaptureState.RECOVERABLE:
+            raise RuntimeError(f"cannot retry a {self.state.value} capture")
+        self.state = CaptureState.PROCESSING
+
     def cancel(self) -> None:
         if self.state in {CaptureState.RECORDING, CaptureState.STARTING}:
             self.state = CaptureState.STOPPING

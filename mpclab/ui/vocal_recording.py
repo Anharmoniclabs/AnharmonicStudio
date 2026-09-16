@@ -9,6 +9,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QMessageBox,
 )
+from ..recording import CaptureState
 from ..vocal import (
     input_device_inventory,
 )
@@ -244,6 +245,8 @@ def _pause_changed(owner, paused: bool):
 
 
 def stop_recording(owner):
+    if owner.capture_session.state is CaptureState.RECOVERABLE:
+        owner.capture_session.retry_processing()
     try:
         audio = owner.capture_session.stop()
     except Exception as exc:
