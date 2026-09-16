@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 def prism_tempo_events(plugin, bpm):
     """Return the Prism MIDI CC protocol for a tempo update."""
+    if getattr(plugin, "info", {}).get("name") != "Anharmonic Prism":
+        return []
     if type(bpm) not in (int, float) or not 20 <= bpm <= 400:
         raise ValueError("Prism tempo must be between 20 and 400 BPM")
     value = round(float(bpm) * 100)
@@ -113,9 +115,13 @@ class ExternalDSP:
         self.ends.clear()
         self.voices.clear()
         self._gate_owners.clear()
-        self.reset_requested = True
+        # Prism handles CC123 itself. Recreating its processor here stalls the
+        # live worker long enough to overflow the audio queue.
+        self.reset_requested = (
+            getattr(self.instrument, "info", {}).get("name") != "Anharmonic Prism"
+        )
 
-    def render_instrument(self, destination, frames, sample_rate, bpm=None, parameters=None):
+    def render_instrument(self, destination, frames, sample_rate, bpm=120, parameters=None):
         instrument = self.instrument
         if instrument is None:
             self.events.clear()
@@ -140,17 +146,18 @@ class ExternalDSP:
                 if voice is not None:
                     self._gate_owners[id(next_ending)] = voice
         self.ends = future
-        midi = [
+        midi = prism_tempo_events(instrument, bpm) + [
             (message, offset / sample_rate)
             for message, offset in sorted(self.events, key=lambda item: item[1])
         ]
         self.events.clear()
+        options = {"parameters": parameters} if parameters else {}
         output = instrument.render(
             None,
             frames,
             midi,
             reset=self.reset_requested,
-            parameters=parameters,
+            **options,
         )
         self.reset_requested = False
         self.voices[:] = [voice for voice in self.voices if not voice.dead]
@@ -177,11 +184,12 @@ class ExternalDSP:
 
 
 class OfflinePlugins:
-    def __init__(self, specifications, sample_rate, synth_events, bpm=None):
+    def __init__(self, specifications, sample_rate, synth_events, bpm=120):
         from .plugin_host import IsolatedPlugin, PluginError
 
         self.stack = ExitStack()
         self.sample_rate = sample_rate
+        self.bpm = bpm
         self.instrument = self.effect = None
         self.events = []
         self.index = 0
@@ -210,16 +218,21 @@ class OfflinePlugins:
     def render_instrument(self, destination, start, frames, parameters=None):
         if self.instrument is None:
             return
-        midi = []
+        midi = prism_tempo_events(self.instrument, self.bpm)
         while self.index < len(self.events) and self.events[self.index][0] < start + frames:
             at, message = self.events[self.index]
             midi.append((message, max(0, at - start) / self.sample_rate))
             self.index += 1
-        destination += self.instrument.render(None, frames, midi, parameters=parameters)
+        options = {"parameters": parameters} if parameters else {}
+        output = self.instrument.render(None, frames, midi, **options)
+        if output is not None:
+            destination += output
 
     def render_effect(self, block):
         if self.effect is not None:
-            block[:] = self.effect.render(block, len(block))
+            output = self.effect.render(block, len(block))
+            if output is not None:
+                block[:] = output
 
     def close(self):
         self.stack.close()
