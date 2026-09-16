@@ -55,24 +55,4 @@ def install_automation_mode_state() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
-    original_to_dict = Project.to_dict
-    original_from_dict = Project.from_dict.__func__
-
-    def to_dict(self: Project) -> dict:
-        payload = original_to_dict(self)
-        state = validate_automation_control(getattr(self, "automation_control", {}))
-        if state:
-            payload["automation_control"] = state
-        return payload
-
-    @classmethod
-    def from_dict(cls, payload: dict) -> Project:
-        project = original_from_dict(cls, payload)
-        project.automation_control = validate_automation_control(
-            payload.get("automation_control", {})
-        )
-        return project
-
-    Project.to_dict = to_dict
-    Project.from_dict = from_dict
     _INSTALLED = True

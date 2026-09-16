@@ -344,27 +344,4 @@ def install_midi_file_state():
     global _INSTALLED
     if _INSTALLED:
         return
-    from .workflow_state import install_project_workflow_state
-
-    install_project_workflow_state()
-    original_to_dict = Project.to_dict
-    original_from_dict = Project.from_dict.__func__
-
-    def to_dict(self):
-        payload = original_to_dict(self)
-        state = validate_midi_file_state(getattr(self, "midi_files", None))
-        if state["sources"]:
-            payload["midi_files"] = state
-        return payload
-
-    @classmethod
-    def from_dict(cls, payload):
-        if not isinstance(payload, dict):
-            raise ValueError("Project must be an object")
-        state = validate_midi_file_state(payload.get("midi_files"))
-        project = original_from_dict(cls, payload)
-        project.midi_files = state
-        return project
-
-    Project.to_dict, Project.from_dict = to_dict, from_dict
     _INSTALLED = True

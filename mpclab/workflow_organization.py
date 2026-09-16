@@ -7,13 +7,10 @@ under the application root; media references are deliberately removed.
 
 from __future__ import annotations
 
-from copy import deepcopy
 import json
 import os
 from pathlib import Path
 import tempfile
-
-from PySide6.QtWidgets import QInputDialog
 
 from .model import Project, safe_filename, uid
 from .workflow_commands import CommandSpec
@@ -72,38 +69,10 @@ def validate_track_folders(value, project: Project | None = None) -> list[dict]:
 
 
 def install_organization_state() -> None:
-    """Extend the already-installed workflow serializer with track folders."""
+    """Compatibility hook; track folders are schema-owned now."""
     global _INSTALLED
     if _INSTALLED:
         return
-    previous_to_dict = Project.to_dict
-    previous_from_dict = Project.from_dict.__func__
-
-    def to_dict(self: Project) -> dict:
-        # The previous serializer keeps strict ownership of the legacy workflow
-        # object. Folder state lives separately so that validator never sees an
-        # unknown key; only the final serialized document receives the extension.
-        payload = previous_to_dict(self)
-        current = validate_track_folders(getattr(self, "track_folders", []), self)
-        if current:
-            payload.setdefault("workflow", {})["track_folders"] = deepcopy(current)
-        return payload
-
-    @classmethod
-    def from_dict(cls, payload: dict) -> Project:
-        raw_workflow = payload.get("workflow", {}) if isinstance(payload, dict) else {}
-        raw_folders = (
-            raw_workflow.get("track_folders", []) if isinstance(raw_workflow, dict) else []
-        )
-        clean = deepcopy(payload)
-        if isinstance(clean, dict) and isinstance(clean.get("workflow"), dict):
-            clean["workflow"].pop("track_folders", None)
-        project = previous_from_dict(cls, clean)
-        project.track_folders = validate_track_folders(raw_folders, project)
-        return project
-
-    Project.to_dict = to_dict
-    Project.from_dict = from_dict
     _INSTALLED = True
 
 
@@ -259,6 +228,8 @@ def load_project_template(window, path: str | Path) -> Project:
 
 def attach_organization_workflows(window, controller):
     """Register folder/template commands and keep mixer visibility synchronized."""
+    from PySide6.QtWidgets import QInputDialog
+
     original_sync = window.mixer.sync
 
     def sync():

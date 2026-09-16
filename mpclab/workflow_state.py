@@ -25,8 +25,6 @@ _ALLOWED = {
     "track_presets",
 }
 _INSTALLED = False
-_ORIGINAL_TO_DICT = Project.to_dict
-_ORIGINAL_FROM_DICT = Project.from_dict.__func__
 
 
 def _bounded_text(value, limit=128) -> str:
@@ -372,24 +370,8 @@ def ensure_workflow(project: Project) -> dict:
 
 
 def install_project_workflow_state() -> None:
-    """Teach Project persistence about the optional workflow sidecar once."""
+    """Compatibility hook; Project persistence is schema-owned now."""
     global _INSTALLED
     if _INSTALLED:
         return
-
-    def to_dict(self: Project) -> dict:
-        payload = _ORIGINAL_TO_DICT(self)
-        workflow = validate_workflow(getattr(self, "workflow", {}))
-        if workflow:
-            payload["workflow"] = workflow
-        return payload
-
-    @classmethod
-    def from_dict(cls, payload: dict) -> Project:
-        project = _ORIGINAL_FROM_DICT(cls, payload)
-        project.workflow = validate_workflow(payload.get("workflow", {}))
-        return project
-
-    Project.to_dict = to_dict
-    Project.from_dict = from_dict
     _INSTALLED = True

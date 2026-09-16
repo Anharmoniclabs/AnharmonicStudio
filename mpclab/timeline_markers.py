@@ -265,37 +265,8 @@ def export_markers(project, destination: Path, format: str | None = None) -> Pat
 
 
 def install_timeline_marker_state() -> None:
-    """Install after the other optional Project persistence extensions."""
+    """Compatibility hook; Project persistence is schema-owned now."""
     global _INSTALLED
     if _INSTALLED:
         return
-    from .model import Project
-    from .workflow_state import install_project_workflow_state
-
-    # That legacy installer captures its baseline at module import, unlike the
-    # later sidecars. Install it first even in standalone tools/tests so calling
-    # the full application installer later cannot replace this wrapper.
-    install_project_workflow_state()
-
-    original_to_dict = Project.to_dict
-    original_from_dict = Project.from_dict.__func__
-
-    def to_dict(self):
-        payload = original_to_dict(self)
-        state = validate_timeline_markers(getattr(self, "timeline_markers", None))
-        if state["items"]:
-            payload["timeline_markers"] = state
-        return payload
-
-    @classmethod
-    def from_dict(cls, payload):
-        if not isinstance(payload, dict):
-            raise ValueError("project must be an object")
-        state = validate_timeline_markers(payload.get("timeline_markers"))
-        project = original_from_dict(cls, payload)
-        project.timeline_markers = state
-        return project
-
-    Project.to_dict = to_dict
-    Project.from_dict = from_dict
     _INSTALLED = True

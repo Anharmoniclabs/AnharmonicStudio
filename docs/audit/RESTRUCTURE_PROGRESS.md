@@ -45,6 +45,31 @@ Remaining debt is deliberately bounded: audio enumeration is not yet centralized
 behind one manager, `TrackCapture` retains compatibility lifecycle flags, and
 `recording_workflows.py` still decorates it for advanced modes.
 
+## Tranche 3 persistence consolidation
+
+- Recording checkpoint before this tranche: `65b88a75bf4fbf486d849ed3356557c44e61d211`.
+- Added `mpclab/project_schema.py` as the authoritative extension registry.
+- `Project` now owns workflow, plugin-chain, automation-mode, marker, MIDI-source,
+  and track-folder fields with explicit defaults.
+- Legacy persistence installers remain callable compatibility hooks but no longer
+  monkey-patch `Project.to_dict/from_dict`.
+- Added schema roundtrip and malformed-boundary regression coverage in
+  `tests/test_project_schema.py`.
+- Full persistence tests are pending the Python 3.12 dependency environment.
+- Current validation: Ruff lint, persistence-file formatting, compileall, browser
+  unit tests (47), and website validation pass. Focused Python persistence tests
+  are blocked in this container by missing `PySide6`/NumPy dependencies; the
+  repository-wide format check still reports unrelated pre-existing drift.
+
+## Tranche 3.5 runtime verification
+
+- Report: `docs/audit/RUNTIME_VERIFICATION_2026-09-16.md`.
+- Locked Python 3.12 environment and native helpers were provisioned successfully.
+- Pure persistence/schema selection passed 32 tests; full Qt/recording execution
+  remains blocked by missing system libraries (`libGL.so.1`, `libatk-1.0.so.0`).
+- No Tranche 4 work should begin until a root-capable CI-equivalent environment
+  runs the full Qt, Chromium, offscreen startup, and packaging gates.
+
 ## Hard boundary
 
 No production modules have been moved, renamed, deleted, or broadly rewritten in

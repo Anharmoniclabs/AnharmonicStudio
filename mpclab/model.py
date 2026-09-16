@@ -11,7 +11,14 @@ import uuid
 from dataclasses import dataclass, field, asdict, replace
 from pathlib import Path
 
-from .music import Note, MidiControl, AutomationLane, read_notes, read_automation, read_midi_controls
+from .music import (
+    Note,
+    MidiControl,
+    AutomationLane,
+    read_notes,
+    read_automation,
+    read_midi_controls,
+)
 from .plugin_registry import validate_project_plugins
 from .project_migrations import legacy_mixer_track_id, migrate_project_document
 
@@ -458,7 +465,12 @@ class VocalRecordSettings:
     mixer_track: int = 3
 
     def __post_init__(self):
-        if not isinstance(self.input_channels, list) or not 1 <= len(self.input_channels) <= 64 or any(type(c) is not int or not 0 <= c < 64 for c in self.input_channels) or len(set(self.input_channels)) != len(self.input_channels):
+        if (
+            not isinstance(self.input_channels, list)
+            or not 1 <= len(self.input_channels) <= 64
+            or any(type(c) is not int or not 0 <= c < 64 for c in self.input_channels)
+            or len(set(self.input_channels)) != len(self.input_channels)
+        ):
             raise ValueError("Recording inputs must be distinct channel numbers from 1 to 64")
         if type(self.split_inputs) is not bool:
             raise ValueError("Separate-input recording must be enabled or disabled")
@@ -622,6 +634,12 @@ class Project:
     current_vocal_comp: str = ""
     automation: list[AutomationLane] = field(default_factory=list)
     plugins: dict = field(default_factory=dict)
+    workflow: dict = field(default_factory=dict)
+    pro_daw: dict = field(default_factory=dict)
+    automation_control: dict = field(default_factory=dict)
+    timeline_markers: dict = field(default_factory=dict)
+    midi_files: dict = field(default_factory=dict)
+    track_folders: list[dict] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self._validate_track_ids()
@@ -770,6 +788,7 @@ class Project:
         self._validate_track_ids()
         self._validate_track_references()
         self._validate_instruments()
+        validate_project_plugins(self.plugins)
         d = asdict(self)
         # The schema version describes the document contract, never whether a
         # particular optional collection happens to be empty.
@@ -784,6 +803,12 @@ class Project:
             }
             for p in self.patterns
         ]
+        from .project_schema import serialize_extensions
+
+        for name in ("workflow", "pro_daw", "automation_control", "timeline_markers", "midi_files"):
+            d.pop(name, None)
+        d.pop("track_folders", None)
+        d.update(serialize_extensions(self))
         return d
 
     def save(self, path: Path) -> None:
@@ -1142,8 +1167,13 @@ class Project:
         )
         proj._validate_track_references()
         proj._validate_instruments()
+        from .project_schema import deserialize_extensions
+
+        deserialize_extensions(proj, d)
         return proj
 
     @classmethod
     def load(cls, path: Path) -> "Project":
-        return cls.from_dict(json.loads(Path(path).read_text()))
+        from .project_io import load_project_file
+
+        return load_project_file(Path(path))

@@ -38,6 +38,13 @@ def _mixer_track_ids(document: dict) -> dict:
     return document
 
 
+def _format_6(document: dict) -> dict:
+    """Make the format-6 instrument fields explicit without rerouting legacy songs."""
+    document.setdefault("instruments", [])
+    document.setdefault("selected_instrument", None)
+    return document
+
+
 def _validate_pattern_step_shapes(document: dict) -> None:
     """Fail closed before the model converts nested step-map values.
 
@@ -105,7 +112,7 @@ MIGRATIONS: dict[int, Migration] = {
     2: _identity,
     3: _identity,
     4: _mixer_track_ids,
-    5: _identity,  # Optional independent instruments; no legacy song is re-routed.
+    5: _format_6,  # Optional independent instruments; no legacy song is re-routed.
 }
 
 
