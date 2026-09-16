@@ -30,10 +30,27 @@ class ExternalDSP:
         self._gate_owners = {}
         self.reset_requested = False
 
-    def note_on(self, note, velocity, offset=0, gate=None, live=True, channel=None):
+    def note_on(
+        self,
+        note,
+        velocity,
+        offset=0,
+        gate=None,
+        live=True,
+        channel=None,
+        event_source=None,
+        trigger_id=None,
+    ):
         channel = (0 if live else 1) if channel is None else channel
         onset = [0x90 | channel, note, max(1, min(127, round(velocity * 127)))]
-        voice = ExternalNote(self, note, channel, onset=onset)
+        voice = ExternalNote(
+            self,
+            note,
+            channel,
+            event_source=event_source,
+            trigger_id=trigger_id,
+            onset=onset,
+        )
         self.voices.append(voice)
         self.events.append((onset, offset))
         if gate is not None:
@@ -85,7 +102,7 @@ class ExternalDSP:
         self._gate_owners.clear()
         self.reset_requested = True
 
-    def render_instrument(self, destination, frames, sample_rate):
+    def render_instrument(self, destination, frames, sample_rate, bpm=None, parameters=None):
         instrument = self.instrument
         if instrument is None:
             self.events.clear()
@@ -115,7 +132,13 @@ class ExternalDSP:
             for message, offset in sorted(self.events, key=lambda item: item[1])
         ]
         self.events.clear()
-        output = instrument.render(None, frames, midi, reset=self.reset_requested)
+        output = instrument.render(
+            None,
+            frames,
+            midi,
+            reset=self.reset_requested,
+            parameters=parameters,
+        )
         self.reset_requested = False
         self.voices[:] = [voice for voice in self.voices if not voice.dead]
         if output is not None:

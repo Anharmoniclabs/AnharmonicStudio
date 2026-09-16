@@ -26,6 +26,14 @@ class CapturePlugin:
         pass
 
 
+def test_live_instrument_accepts_engine_bpm_and_parameter_arguments():
+    routing = ExternalDSP()
+    routing.instrument = plugin = CapturePlugin()
+    destination = np.zeros((8, 2), np.float32)
+    routing.render_instrument(destination, 8, 48_000, 120, {"54": 0.6})
+    assert plugin.blocks[0][2]["parameters"] == {"54": 0.6}
+
+
 def test_live_gate_crosses_block_boundary_and_panic_clears_future_notes():
     routing = ExternalDSP()
     routing.instrument = plugin = CapturePlugin()
