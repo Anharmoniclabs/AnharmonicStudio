@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from .window_client import WindowClient
 from ..prism_camera import CameraSession
-from ..prism_motion import CONTROLS, FINGER_EFFECTS, GestureFrame, GestureTake, FingerFXMapper
+from ..prism_motion import CONTROLS, HAND_EFFECTS, GestureFrame, GestureTake, HandFXMapper
 
 CONNECTIONS = (
     (0, 1, 2, 3, 4),
@@ -40,8 +40,8 @@ class HandPreview(QWidget):
         self.image = QImage()
         self.points = ()
         self.active = False
-        self.finger = None
-        self.names = [effect[2] for effect in FINGER_EFFECTS]
+        self.pose = None
+        self.names = [effect[2] for effect in HAND_EFFECTS]
         self.setMinimumSize(420, 230)
         self.setAccessibleName("Mirrored camera preview and hand landmarks")
 
@@ -62,7 +62,7 @@ class HandPreview(QWidget):
             wrist = at(0, 95)
             tips = [(-65, -72), (-20, -108), (27, -91), (67, -50)]
             for i, (x, y) in enumerate(tips):
-                color = QColor(FINGER_EFFECTS[i][4])
+                color = QColor(HAND_EFFECTS[i % len(HAND_EFFECTS)][4])
                 p.setPen(QPen(QColor("#657781"), 9 * scale, Qt.SolidLine, Qt.RoundCap))
                 joint = at(x * 0.65, 15)
                 p.drawLine(wrist, joint)
@@ -83,7 +83,7 @@ class HandPreview(QWidget):
             p.drawText(
                 QRectF(0, self.height() - 30, self.width(), 25),
                 Qt.AlignCenter,
-                "FOUR FINGERS. FOUR WAYS TO SHAPE YOUR SOUND.",
+                "WHOLE-HAND GESTURES TO SHAPE YOUR SOUND.",
             )
             return
         size = self.image.size().scaled(self.size(), Qt.KeepAspectRatio)
@@ -106,21 +106,12 @@ class HandPreview(QWidget):
             for chain in CONNECTIONS:
                 for a, b in zip(chain, chain[1:], strict=False):
                     p.drawLine(point(a), point(b))
-            for finger, index in enumerate((8, 12, 16, 20)):
-                color = QColor(FINGER_EFFECTS[finger][4])
-                selected = self.active and self.finger == finger
-                glow = QColor(color)
-                glow.setAlpha(65 if selected else 25)
-                p.setPen(Qt.NoPen)
-                p.setBrush(glow)
-                p.drawEllipse(point(index), 23 if selected else 13, 23 if selected else 13)
-                p.setBrush(color)
-                p.drawEllipse(point(index), 7, 7)
-                p.setPen(QPen(color, 3))
-                if selected:
-                    p.drawLine(point(4), point(index))
-                    p.drawEllipse(point(4), 12, 12)
-                p.drawText(point(index) + QPointF(12, -12), self.names[finger])
+            color = QColor("#78e5c5" if self.active else "#eeeae2")
+            p.setPen(QPen(color, 3 if self.active else 2))
+            p.setBrush(QColor(color.red(), color.green(), color.blue(), 55 if self.active else 20))
+            p.drawEllipse(point(0), 28 if self.active else 20, 28 if self.active else 20)
+            if self.active and self.pose:
+                p.drawText(point(0) + QPointF(16, -16), self.pose.upper())
 
 
 class PrismCameraDialog(WindowClient, QDialog):
@@ -131,7 +122,7 @@ class PrismCameraDialog(WindowClient, QDialog):
         self.setWindowTitle("Prism · Hand FX")
         self.resize(760, 740)
         self.session = CameraSession()
-        self.mapper = FingerFXMapper()
+        self.mapper = HandFXMapper()
         self.take = GestureTake()
         self._project = self.app.project
         self._last_frame = 0
@@ -145,8 +136,8 @@ class PrismCameraDialog(WindowClient, QDialog):
         )
         layout.addWidget(title)
         hint = QLabel(
-            "Play a Prism sound. Touch a finger to your thumb to grab its effect.\n"
-            "Move up or right for more · down or left for less · release to keep it."
+            "Play a Prism sound. Use an open palm, fist, or thumb/index pinch.\n"
+            "Move your hand to shape the selected effect; change pose to switch effects."
         )
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -160,13 +151,13 @@ class PrismCameraDialog(WindowClient, QDialog):
         self.effect_names = []
         self.effect_details = []
         self.effect_meters = []
-        for finger, key, name, description, color in FINGER_EFFECTS:
+        for pose, key, name, description, color in HAND_EFFECTS:
             card = QFrame()
             card.setStyleSheet(
                 f"QFrame {{ background: #22252d; border: 1px solid {color}; border-radius: 10px; }} QLabel {{ border: none; }}"
             )
             body = QVBoxLayout(card)
-            label = QLabel(f"{finger.upper()} + THUMB")
+            label = QLabel(pose.upper())
             label.setStyleSheet(f"color: {color}; font-size: 10px; font-weight: 600;")
             body.addWidget(label)
             title = QLabel(name)
@@ -215,15 +206,15 @@ class PrismCameraDialog(WindowClient, QDialog):
         settings_layout.addLayout(row)
         grid = QGridLayout()
         self.mapping = []
-        for index, (finger, key, _name, _, _) in enumerate(FINGER_EFFECTS):
+        for index, (pose, key, _name, _, _) in enumerate(HAND_EFFECTS):
             box = QComboBox()
-            box.setAccessibleName(finger + " pinch effect")
+            box.setAccessibleName(pose + " effect")
             for target, label in CONTROLS.items():
                 box.addItem(label, target)
             box.setCurrentIndex(box.findData(key))
             self.mapping.append(box)
             box.currentIndexChanged.connect(self.configure)
-            grid.addWidget(QLabel(finger + " + thumb"), index // 2, (index % 2) * 2)
+            grid.addWidget(QLabel(pose), index // 2, (index % 2) * 2)
             grid.addWidget(box, index // 2, (index % 2) * 2 + 1)
         self.sensitivity = QDoubleSpinBox()
         self.sensitivity.setRange(0.25, 4)
@@ -272,7 +263,7 @@ class PrismCameraDialog(WindowClient, QDialog):
             self.preview.names[i] = box.currentText()
             self.effect_details[i].setText("Pinch · move to adjust")
         try:
-            self.mapper = FingerFXMapper(
+            self.mapper = HandFXMapper(
                 tuple(box.currentData() for box in self.mapping), self.sensitivity.value()
             )
         except ValueError as exc:
@@ -285,7 +276,7 @@ class PrismCameraDialog(WindowClient, QDialog):
             self.mapper.release()
         self.take.end()
         self._gesture = False
-        self.preview.finger = None
+        self.preview.pose = None
         self.preview.active = False
         for meter in self.effect_meters:
             meter.setFormat("%p%")
@@ -359,7 +350,7 @@ class PrismCameraDialog(WindowClient, QDialog):
         ):
             self.release_gesture()
             self.status.setText(
-                "Load a working Prism instrument and give each finger a different effect"
+                "Load a working Prism instrument and give each hand pose a different effect"
             )
             return
         # Use the latest plugin values for pickup after automation playback.
@@ -376,7 +367,7 @@ class PrismCameraDialog(WindowClient, QDialog):
             if self._gesture:
                 self.release_gesture()
             self.status.setText(
-                "Ready · touch a fingertip to your thumb"
+                "Ready · show an open palm, fist, or thumb/index pinch"
                 if points
                 else "Show one hand to the camera"
             )
@@ -397,16 +388,18 @@ class PrismCameraDialog(WindowClient, QDialog):
                 self.status.setText(str(exc))
                 return
             self.status.setText(
-                FINGER_EFFECTS[self.mapper.finger][0]
-                + " pinch · "
+                self.mapper.pose.title()
+                + " · "
                 + "   ".join(f"{CONTROLS[k]} {v:.0%}" for k, v in values.items())
             )
-        self.preview.finger = self.mapper.finger
+        self.preview.pose = self.mapper.pose
         for i, box in enumerate(self.mapping):
             value = values.get(box.currentData(), current.get(box.currentData(), 0))
             self.effect_meters[i].setValue(round(value * 100))
             self.effect_meters[i].setFormat(
-                "LIVE · %p%" if self._gesture and self.mapper.finger == i else "%p%"
+                "LIVE · %p%"
+                if self._gesture and self.mapper.pose == ("open", "fist", "pinch")[i]
+                else "%p%"
             )
         self.preview.active = self._gesture
         self.preview.update()

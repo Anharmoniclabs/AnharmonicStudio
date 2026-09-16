@@ -218,7 +218,7 @@ def test_camera_panel_records_only_when_armed_in_song_playback(window, monkeypat
     def frame(t, x):
         clock[0] = t
         window.engine.beat = t - 99
-        pending[0] = ("frame", t, rgb, hand(t, x).points)
+        pending[0] = ("frame", t, rgb, hand(t, x, pinch=False).points)
         dialog.tick()
 
     try:
@@ -248,45 +248,35 @@ def test_camera_panel_records_only_when_armed_in_song_playback(window, monkeypat
         window.engine.external.instrument = None
 
 
-@pytest.mark.parametrize("finger,key", list(enumerate(("12", "26", "29", "57"))))
-def test_each_finger_controls_only_its_effect(finger, key):
-    from mpclab.prism_motion import FingerFXMapper
+def test_hand_poses_select_effects_without_individual_finger_selection():
+    from mpclab.prism_motion import HandFXMapper
 
-    def frame(t, offset=0, closed=True):
-        points = list(hand(t, pinch=False).points)
-        for tip in (8, 12, 16, 20):
-            points[tip] = (0.8, 0.1, 0)
+    def frame(t, pose, offset=0):
+        points = [(0.5, 0.7, 0.0)] * 21
+        points[0] = (0.5 + offset, 0.7, 0)
+        points[5] = (0.4 + offset, 0.5, 0)
+        points[17] = (0.6 + offset, 0.5, 0)
+        tips = {"open": (0.5, 0.05), "fist": (0.5, 0.62), "pinch": (0.51, 0.4)}
+        tip_y = tips[pose][1]
+        for index in (8, 12, 16, 20):
+            points[index] = (0.5 + offset, tip_y, 0)
         points[4] = (0.5 + offset, 0.4, 0)
-        if closed:
-            points[(8, 12, 16, 20)[finger]] = (0.51 + offset, 0.4, 0)
+        if pose == "pinch":
+            points[8] = (0.51 + offset, 0.4, 0)
         return GestureFrame(t, tuple(points))
 
-    mapper = FingerFXMapper()
-    assert mapper.update(frame(0), {key: 0.3}) == {}
-    assert mapper.update(frame(0.1), {key: 0.3}) == pytest.approx({key: 0.3})
-    values = mapper.update(frame(0.2, 0.1), {key: 0.3})
-    assert set(values) == {key}
-    assert 0.3 < values[key] < 0.5
-    assert mapper.finger == finger
-    assert mapper.update(frame(0.3, closed=False), values) == {}
+    mapper = HandFXMapper()
+    current = {"12": 0.3, "26": 0.4, "57": 0.5}
+    assert mapper.update(frame(0, "open"), current) == {}
+    assert mapper.update(frame(0.1, "open"), current) == pytest.approx({"12": 0.3})
+    values = mapper.update(frame(0.2, "open", 0.1), current)
+    assert set(values) == {"12"}
+    assert 0.3 < values["12"] < 0.5
+    assert mapper.pose == "open"
+    assert mapper.update(frame(0.3, "fist"), values) == {}
     assert not mapper.active
-    mapper.update(frame(0.4), values)
-    assert mapper.update(frame(0.5), values) == pytest.approx(values)
+    assert mapper.update(frame(0.4, "fist"), {"26": 0.7}) == {}
+    assert mapper.update(frame(0.5, "fist"), {"26": 0.7}) == pytest.approx({"26": 0.7})
+    assert mapper.pose == "fist"
     assert mapper.update(GestureFrame(0.6, ()), values) == {}
     assert not mapper.active
-
-
-def test_finger_switch_requires_a_fresh_pinch_and_pickup():
-    from mpclab.prism_motion import FingerFXMapper
-
-    mapper = FingerFXMapper()
-    mapper.update(hand(0), {"12": 0.4})
-    mapper.update(hand(0.1), {"12": 0.4})
-    points = list(hand(0.2, pinch=False).points)
-    points[12] = (0.51, 0.4, 0)
-    assert mapper.update(GestureFrame(0.2, tuple(points)), {}) == {}
-    assert mapper.update(GestureFrame(0.3, tuple(points)), {}) == {}
-    assert mapper.update(GestureFrame(0.4, tuple(points)), {"26": 0.7}) == pytest.approx(
-        {"26": 0.7}
-    )
-    assert mapper.update(GestureFrame(1.0, tuple(points)), {}) == {}
