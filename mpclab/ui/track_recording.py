@@ -26,6 +26,12 @@ from PySide6.QtWidgets import (
 
 from ..model import Clip, Pattern, Row
 from ..recording_timing import take_placement
+from ..recording import (
+    AudioCaptureSession,
+    CaptureState,
+    MidiCaptureSession,
+    SamplerCaptureSession,
+)
 from ..music import Note
 from ..vocal import VocalRecorder, input_device_inventory
 
@@ -40,6 +46,7 @@ class TrackCapture(WindowClient, QObject):
             app.engine.sr, app.engine.blocksize, temp_dir=app.root / "projects" / "recordings"
         )
         self.recorder.engine = app.engine
+        self.session = None
         self.armed_id = None
         self.target = None
         self.active = False
@@ -63,6 +70,10 @@ class TrackCapture(WindowClient, QObject):
     @property
     def recovery_pending(self):
         return not self.recorder.recording and self.recorder.temporary_path is not None
+
+    @property
+    def state(self):
+        return self.session.state if self.session is not None else CaptureState.IDLE
 
     @staticmethod
     def level_db(peak):
@@ -116,6 +127,15 @@ class TrackCapture(WindowClient, QObject):
             self.app.status.showMessage("Finish the current take before starting another", 3500)
             return False
         self.target = replace(row, clips=[])
+        session_type = (
+            AudioCaptureSession
+            if row.record_source == "audio"
+            else SamplerCaptureSession
+            if row.record_source == "sampler"
+            else MidiCaptureSession
+        )
+        self.session = session_type(self.target)
+        self.session.arm(self.target)
         self.project = self.app.project
         self.settings = replace(self.project.vocal_record)
         self.start_beat = float(self.app.engine.beat)
@@ -146,12 +166,14 @@ class TrackCapture(WindowClient, QObject):
                         )
                 self.recorder.sample_rate = app.engine.sr
                 self.recorder.blocksize = app.engine.blocksize
-                self.recorder.input_channels = tuple(self.settings.input_channels)
                 from ..autotune.live import LiveMonitor, MonitorRoute
 
                 route = MonitorRoute(self.recorder, app.engine, self.settings.monitor_gain)
-                self.recorder.start(
-                    device, self.settings.input_gain_db, route if self.settings.monitor else None
+                self.session.start(
+                    device=device,
+                    gain_db=self.settings.input_gain_db,
+                    input_channels=self.settings.input_channels,
+                    monitor_callback=route if self.settings.monitor else None,
                 )
                 if self.settings.monitor and self.settings.corrected_monitor:
                     try:
@@ -162,7 +184,11 @@ class TrackCapture(WindowClient, QObject):
                     except Exception as exc:
                         self._cue_error = f"Corrected cue unavailable; monitoring dry · {exc}"
                 self._capture_sample_rate = self.recorder.sample_rate
+            else:
+                self.session.start()
         except Exception as exc:
+            if self.session is not None:
+                self.session.fail(bool(self.recorder.temporary_path))
             self.message = f"Input could not start · {exc}"
             self.target = None
             self.app.btn_rec.blockSignals(True)
@@ -237,7 +263,9 @@ class TrackCapture(WindowClient, QObject):
         self.app.engine.loop_song = self.previous_loop
         self.app.engine.stop_transport(rewind=False)
         try:
-            audio = self.recorder.stop() if self.target.record_source == "audio" else None
+            audio = self.session.stop() if self.target.record_source == "audio" else None
+            if self.target.record_source != "audio":
+                self.session.stop()
         except Exception as exc:
             self.message = f"Capture failed · {exc}"
             self.changed.emit()
@@ -249,7 +277,7 @@ class TrackCapture(WindowClient, QObject):
         # silent performance is valuable evidence when debugging a route and
         # must remain available for the musician to inspect, edit, or retry.
         if (audio is not None and not len(audio)) or (audio is None and not self.notes):
-            self.recorder.discard()
+            self.session.cancel()
             self.message = "No take saved · the input device delivered no audio frames"
             self.target = None
             self.changed.emit()
@@ -260,7 +288,7 @@ class TrackCapture(WindowClient, QObject):
     def save_take(self):
         if self.unsaved is None and self.recovery_pending:
             try:
-                self.unsaved = (self.recorder.stop(), list(self.notes))
+                self.unsaved = (self.session.recover(), list(self.notes))
             except Exception as exc:
                 self.message = f"Take recovery needs attention · {exc}"
                 self.changed.emit()
@@ -358,9 +386,11 @@ class TrackCapture(WindowClient, QObject):
             app._set_dirty(was_dirty)
             app._try_save_history()
             self.message = f"Take retained for retry · save failed: {exc} · Retry save"
+            self.session.fail(True)
             self.changed.emit()
             return
         self.recorder.commit()
+        self.session.complete()
         self.unsaved = None
         self.midi_take = None
         self.target = None
@@ -391,7 +421,10 @@ class TrackCapture(WindowClient, QObject):
         ):
             return
         try:
-            self.recorder.discard()
+            if self.session is not None:
+                self.session.cancel()
+            else:
+                self.recorder.discard()
         except Exception as exc:
             self.message = f"Could not discard take · {exc}"
             self.changed.emit()

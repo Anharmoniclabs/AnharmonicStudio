@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..model import Clip, VocalComp, VocalCompRegion
+from ..recording import VocalCaptureSession
 from ..vocal import (
     VocalRecorder,
     analyze_pitch,
@@ -55,6 +56,7 @@ class VocalPanel(WindowClient, QWidget):
         self.recorder = VocalRecorder(
             app.engine.sr, app.engine.blocksize, temp_dir=app.root / "projects" / "recordings"
         )
+        self.capture_session = VocalCaptureSession(self.recorder, "vocal-take")
         self._inputs: list[dict] = []
         self._record_start_beat = 0.0
         self._countdown_token = 0

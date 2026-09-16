@@ -193,12 +193,20 @@ def _start_capture(owner):
     )
     try:
         if rec.input_device and selected is None:
-            raise RuntimeError("Selected input is disconnected. Reconnect it or choose another input.")
+            raise RuntimeError(
+                "Selected input is disconnected. Reconnect it or choose another input."
+            )
+        owner._record_start_beat = float(owner.app.engine.beat)
+        owner.capture_session.arm(owner._record_start_beat)
         owner.recorder.engine = owner.app.engine
         owner.recorder.sample_rate = owner.app.engine.sr
         owner.recorder.blocksize = owner.app.engine.blocksize
-        owner.recorder.input_channels = tuple(rec.input_channels[:2])
-        owner.recorder.start(device, rec.input_gain_db, monitor_callback)
+        owner.capture_session.start(
+            device=device,
+            gain_db=rec.input_gain_db,
+            input_channels=tuple(rec.input_channels[:2]),
+            monitor_callback=monitor_callback,
+        )
         if (
             getattr(owner, "_live_monitor", None)
             and owner.recorder.sample_rate != owner._live_monitor.sr
@@ -224,7 +232,6 @@ def _start_capture(owner):
         return
     # Successful capture owns the transport state from here onward.
     owner._count_in_transport = None
-    owner._record_start_beat = float(owner.app.engine.beat)
     owner.record_button.setText("■  STOP + SAVE TAKE")
     owner.pause_button.setEnabled(True)
     owner.discard_button.setEnabled(True)
@@ -238,7 +245,7 @@ def _pause_changed(owner, paused: bool):
 
 def stop_recording(owner):
     try:
-        audio = owner.recorder.stop()
+        audio = owner.capture_session.stop()
     except Exception as exc:
         owner._finish_record_controls()
         owner.record_status.setText(f"capture failed · {exc}")
@@ -269,9 +276,11 @@ def stop_recording(owner):
             owner.app._set_dirty(was_dirty)
             owner.app._try_save_history()
         owner.record_status.setText(f"Take retained · retry save · {exc}")
+        owner.capture_session.fail(True)
         QMessageBox.warning(owner, "Save take failed", str(exc))
         return
     owner.recorder.commit()
+    owner.capture_session.complete()
     owner._finish_record_controls()
     owner._latest_clip = clip.id
     owner.refresh_takes(select=clip.id)
@@ -288,7 +297,7 @@ def discard_recording(owner):
     owner._countdown_token += 1
     owner._restore_count_in_transport()
     try:
-        owner.recorder.discard()
+        owner.capture_session.cancel()
     except Exception as exc:
         owner.record_status.setText(f"discard cleanup failed · {exc}")
     owner._finish_record_controls()
