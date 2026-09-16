@@ -72,7 +72,7 @@ python tests/web/audio-engine.browser.py --output /tmp/anharmonic-web-checks/aud
 
 The browser app now loads `app/project-model.js` before `app/studio.js`. This is the
 compatibility foundation for the remaining workspace ports: it normalizes legacy
-browser projects and desktop-shaped pattern documents into project format v5 state,
+browser projects and desktop-shaped pattern documents into project format v6 state,
 including 64 pads, 8 tracks, stable IDs, velocity maps, notes, media manifests, and
 transaction history. Save/load uses that normalized document; Undo and Redo operate on
 the same transactions. New editors should mutate this store rather than introducing

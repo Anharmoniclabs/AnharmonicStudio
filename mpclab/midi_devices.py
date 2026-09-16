@@ -310,6 +310,8 @@ class MidiRouter:
         self.control_values = {}
         self.expression = expression or (lambda message: None)
         self.clock = lambda port, message, timestamp: None
+        self.channel_note_on = lambda destination, velocity: None
+        self.channel_note_off = lambda destination: None
         self.resolve_note = lambda note, port, channel: ("note", note)
         self.sostenuto = set()
         self.sostenuto_notes = set()
@@ -435,9 +437,13 @@ class MidiRouter:
             already_held = destination in self.held.values()
             self.held[key] = destination
             if not already_held:
-                (self.pad_on if destination[0] == "pad" else self.note_on)(
-                    destination[1], self.velocity(value, settings, (port_id, channel) in self.soft)
-                )
+                velocity = self.velocity(value, settings, (port_id, channel) in self.soft)
+                if destination[0] == "routed":
+                    self.channel_note_on(destination[1], velocity)
+                else:
+                    (self.pad_on if destination[0] == "pad" else self.note_on)(
+                        destination[1], velocity
+                    )
         elif kind == 0xB0:
             if number in (120, 123):
                 self.release_port(port_id)

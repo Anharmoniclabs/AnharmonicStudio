@@ -199,7 +199,7 @@ If saving a recording fails, use **Retry save** in Song or **Retry save take** i
 vocal editor. Recovery WAVs remain under the session's `projects/recordings/` until
 saved or explicitly discarded. Keep the session library with its projects.
 
-Project format 5 persists unique mixer track IDs. Older formats migrate in memory
+Project format 6 persists unique mixer track IDs. Older formats migrate in memory
 using repeatable IDs for the original eight slots; names, effects and integer
 routing stay intact. IDs survive save/reopen and undo snapshots. This foundation
 does not enable adding, deleting or reordering mixer channels. Earlier builds

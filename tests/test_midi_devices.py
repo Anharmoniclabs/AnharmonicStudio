@@ -46,6 +46,45 @@ def test_note_off_uses_original_bank_and_velocity_zero_releases():
     assert calls == [("pad_on", 0, 100 / 127), ("pad_off", 0)]
 
 
+def test_routed_destination_preserves_payload_for_note_off_and_duplicate_holds():
+    router, calls, _ = make_router()
+    routed = []
+    router.resolve_note = lambda note, port, channel: (
+        "routed",
+        (channel, note, ("instrument-a",)),
+    )
+    router.channel_note_on = lambda destination, velocity: routed.append(
+        ("on", destination, velocity)
+    )
+    router.channel_note_off = lambda destination: routed.append(("off", destination))
+
+    router.handle("a", [0x92, 60, 127])
+    router.handle("b", [0x92, 60, 100])
+    router.handle("a", [0x82, 60, 0])
+    assert routed == [("on", (2, 60, ("instrument-a",)), 1.0)]
+    router.handle("b", [0x82, 60, 0])
+    assert routed[-1] == ("off", (2, 60, ("instrument-a",)))
+
+
+def test_routed_destination_releases_on_sustain_and_port_disconnect():
+    router, _calls, _ = make_router()
+    routed = []
+    router.resolve_note = lambda note, port, channel: ("routed", (channel, note, (port,)))
+    router.channel_note_on = lambda destination, velocity: routed.append(("on", destination))
+    router.channel_note_off = lambda destination: routed.append(("off", destination))
+
+    router.handle("a", [0x93, 64, 127])
+    router.handle("a", [0xB3, 64, 127])
+    router.handle("a", [0x83, 64, 0])
+    assert routed == [("on", (3, 64, ("a",)))]
+    router.handle("a", [0xB3, 64, 0])
+    assert routed[-1] == ("off", (3, 64, ("a",)))
+
+    router.handle("b", [0x94, 67, 127])
+    router.handle("b", [])
+    assert routed[-1] == ("off", (4, 67, ("b",)))
+
+
 def test_sustain_and_duplicate_controller_note_ownership():
     router, calls, _ = make_router()
     router.handle("a", [0x90, 60, 127])
