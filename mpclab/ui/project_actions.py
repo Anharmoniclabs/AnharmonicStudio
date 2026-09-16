@@ -38,11 +38,11 @@ def _project_name_changed(window, text: str):
 
 
 def _apply_project(window, project: Project):
-    if len(project.tracks) == len(window.engine._tbuf):
-        return _apply_project_state(window, project)
     from .track_management import require_idle_capture
 
     require_idle_capture(window)
+    if len(project.tracks) == len(window.engine._tbuf):
+        return _apply_project_state(window, project)
     previous = window.project
     undo, redo, dirty = list(window._undo), list(window._redo), window._dirty
     was_running = window.engine.stream is not None

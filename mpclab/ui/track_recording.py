@@ -157,6 +157,9 @@ class TrackCapture(WindowClient, QObject):
         except Exception as exc:
             self.message = f"Input could not start · {exc}"
             self.target = None
+            self.app.btn_rec.blockSignals(True)
+            self.app.btn_rec.setChecked(False)
+            self.app.btn_rec.blockSignals(False)
             app.status.showMessage(self.message, 8000)
             self.changed.emit()
             return
@@ -166,7 +169,7 @@ class TrackCapture(WindowClient, QObject):
         app.engine.set_position(self.start_beat)
         app.engine.capture_anchor = None
         app.engine.capture_anchor_requested = self.target.record_source == "audio"
-        if self.target.record_source == "notes":
+        if self.target.record_source in ("notes", "sampler"):
             self.midi_take = app.engine.midi.begin_take(self.start_beat)
             app.engine.arp_note_capture = (self.notes, self.start_beat)
         app.engine.play()
@@ -176,7 +179,7 @@ class TrackCapture(WindowClient, QObject):
         self.changed.emit()
 
     def note_on(self, pitch, velocity, pad=None, *, instrument=None, channel=0):
-        if self.active and self.target.record_source == "notes":
+        if self.active and self.target.record_source in ("notes", "sampler"):
             self.note_off(pitch, pad, instrument=instrument)
             key = (pitch, pad) if instrument is None else (pitch, pad, instrument)
             self.held[key] = (self.app.engine.beat, velocity, channel)
@@ -418,6 +421,7 @@ class TrackInspector(WindowClient, QWidget):
         self.source = QComboBox()
         self.source.addItem("Audio input", "audio")
         self.source.addItem("Instrument / sample", "notes")
+        self.source.addItem("Sampler track", "sampler")
         self.source.currentIndexChanged.connect(self.source_changed)
         primary.addWidget(QLabel("Source"))
         primary.addWidget(self.source)
@@ -604,7 +608,7 @@ class TrackInspector(WindowClient, QWidget):
         self.update_input_feedback()
         self.retry.setVisible(capture.unsaved is not None or capture.recovery_pending)
         self.discard.setVisible(capture.unsaved is not None or capture.recovery_pending)
-        self.notes_help.setVisible(bool(row and row.record_source == "notes"))
+        self.notes_help.setVisible(bool(row and row.record_source in ("notes", "sampler")))
         self.output.setEnabled(bool(row and row.record_source == "audio" and not capture.busy))
         for widget in (
             self.count,

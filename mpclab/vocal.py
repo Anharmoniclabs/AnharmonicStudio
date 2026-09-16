@@ -240,6 +240,10 @@ class VocalRecorder:
         self._gain = float(10.0 ** (float(gain_db) / 20.0))
         self.monitor_callback = monitor_callback
         self._temp_path = self._make_temp_path()
+        self._writer = threading.Thread(
+            target=self._write_capture, name="Vocal capture writer", daemon=True
+        )
+        self._writer.start()
 
         def callback(indata, _frames, _time_info, status):
             if bool(status) and getattr(status, "input_overflow", True):

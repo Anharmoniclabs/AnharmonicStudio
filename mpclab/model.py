@@ -934,8 +934,10 @@ class Project:
 
         def record_source_value(record: dict, row_index: int) -> str:
             value = record.get("record_source", "audio")
-            if value not in ("audio", "notes"):
-                raise ValueError(f"project rows[{row_index}].record_source must be audio or notes")
+            if value not in ("audio", "notes", "sampler"):
+                raise ValueError(
+                    f"project rows[{row_index}].record_source must be audio, notes, or sampler"
+                )
             return value
 
         for pad in pads:
