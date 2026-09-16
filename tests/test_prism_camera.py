@@ -218,7 +218,7 @@ def test_camera_panel_records_only_when_armed_in_song_playback(window, monkeypat
     def frame(t, x):
         clock[0] = t
         window.engine.beat = t - 99
-        pending[0] = ("frame", t, rgb, hand(t, x).points)
+        pending[0] = ("frame", t, rgb, hand(t, x, pinch=False).points)
         dialog.tick()
 
     try:
