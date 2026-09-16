@@ -84,7 +84,12 @@ class CaptureSession:
     def cancel(self) -> None:
         if self.state in {CaptureState.RECORDING, CaptureState.STARTING}:
             self.state = CaptureState.STOPPING
-        if self.state in {CaptureState.ARMED, CaptureState.STOPPING, CaptureState.PROCESSING}:
+        if self.state in {
+            CaptureState.ARMED,
+            CaptureState.STOPPING,
+            CaptureState.PROCESSING,
+            CaptureState.RECOVERABLE,
+        }:
             self.state = CaptureState.IDLE
 
 

@@ -789,13 +789,16 @@ class Engine:
             and voices is self.synth_voices
             and self.external.instrument is not None
         ):
+            channel = midi_channel
+            if channel == 0 and not live_trigger:
+                channel = 1
             self.external.note_on(
                 note,
                 velocity,
                 offset,
                 gate_frames,
                 live_trigger,
-                channel=midi_channel,
+                channel=channel,
                 event_source=event_source,
                 trigger_id=trigger_id,
             )

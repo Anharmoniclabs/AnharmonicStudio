@@ -20,7 +20,7 @@ def test_multiple_loop_boundaries_preserve_time_and_retrigger_notes(monkeypatch)
     engine.mode, engine.playing, engine.loop_song = "song", True, True
     triggers = []
 
-    def capture(pad, idx, vel, off, *, live_trigger, sequence_id):
+    def capture(pad, idx, vel, off, *, live_trigger, sequence_id, event_source=None):
         assert not live_trigger  # Loop playback must stay separate from manual taps.
         assert sequence_id == engine.project.rows[0].clips[0].id
         triggers.append(off)
@@ -38,12 +38,11 @@ def test_loop_split_preserves_entire_microphone_cue():
     engine.project.bpm = 120
     engine.project.loop_end = 128 / 24000
     engine.mode, engine.playing, engine.loop_song = "song", True, True
-    engine._monitor_audio[0] = np.linspace(0.01, 0.1, 256)[:, None]
-    engine._monitor_lengths[0] = 256
-    engine._monitor_write = 1
+    cue = np.repeat(np.linspace(0.01, 0.1, 256, dtype=np.float32)[:, None], 2, axis=1)
+    engine.queue_monitor(cue)
     out = np.zeros((256, 2), np.float32)
     engine._callback(out, 256, None, False)
-    np.testing.assert_allclose(out, engine._monitor_audio[0], atol=1e-6)
+    np.testing.assert_allclose(out, cue, atol=1e-6)
 
 
 def test_short_loop_slices_keep_prepared_filter_and_overlap():

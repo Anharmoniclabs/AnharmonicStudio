@@ -251,12 +251,15 @@ def test_measured_input_latency_is_applied_only_to_clip_placement(panel):
 def test_vocal_capture_passes_the_negotiated_input_rate_to_the_library(monkeypatch, panel):
     panel.auto_place.setChecked(False)
     panel.recorder.sample_rate = 44_100
+    monkeypatch.setattr(panel.recorder, "start", lambda *args: None)
     monkeypatch.setattr(
         panel.recorder,
         "stop",
         lambda: np.full((4_410, 2), 0.1, dtype=np.float32),
     )
     monkeypatch.setattr(panel.recorder, "commit", lambda: None)
+    panel.capture_session.arm()
+    panel.capture_session.start()
 
     panel.stop_recording()
 

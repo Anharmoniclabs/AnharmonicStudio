@@ -84,7 +84,7 @@ def pattern_events(
         last = max(first, int((min(b1, limit) - origin) // length))
         for cycle in range(first, last + 1):
             base = origin + cycle * length
-            for note in pat.notes:
+            for note_index, note in enumerate(pat.notes):
                 beat = base + note.start
                 if note.start < length and b0 - 1e-10 <= beat < min(b1, limit) - 1e-10:
                     gate = min(sustained_duration(pat, note), length - note.start, limit - beat)
@@ -100,6 +100,7 @@ def pattern_events(
                             (beat, destination, note.velocity, gate, sequence_id),
                             note.channel,
                             note.release_velocity,
+                            source=EventSource(pat, note=note, note_index=note_index),
                         )
                     )
     sd_ = 1.0 / pat.div
@@ -121,7 +122,7 @@ def pattern_events(
                         out.append(
                             ScheduledNote(
                                 (beat, int(pad_idx), float(vel), None, sequence_id),
-                                EventSource(pat, pad=int(pad_idx), step=step),
+                                source=EventSource(pat, pad=int(pad_idx), step=step),
                             )
                         )
         k += 1

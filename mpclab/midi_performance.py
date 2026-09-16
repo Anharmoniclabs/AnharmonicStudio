@@ -310,7 +310,10 @@ class MidiPerformance:
             )
 
     def _on(self, destination, velocity):
-        note, pad, instrument, port, channel = destination
+        if isinstance(destination, int):
+            note, pad, instrument, port, channel = destination, None, None, "", 0
+        else:
+            note, pad, instrument, port, channel = destination
         e = self.engine
         if pad is not None:
             e._spawn(e.project.pads[pad], pad, velocity, self.offset, note=note)
@@ -330,7 +333,10 @@ class MidiPerformance:
         self.notifications.append(("note", note, True))
 
     def _off(self, destination):
-        note, pad, instrument, port, channel = destination
+        if isinstance(destination, int):
+            note, pad, instrument, port, channel = destination, None, None, "", 0
+        else:
+            note, pad, instrument, port, channel = destination
         e = self.engine
         if pad is not None:
             e.sample_note_off(pad, note)

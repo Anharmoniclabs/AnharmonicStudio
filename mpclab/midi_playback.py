@@ -6,10 +6,11 @@ import math
 
 
 class ScheduledNote(tuple):
-    def __new__(cls, fields, channel=0, release_velocity=0):
+    def __new__(cls, fields, channel=0, release_velocity=0, *, source=None):
         event = super().__new__(cls, fields)
         event.channel = channel
         event.release_velocity = release_velocity
+        event.source = source
         return event
 
 

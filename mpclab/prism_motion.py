@@ -158,8 +158,8 @@ class HandFXMapper:
         tips = (8, 12, 16, 20)
         openness = sum(math.dist(wrist, points[index][:2]) for index in tips) / (4 * palm)
         pinch = math.dist(points[4][:2], points[8][:2]) / palm
-        center_x = sum(points[index][0] for index in (0, 5, 9, 13, 17)) / 5
-        center_y = sum(points[index][1] for index in (0, 5, 9, 13, 17)) / 5
+        center_x = sum(point[0] for point in points) / len(points)
+        center_y = sum(point[1] for point in points) / len(points)
         return openness, pinch, clamp(center_x), clamp(1 - center_y)
 
     @classmethod
@@ -170,9 +170,9 @@ class HandFXMapper:
         openness, pinch, _, _ = features
         if pinch <= 0.3:
             return "pinch"
-        if openness <= 2.0:
+        if openness <= 1.0:
             return "fist"
-        if openness >= 2.8:
+        if openness >= 1.4:
             return "open"
         return None
 

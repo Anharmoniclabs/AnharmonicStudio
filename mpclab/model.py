@@ -483,21 +483,23 @@ class VocalRecordSettings:
             ("monitor_gain", 0.0, 1.5),
         ):
             value = getattr(self, name)
-            if (
-                type(value) not in (int, float)
-                or not math.isfinite(value)
-                or not low <= value <= high
-            ):
-                raise ValueError(f"{name} must be between {low:g} and {high:g}")
+            try:
+                finite = math.isfinite(value)
+            except OverflowError as exc:
+                raise ValueError(f"vocal record {name} must be a finite number") from exc
+            if type(value) not in (int, float) or not finite or not low <= value <= high:
+                if type(value) not in (int, float) or not finite:
+                    raise ValueError(f"vocal record {name} must be a finite number")
+                raise ValueError(f"vocal record {name} must be between {low:g} and {high:g}")
         for name in ("monitor", "corrected_monitor", "auto_place"):
             if type(getattr(self, name)) is not bool:
-                raise ValueError(f"{name} must be a boolean")
+                raise ValueError(f"vocal record {name} must be a boolean")
         if type(self.count_in_bars) is not int or not 0 <= self.count_in_bars <= 4:
-            raise ValueError("count_in_bars must be an integer from 0 to 4")
+            raise ValueError("vocal record count_in_bars must be an integer from 0 to 4")
         if type(self.playlist_row) is not int or not -1 <= self.playlist_row < 128:
-            raise ValueError("playlist_row must be an integer from -1 to 127")
+            raise ValueError("vocal record playlist_row must be an integer from -1 to 127")
         if type(self.mixer_track) is not int or not 0 <= self.mixer_track < MAX_TRACKS:
-            raise ValueError("mixer_track must be an integer from 0 to 127")
+            raise ValueError("vocal record mixer_track must be an integer from 0 to 127")
 
 
 @dataclass

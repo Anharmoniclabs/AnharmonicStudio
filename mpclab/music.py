@@ -110,7 +110,7 @@ class AutomationLane:
     interpolation: str = "linear"
 
     def __post_init__(self):
-        if self.target not in automation_targets():
+        if self.target not in _valid_automation_targets():
             raise ValueError(f"unsupported automation target: {self.target}")
         if self.interpolation not in ("linear", "step", "smooth"):
             raise ValueError("automation interpolation must be linear, step or smooth")
@@ -167,13 +167,14 @@ def automation_targets(track_count=None):
     count = MAX_TRACKS if track_count is None else track_count
     if type(count) is not int or not 1 <= count <= MAX_TRACKS:
         raise ValueError("automation track count is outside the mixer limit")
+    return ["master"] + [f"track:{i}:{param}" for i in range(count) for param in ("gain", "pan")]
+
+
+def _valid_automation_targets(track_count=None):
+    # Prism gesture automation is a fixed target namespace, not scaled by track count.
     from .prism_motion import TARGETS
 
-    return (
-        ["master"]
-        + [f"track:{i}:{param}" for i in range(count) for param in ("gain", "pan")]
-        + list(TARGETS)
-    )
+    return set(automation_targets(track_count)) | set(TARGETS)
 
 
 def target_range(target):
@@ -199,7 +200,7 @@ def read_notes(data):
 
 
 def read_automation(data, *, track_count=None):
-    targets = set(automation_targets(track_count))
+    targets = _valid_automation_targets(track_count)
     if not isinstance(data, list) or len(data) > len(targets):
         raise ValueError(f"automation must be an array of at most {len(targets)} lanes")
     lanes = []
