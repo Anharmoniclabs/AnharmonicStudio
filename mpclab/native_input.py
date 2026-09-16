@@ -3,6 +3,7 @@
 The device callback only copies into bounded preallocated slots. Frame positions
 survive queue overflow, allowing the recorder to preserve gaps in the take.
 """
+
 from __future__ import annotations
 
 import ctypes as ct
@@ -14,8 +15,12 @@ import numpy as np
 
 
 class CaptureInfo(ct.Structure):
-    _fields_ = [("position", ct.c_uint64), ("frames", ct.c_uint64),
-                ("flags", ct.c_uint64), ("adc", ct.c_double)]
+    _fields_ = [
+        ("position", ct.c_uint64),
+        ("frames", ct.c_uint64),
+        ("flags", ct.c_uint64),
+        ("adc", ct.c_double),
+    ]
 
 
 class InputQueue:
@@ -27,8 +32,10 @@ class InputQueue:
             "read": ([ct.c_void_p, ct.c_void_p, ct.c_size_t, ct.c_void_p], ct.c_int),
             "total": ([ct.c_void_p], ct.c_uint64),
             "dropped": ([ct.c_void_p], ct.c_uint64),
-            "callback": ([ct.c_void_p, ct.c_void_p, ct.c_ulong, ct.c_void_p,
-                          ct.c_ulong, ct.c_void_p], ct.c_int),
+            "callback": (
+                [ct.c_void_p, ct.c_void_p, ct.c_ulong, ct.c_void_p, ct.c_ulong, ct.c_void_p],
+                ct.c_int,
+            ),
         }
         for name, (args, result) in signatures.items():
             function = getattr(library, "anh_input_" + name)
@@ -42,8 +49,9 @@ class InputQueue:
     def read(self):
         if not self.handle:
             raise RuntimeError("Capture queue is closed")
-        result = self.lib.anh_input_read(self.handle, self.audio.ctypes.data,
-                                         self.frames, ct.byref(self.info))
+        result = self.lib.anh_input_read(
+            self.handle, self.audio.ctypes.data, self.frames, ct.byref(self.info)
+        )
         if result < 0:
             raise RuntimeError("Capture block exceeds prepared storage")
         return bool(result)
@@ -65,7 +73,9 @@ class InputQueue:
 class NativeInputStream:
     native_callback = True
 
-    def __init__(self, sd, native, *, callback, samplerate, blocksize, channels, engine=None, **options):
+    def __init__(
+        self, sd, native, *, callback, samplerate, blocksize, channels, engine=None, **options
+    ):
         self.queue = InputQueue(native.lib, blocksize, channels, sample_rate=samplerate)
         self.callback = callback
         self.error = ""
@@ -82,9 +92,13 @@ class NativeInputStream:
                 return
             address = ct.cast(native.lib.anh_input_callback, ct.c_void_p).value
             self._host = sd._StreamBase(
-                "input", samplerate=samplerate, blocksize=blocksize, channels=channels,
+                "input",
+                samplerate=samplerate,
+                blocksize=blocksize,
+                channels=channels,
                 callback=sd._ffi.cast("PaStreamCallback*", address),
-                userdata=sd._ffi.cast("void*", self.queue.handle), wrap_callback=None,
+                userdata=sd._ffi.cast("void*", self.queue.handle),
+                wrap_callback=None,
                 **options,
             )
         except BaseException:
@@ -96,16 +110,24 @@ class NativeInputStream:
             while True:
                 if self.queue.read():
                     info = self.queue.info
-                    timing = SimpleNamespace(inputBufferAdcTime=info.adc,
-                                             capture_frame=int(info.position),
-                                             capture_monotonic=(info.adc + self.clock_offset)
-                                             if info.adc >= 0 and self.clock_offset is not None else None)
+                    timing = SimpleNamespace(
+                        inputBufferAdcTime=info.adc,
+                        capture_frame=int(info.position),
+                        capture_monotonic=(info.adc + self.clock_offset)
+                        if info.adc >= 0 and self.clock_offset is not None
+                        else None,
+                    )
+
                     # bool(status) has the same meaning as sounddevice flags.
                     class Status:
                         input_overflow = bool(info.flags & 2)
+
                         def __bool__(self):
                             return self.input_overflow
-                    self.callback(self.queue.audio[:info.frames], int(info.frames), timing, Status())
+
+                    self.callback(
+                        self.queue.audio[: info.frames], int(info.frames), timing, Status()
+                    )
                 elif self._stop.is_set():
                     break
                 else:
@@ -121,7 +143,9 @@ class NativeInputStream:
             self._latency = float(self._host.latency)
             if hasattr(self._host, "time"):
                 self.clock_offset = time.monotonic() - float(self._host.time)
-            self._worker = threading.Thread(target=self._consume, name="anharmonic-capture", daemon=True)
+            self._worker = threading.Thread(
+                target=self._consume, name="anharmonic-capture", daemon=True
+            )
             self._worker.start()
         except BaseException:
             self.close()
@@ -170,6 +194,7 @@ class DuplexEndpoint:
     Only the capture owner closes the duplex stream. The output-only stream is
     restored after the device callback has stopped, before freeing capture data.
     """
+
     def __init__(self, engine, capture_queue, sd, native, input_device):
         from .native_output import NativeOutputStream
 
@@ -178,11 +203,21 @@ class DuplexEndpoint:
         self.stream = None
         engine.stop()
         try:
-            self.stream = NativeOutputStream(sd, native, callback=engine._callback,
-                samplerate=engine.sr, blocksize=engine.blocksize, channels=2,
-                output_channels=engine.output_channels, capture_queue=capture_queue,
-                device=(input_device, engine.output_device), dtype="float32", latency="low",
-                clip_off=True, dither_off=True)
+            self.stream = NativeOutputStream(
+                sd,
+                native,
+                callback=engine._callback,
+                samplerate=engine.sr,
+                blocksize=engine.blocksize,
+                channels=2,
+                output_channels=engine.output_channels,
+                capture_queue=capture_queue,
+                device=(input_device, engine.output_device),
+                dtype="float32",
+                latency="low",
+                clip_off=True,
+                dither_off=True,
+            )
             engine.stream = self.stream
             engine._native_output_active = True
         except BaseException:

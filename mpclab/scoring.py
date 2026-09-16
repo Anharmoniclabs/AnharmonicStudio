@@ -55,20 +55,31 @@ def collect_score(project, song=False):
 
     def pattern_notes(pattern, offset, available):
         for note in pattern.notes:
-            duration = min(note.duration, pattern.length_beats - note.start,
-                           available - note.start)
+            duration = min(note.duration, pattern.length_beats - note.start, available - note.start)
             if note.pad is not None:
                 name = project.pads[note.pad].name or f"Sample {note.pad + 1}"
             else:
                 name = instruments.get(note.instrument, note.instrument or project.synth.name)
-            add(note_key(note), name, note.pitch, offset + note.start, duration,
-                percussion=note.channel == 9)
+            add(
+                note_key(note),
+                name,
+                note.pitch,
+                offset + note.start,
+                duration,
+                percussion=note.channel == 9,
+            )
         for pad, steps in pattern.steps.items():
             for step in steps:
                 start = step / pattern.div
                 if start < min(available, pattern.length_beats):
-                    add(f"drum:{pad}", project.pads[pad].name or f"Pad {pad + 1}",
-                        60, offset + start, min(1 / pattern.div, available - start), True)
+                    add(
+                        f"drum:{pad}",
+                        project.pads[pad].name or f"Pad {pad + 1}",
+                        60,
+                        offset + start,
+                        min(1 / pattern.div, available - start),
+                        True,
+                    )
 
     if song:
         patterns = {p.id: p for p in project.patterns}
@@ -76,7 +87,9 @@ def collect_score(project, song=False):
             for clip in row.clips:
                 length = max(length, clip.start_beat + clip.length_beats)
                 if length > 8192:
-                    raise ValueError("Scores currently support up to 2,048 bars. Use a shorter arrangement.")
+                    raise ValueError(
+                        "Scores currently support up to 2,048 bars. Use a shorter arrangement."
+                    )
                 if clip.kind == "audio":
                     audio_clips += 1
                     continue
@@ -94,8 +107,13 @@ def collect_score(project, song=False):
         pattern_notes(pattern, 0, length)
     for part in parts.values():
         part.notes = sorted(set(part.notes), key=lambda n: (n.start, n.pitch, n.duration))
-    return Score(project.name if song else project.pattern().name, project.bpm,
-                 max(1, ceil(length / 4)), list(parts.values()), audio_clips)
+    return Score(
+        project.name if song else project.pattern().name,
+        project.bpm,
+        max(1, ceil(length / 4)),
+        list(parts.values()),
+        audio_clips,
+    )
 
 
 def _child(parent, tag, value=None, **attrs):
@@ -135,9 +153,16 @@ def _segments(start, duration):
 
 
 def _event(measure, size, voice, pitches=None, percussion=False, tie_in=False, tie_out=False):
-    kind, dotted = {16: ("whole", False), 12: ("half", True), 8: ("half", False),
-                    6: ("quarter", True), 4: ("quarter", False), 3: ("eighth", True),
-                    2: ("eighth", False), 1: ("16th", False)}[size]
+    kind, dotted = {
+        16: ("whole", False),
+        12: ("half", True),
+        8: ("half", False),
+        6: ("quarter", True),
+        4: ("quarter", False),
+        3: ("eighth", True),
+        2: ("eighth", False),
+        1: ("16th", False),
+    }[size]
     for index, pitch in enumerate(pitches or [None]):
         node = _child(measure, "note")
         if index:
@@ -150,8 +175,20 @@ def _event(measure, size, voice, pitches=None, percussion=False, tie_in=False, t
             _child(unpitched, "display-octave", 5)
         else:
             pitched = _child(node, "pitch")
-            step, alter = (("C", 0), ("C", 1), ("D", 0), ("D", 1), ("E", 0), ("F", 0),
-                           ("F", 1), ("G", 0), ("G", 1), ("A", 0), ("A", 1), ("B", 0))[pitch % 12]
+            step, alter = (
+                ("C", 0),
+                ("C", 1),
+                ("D", 0),
+                ("D", 1),
+                ("E", 0),
+                ("F", 0),
+                ("F", 1),
+                ("G", 0),
+                ("G", 1),
+                ("A", 0),
+                ("A", 1),
+                ("B", 0),
+            )[pitch % 12]
             _child(pitched, "step", step)
             if alter:
                 _child(pitched, "alter", alter)
@@ -173,7 +210,9 @@ def _event(measure, size, voice, pitches=None, percussion=False, tie_in=False, t
 def musicxml(score, part_key=None):
     parts = [p for p in score.parts if part_key is None or p.key == part_key]
     if not parts:
-        raise ValueError("No notes to score. Write or import MIDI notes in Notes, or program a beat.")
+        raise ValueError(
+            "No notes to score. Write or import MIDI notes in Notes, or program a beat."
+        )
     root = ET.Element("score-partwise", version="4.0")
     work = _child(root, "work")
     _child(work, "work-title", score.title)
@@ -193,7 +232,9 @@ def musicxml(score, part_key=None):
         _child(time, "beats", 4)
         _child(time, "beat-type", 4)
         clef = _child(attrs, "clef")
-        bass = not part.percussion and sum(n.pitch for n in part.notes) / max(1, len(part.notes)) < 60
+        bass = (
+            not part.percussion and sum(n.pitch for n in part.notes) / max(1, len(part.notes)) < 60
+        )
         _child(clef, "sign", "percussion" if part.percussion else "F" if bass else "G")
         if not part.percussion:
             _child(clef, "line", 4 if bass else 2)
@@ -212,8 +253,15 @@ def musicxml(score, part_key=None):
                 for pos, size in _segments(cursor, max(0, start - cursor)):
                     _event(measures[pos // 16], size, voice_index)
                 for pos, size in _segments(start, duration):
-                    _event(measures[pos // 16], size, voice_index, pitches, part.percussion,
-                           pos > start, pos + size < start + duration)
+                    _event(
+                        measures[pos // 16],
+                        size,
+                        voice_index,
+                        pitches,
+                        part.percussion,
+                        pos > start,
+                        pos + size < start + duration,
+                    )
                 cursor = start + duration
             for pos, size in _segments(cursor, max(0, score.bars * 16 - cursor)):
                 _event(measures[pos // 16], size, voice_index)

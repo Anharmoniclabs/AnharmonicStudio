@@ -77,7 +77,18 @@ class NativeOutputStream:
 
     native_callback = True
 
-    def __init__(self, sd, native, *, callback, samplerate, blocksize, output_channels=(0, 1), capture_queue=None, **options):
+    def __init__(
+        self,
+        sd,
+        native,
+        *,
+        callback,
+        samplerate,
+        blocksize,
+        output_channels=(0, 1),
+        capture_queue=None,
+        **options,
+    ):
         self.frames, self.sample_rate = blocksize, samplerate
         self.render = callback
         self.queue = OutputQueue(native.lib, blocksize * 2)
@@ -87,7 +98,10 @@ class NativeOutputStream:
             raise ValueError("Select a valid stereo output pair")
         if mapping != (0, 1):
             function = native.lib.anh_output_channels
-            function.argtypes, function.restype = [ct.c_void_p, ct.c_size_t, ct.c_size_t, ct.c_size_t], ct.c_int
+            function.argtypes, function.restype = (
+                [ct.c_void_p, ct.c_size_t, ct.c_size_t, ct.c_size_t],
+                ct.c_int,
+            )
             if function(self.queue.handle, max(mapping) + 1, *mapping):
                 self.queue.close()
                 raise ValueError("Output channel mapping failed")
@@ -130,9 +144,17 @@ class NativeOutputStream:
                     # Estimated presentation time of this producer block. The
                     # callback's render cursor must not be mistaken for what
                     # the performer currently hears.
-                    presentation = time.monotonic() + self.host_output_latency + self.queue.available / self.sample_rate
-                    self.render(self._audio, self.frames,
-                                SimpleNamespace(output_monotonic=presentation), False)
+                    presentation = (
+                        time.monotonic()
+                        + self.host_output_latency
+                        + self.queue.available / self.sample_rate
+                    )
+                    self.render(
+                        self._audio,
+                        self.frames,
+                        SimpleNamespace(output_monotonic=presentation),
+                        False,
+                    )
                     if not self.queue.write(self._audio):
                         raise RuntimeError("Native output producer violated its queue bound")
                     if self.queue.available >= self.frames * 2:

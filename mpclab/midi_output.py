@@ -1,4 +1,5 @@
 """Owned MIDI-output worker with monotonic clock scheduling and hotplug recovery."""
+
 from __future__ import annotations
 
 import queue
@@ -28,7 +29,9 @@ class MidiOutputService:
 
     def start(self):
         if self._thread is None:
-            self._thread = threading.Thread(target=self._run, name="Anharmonic MIDI output", daemon=True)
+            self._thread = threading.Thread(
+                target=self._run, name="Anharmonic MIDI output", daemon=True
+            )
             self._thread.start()
 
     def select(self, port_id, clock_enabled=False):
@@ -38,7 +41,11 @@ class MidiOutputService:
 
     def send(self, message):
         message = tuple(message)
-        if not message or len(message) > 1024 or any(type(v) is not int or not 0 <= v <= 255 for v in message):
+        if (
+            not message
+            or len(message) > 1024
+            or any(type(v) is not int or not 0 <= v <= 255 for v in message)
+        ):
             raise ValueError("Invalid outgoing MIDI message")
         try:
             self.messages.put_nowait(message)
@@ -63,7 +70,12 @@ class MidiOutputService:
         elif not playing and self._running:
             send([0xFC])
             self._next_tick = None
-        elif playing and self._last_position is not None and abs(expected - self._last_position[0] - (now - self._last_position[1]) * bpm / 60) > 0.5:
+        elif (
+            playing
+            and self._last_position is not None
+            and abs(expected - self._last_position[0] - (now - self._last_position[1]) * bpm / 60)
+            > 0.5
+        ):
             position = max(0, min(16383, round(beat * 4)))
             send([0xF2, position & 127, position >> 7])
             self._next_tick = max(now, presentation)
@@ -85,8 +97,10 @@ class MidiOutputService:
             factory = self.factory
             if factory is None:
                 import rtmidi
+
                 def factory():
                     return rtmidi.MidiOut(name="Anharmonic Studio output")
+
             while not self._stop.is_set():
                 now = self.clock()
                 try:

@@ -3,6 +3,7 @@
 Only the render worker calls process(). UI controls publish immutable routes;
 device callbacks enqueue messages. No performance callback invokes a widget.
 """
+
 from __future__ import annotations
 
 from collections import deque
@@ -63,7 +64,9 @@ class MidiClock:
                     self.intervals.append(interval)
                     if len(self.intervals) >= 4:
                         intervals = sorted(self.intervals)
-                        engine.project.bpm = max(20.0, min(300.0, 60 / (24 * intervals[len(intervals) // 2])))
+                        engine.project.bpm = max(
+                            20.0, min(300.0, 60 / (24 * intervals[len(intervals) // 2]))
+                        )
             self.last = timestamp
             if self.running:
                 self.position += 1 / 24
@@ -94,15 +97,29 @@ class MidiPerformance:
         self.pending = []
         self.endings = []
         self.overflow = False
-        self.router = MidiRouter(self._on, self._off, self._pad_on, self._pad_off,
-                                 lambda: self.route[2], self._control, self._expression)
-        self.router.resolve_note = lambda note, port, channel: ("note", (note, self.route[0], self.route[1], port, channel))
-        self.router.clock = lambda port, message, timestamp: self.clock.receive(engine, port, message, timestamp)
+        self.router = MidiRouter(
+            self._on,
+            self._off,
+            self._pad_on,
+            self._pad_off,
+            lambda: self.route[2],
+            self._control,
+            self._expression,
+        )
+        self.router.resolve_note = lambda note, port, channel: (
+            "note",
+            (note, self.route[0], self.route[1], port, channel),
+        )
+        self.router.clock = lambda port, message, timestamp: self.clock.receive(
+            engine, port, message, timestamp
+        )
         self.router.current_values = self._current_value
 
     def submit(self, port, message, timestamp=None):
         try:
-            self.events.put_nowait((port, tuple(message), time.monotonic() if timestamp is None else timestamp))
+            self.events.put_nowait(
+                (port, tuple(message), time.monotonic() if timestamp is None else timestamp)
+            )
         except queue.Full:
             self.overflow = True
 
@@ -229,7 +246,9 @@ class MidiPerformance:
             return
         kind, channel = status & 0xF0, status & 15
         needed = 2 if kind in (0xC0, 0xD0) else 3
-        if len(message) != needed or any(type(v) is not int or not 0 <= v < 128 for v in message[1:]):
+        if len(message) != needed or any(
+            type(v) is not int or not 0 <= v < 128 for v in message[1:]
+        ):
             return
         settings = self.router.settings.get(port, {})
         if settings.get("channel", -1) not in (-1, channel) or self.router.learn:
@@ -249,14 +268,27 @@ class MidiPerformance:
                 pitch = max(0, min(127, message[1] + settings.get("transpose", 0)))
                 pad, instrument, bank = self.route
                 mode = settings.get("mode", "Keys + drum channel")
-                if mode == "Pads" or (mode == "Keys + drum channel" and channel == 9) or str(message[1]) in settings.get("pads", {}):
-                    local = settings.get("pads", {}).get(str(message[1]), message[1] - settings.get("pad_base", 36))
+                if (
+                    mode == "Pads"
+                    or (mode == "Keys + drum channel" and channel == 9)
+                    or str(message[1]) in settings.get("pads", {})
+                ):
+                    local = settings.get("pads", {}).get(
+                        str(message[1]), message[1] - settings.get("pad_base", 36)
+                    )
                     if not 0 <= local < 16:
                         return
                     pad, instrument = bank * 16 + local, None
                     pitch = e.project.pads[pad].root_note
-                take.held[key] = (self.event_beat, beat, pitch, pad, instrument,
-                                  self.router.velocity(message[2], settings), channel)
+                take.held[key] = (
+                    self.event_beat,
+                    beat,
+                    pitch,
+                    pad,
+                    instrument,
+                    self.router.velocity(message[2], settings),
+                    channel,
+                )
         else:
             take.controls.append(MidiControl(beat, list(message), self.route[1], self.route[0]))
 
@@ -264,8 +296,18 @@ class MidiPerformance:
         held = take.held.pop(key, None)
         if held:
             start, beat, pitch, pad, instrument, velocity, channel = held
-            take.notes.append(Note(pitch, beat, min(4096, max(1 / self.engine.sr, self.event_beat - start)),
-                                   velocity, pad, instrument, channel, release))
+            take.notes.append(
+                Note(
+                    pitch,
+                    beat,
+                    min(4096, max(1 / self.engine.sr, self.event_beat - start)),
+                    velocity,
+                    pad,
+                    instrument,
+                    channel,
+                    release,
+                )
+            )
 
     def _on(self, destination, velocity):
         note, pad, instrument, port, channel = destination
@@ -273,9 +315,18 @@ class MidiPerformance:
         if pad is not None:
             e._spawn(e.project.pads[pad], pad, velocity, self.offset, note=note)
         elif e.external.instrument is not None and instrument is None:
-            e.external.events.append(([0x90 | channel, note, max(1, round(velocity * 127))], self.offset))
+            e.external.events.append(
+                ([0x90 | channel, note, max(1, round(velocity * 127))], self.offset)
+            )
         else:
-            e._spawn_synth(note, velocity, self.offset, instrument_id=instrument, midi_channel=channel, midi_owner=port)
+            e._spawn_synth(
+                note,
+                velocity,
+                self.offset,
+                instrument_id=instrument,
+                midi_channel=channel,
+                midi_owner=port,
+            )
         self.notifications.append(("note", note, True))
 
     def _off(self, destination):
@@ -284,7 +335,9 @@ class MidiPerformance:
         if pad is not None:
             e.sample_note_off(pad, note)
         elif e.external.instrument is not None and instrument is None:
-            e.external.events.append(([0x80 | channel, note, self.router.release_velocity], self.offset))
+            e.external.events.append(
+                ([0x80 | channel, note, self.router.release_velocity], self.offset)
+            )
         else:
             e._release_synth(note, instrument, midi_owner=port, midi_channel=channel)
         self.notifications.append(("note", note, False))
@@ -300,7 +353,14 @@ class MidiPerformance:
     def _expression(self, message):
         self.engine.external.events.append((message, self.offset))
         control = MidiControl(0, list(message), self.route[1], self.route[0])
-        apply_expression([voice for voice in self.engine.synth_voices if voice.midi_owner == self.router.port_id], control)
+        apply_expression(
+            [
+                voice
+                for voice in self.engine.synth_voices
+                if voice.midi_owner == self.router.port_id
+            ],
+            control,
+        )
 
     def _current_value(self, target):
         if target == "master":
@@ -322,5 +382,8 @@ class MidiPerformance:
             if 0 <= index < len(e.project.tracks):
                 e.project.tracks[index].gain = value / 127
         elif target in ("bank_next", "bank_previous"):
-            self.route = (*self.route[:2], (self.route[2] + (1 if target == "bank_next" else -1)) % 4)
+            self.route = (
+                *self.route[:2],
+                (self.route[2] + (1 if target == "bank_next" else -1)) % 4,
+            )
         self.notifications.append(("control", target, value))

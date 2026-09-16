@@ -87,7 +87,13 @@ class AudioSetupDialog(QDialog):
             "Connect an output to an input with a cable. Keep speakers low."
         )
         self.test_button.clicked.connect(self._run_loopback)
-        for box in (self.input_box, self.output_box, self.input_channels, self.output_channels, self.workflow_box):
+        for box in (
+            self.input_box,
+            self.output_box,
+            self.input_channels,
+            self.output_channels,
+            self.workflow_box,
+        ):
             box.currentIndexChanged.connect(self._invalidate_calibration)
         form.addRow("Latency", self.test_button)
         self.calibration_label = QLabel(
@@ -105,7 +111,9 @@ class AudioSetupDialog(QDialog):
 
     def _invalidate_calibration(self, *_args):
         self.calibration = None
-        self.calibration_label.setText("Configuration changed — measure again to calibrate this route.")
+        self.calibration_label.setText(
+            "Configuration changed — measure again to calibrate this route."
+        )
 
     def _channels_changed(self, *_args):
         selected = next((item for item in self.inputs if item.get("key") == self.input_key), {})
@@ -114,15 +122,22 @@ class AudioSetupDialog(QDialog):
         for label, channels in input_channel_choices(count):
             self.input_channels.addItem(label, (channels, False))
         if count > 1:
-            self.input_channels.addItem(f"All {count} inputs → separate Song lanes", (tuple(range(min(64, count))), True))
+            self.input_channels.addItem(
+                f"All {count} inputs → separate Song lanes", (tuple(range(min(64, count))), True)
+            )
         selected = next((item for item in self.outputs if item.get("key") == self.output_key), {})
         count = max(2, min(64, int(selected.get("channels", 2))))
         self.output_channels.clear()
         for channel in range(0, count - 1, 2):
-            self.output_channels.addItem(f"Outputs {channel + 1}–{channel + 2}", (channel, channel + 1))
+            self.output_channels.addItem(
+                f"Outputs {channel + 1}–{channel + 2}", (channel, channel + 1)
+            )
 
     def select_channels(self, inputs=(0,), outputs=(0, 1), split=False, monitor=False):
-        for box, value in ((self.input_channels, (tuple(inputs), split)), (self.output_channels, tuple(outputs))):
+        for box, value in (
+            (self.input_channels, (tuple(inputs), split)),
+            (self.output_channels, tuple(outputs)),
+        ):
             for index in range(box.count()):
                 if box.itemData(index) == value:
                     box.setCurrentIndex(index)

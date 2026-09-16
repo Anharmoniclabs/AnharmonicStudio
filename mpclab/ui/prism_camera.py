@@ -397,7 +397,9 @@ class PrismCameraDialog(WindowClient, QDialog):
             value = values.get(box.currentData(), current.get(box.currentData(), 0))
             self.effect_meters[i].setValue(round(value * 100))
             self.effect_meters[i].setFormat(
-                "LIVE · %p%" if self._gesture and self.mapper.pose == ("open", "fist", "pinch")[i] else "%p%"
+                "LIVE · %p%"
+                if self._gesture and self.mapper.pose == ("open", "fist", "pinch")[i]
+                else "%p%"
             )
         self.preview.active = self._gesture
         self.preview.update()

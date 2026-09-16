@@ -151,10 +151,16 @@ class VocalRecorder:
             return
         try:
             with sf.SoundFile(
-                str(path), mode="w", samplerate=self.sample_rate, channels=self.capture_channels, subtype="PCM_24"
+                str(path),
+                mode="w",
+                samplerate=self.sample_rate,
+                channels=self.capture_channels,
+                subtype="PCM_24",
             ) as output:
                 written = 0
-                silence = np.zeros((max(1, self.blocksize), self.capture_channels), dtype=np.float32)
+                silence = np.zeros(
+                    (max(1, self.blocksize), self.capture_channels), dtype=np.float32
+                )
 
                 def fill_gap(end):
                     nonlocal written
@@ -219,7 +225,11 @@ class VocalRecorder:
         self.first_capture_monotonic = None
         self._expected_adc = None
         selected_channels = tuple(self.input_channels)
-        if not 1 <= len(selected_channels) <= 64 or len(set(selected_channels)) != len(selected_channels) or any(type(c) is not int or not 0 <= c < 64 for c in selected_channels):
+        if (
+            not 1 <= len(selected_channels) <= 64
+            or len(set(selected_channels)) != len(selected_channels)
+            or any(type(c) is not int or not 0 <= c < 64 for c in selected_channels)
+        ):
             raise ValueError("Choose distinct input channels from 1 to 64")
         self.capture_channels = max(2, len(selected_channels))
         self.overruns = 0
@@ -258,10 +268,16 @@ class VocalRecorder:
             rms = float(np.sqrt(np.mean(mono * mono))) if len(mono) else 0.0
             self.input_peak = max(peak, self.input_peak * 0.92)
             self.input_rms = rms
-            right = mono if len(selected_channels) == 1 else indata[:, selected_channels[1]] * self._gain
+            right = (
+                mono
+                if len(selected_channels) == 1
+                else indata[:, selected_channels[1]] * self._gain
+            )
             stereo = np.ascontiguousarray(np.column_stack((mono, right)), dtype=np.float32)
             if len(selected_channels) > 2:
-                stereo = np.ascontiguousarray(indata[:, selected_channels] * self._gain, dtype=np.float32)
+                stereo = np.ascontiguousarray(
+                    indata[:, selected_channels] * self._gain, dtype=np.float32
+                )
             if not self.paused:
                 position = self._captured_frames
                 self._captured_frames += len(stereo)
@@ -282,16 +298,27 @@ class VocalRecorder:
         try:
             from .native_dsp import NATIVE
             from .native_input import NativeInputStream
+
             duplex_engine = None
             if self.engine is not None and getattr(self.engine.stream, "native_callback", False):
                 defaults = sd.default.device
                 incoming = device if device is not None else defaults[0]
-                outgoing = self.engine.output_device if self.engine.output_device is not None else defaults[1]
+                outgoing = (
+                    self.engine.output_device
+                    if self.engine.output_device is not None
+                    else defaults[1]
+                )
                 if incoming == outgoing and incoming is not None and incoming != -1:
                     duplex_engine = self.engine
-            factory = (lambda **options: NativeInputStream(sd, NATIVE, engine=duplex_engine, **options)) if (
-                NATIVE is not None and hasattr(NATIVE.lib, "anh_input_create") and hasattr(sd, "_StreamBase")
-            ) else sd.InputStream
+            factory = (
+                (lambda **options: NativeInputStream(sd, NATIVE, engine=duplex_engine, **options))
+                if (
+                    NATIVE is not None
+                    and hasattr(NATIVE.lib, "anh_input_create")
+                    and hasattr(sd, "_StreamBase")
+                )
+                else sd.InputStream
+            )
             stream = factory(
                 samplerate=self.sample_rate,
                 blocksize=self.blocksize,
@@ -308,7 +335,11 @@ class VocalRecorder:
                 if "stream" in locals():
                     stream.close()
             except Exception:
-                if getattr(stream, "native_callback", False) and stream._worker is not None and stream._worker.is_alive():
+                if (
+                    getattr(stream, "native_callback", False)
+                    and stream._worker is not None
+                    and stream._worker.is_alive()
+                ):
                     self.stream = stream
                     raise
             self._finish_writer()
@@ -331,7 +362,11 @@ class VocalRecorder:
             except Exception:
                 # A hot-unplug often makes PortAudio raise on stop. The audio
                 # already captured in memory is still a valid take.
-                if getattr(stream, "native_callback", False) and stream._worker is not None and stream._worker.is_alive():
+                if (
+                    getattr(stream, "native_callback", False)
+                    and stream._worker is not None
+                    and stream._worker.is_alive()
+                ):
                     self.stream = stream
                     raise
             remaining = max(0, getattr(stream, "total_frames", 0) - self._input_position)
@@ -361,8 +396,11 @@ class VocalRecorder:
             self._remove_temp()
             return np.zeros((0, 2), dtype=np.float32)
         try:
-            audio, sample_rate = (read_channels(path, self.capture_channels, directory=path.parent)
-                                  if self.capture_channels > 2 else read_stereo(path, 16 * 1024 * 1024, path.parent))
+            audio, sample_rate = (
+                read_channels(path, self.capture_channels, directory=path.parent)
+                if self.capture_channels > 2
+                else read_stereo(path, 16 * 1024 * 1024, path.parent)
+            )
             if sample_rate != self.sample_rate:
                 raise RuntimeError(f"captured vocal sample rate changed to {sample_rate}")
             return audio

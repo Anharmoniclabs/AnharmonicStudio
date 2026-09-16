@@ -14,7 +14,11 @@ class MidiControl:
     pad: int | None = None
 
     def __post_init__(self):
-        if not isinstance(self.beat, (int, float)) or not math.isfinite(self.beat) or not 0 <= self.beat <= 1_000_000:
+        if (
+            not isinstance(self.beat, (int, float))
+            or not math.isfinite(self.beat)
+            or not 0 <= self.beat <= 1_000_000
+        ):
             raise ValueError("MIDI control position must be finite and nonnegative")
         if not isinstance(self.message, list) or not self.message:
             raise ValueError("MIDI control message is required")
@@ -22,16 +26,26 @@ class MidiControl:
         if type(status) is not int or status & 0xF0 not in (0xA0, 0xB0, 0xC0, 0xD0, 0xE0):
             raise ValueError("Unsupported MIDI control status")
         count = 2 if status & 0xF0 in (0xC0, 0xD0) else 3
-        if len(self.message) != count or any(type(v) is not int or not 0 <= v < 128 for v in self.message[1:]):
+        if len(self.message) != count or any(
+            type(v) is not int or not 0 <= v < 128 for v in self.message[1:]
+        ):
             raise ValueError("Invalid MIDI control data")
-        if self.instrument is not None and (not isinstance(self.instrument, str) or not 0 < len(self.instrument) <= 128):
+        if self.instrument is not None and (
+            not isinstance(self.instrument, str) or not 0 < len(self.instrument) <= 128
+        ):
             raise ValueError("Invalid MIDI control instrument")
-        if self.pad is not None and (type(self.pad) is not int or not 0 <= self.pad < 64 or self.instrument is not None):
+        if self.pad is not None and (
+            type(self.pad) is not int or not 0 <= self.pad < 64 or self.instrument is not None
+        ):
             raise ValueError("Invalid MIDI control sample slot")
 
 
 def read_midi_controls(data):
-    if not isinstance(data, list) or len(data) > 100000 or any(not isinstance(item, dict) for item in data):
+    if (
+        not isinstance(data, list)
+        or len(data) > 100000
+        or any(not isinstance(item, dict) for item in data)
+    ):
         raise ValueError("MIDI controls must be an array of at most 100000 events")
     return [MidiControl(**item) for item in data]
 

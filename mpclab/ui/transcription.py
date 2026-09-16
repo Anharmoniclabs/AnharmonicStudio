@@ -8,9 +8,22 @@ import threading
 from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QComboBox,
-    QDoubleSpinBox, QSpinBox, QCheckBox, QProgressBar, QTableWidget, QTableWidgetItem,
-    QFileDialog, QScrollArea, QAbstractItemView,
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QComboBox,
+    QDoubleSpinBox,
+    QSpinBox,
+    QCheckBox,
+    QProgressBar,
+    QTableWidget,
+    QTableWidgetItem,
+    QFileDialog,
+    QScrollArea,
+    QAbstractItemView,
 )
 
 from ..transcription import transcribe_file, TranscriptionCancelled
@@ -25,8 +38,9 @@ class TranscriptionJob(QObject):
     failed = Signal(str)
     finished = Signal()
 
-    def __init__(self, source, settings, parent=None, *, song=None, library=None,
-                 convert=transcribe_file):
+    def __init__(
+        self, source, settings, parent=None, *, song=None, library=None, convert=transcribe_file
+    ):
         super().__init__(parent)
         self.source, self.settings = source, settings
         self.song, self.library = song, library
@@ -60,13 +74,26 @@ class TranscriptionJob(QObject):
 
                     source = Path(temporary) / "Song.wav"
                     try:
-                        render_export(self.song, self.library, source, tail=0,
-                                      cancel=self.cancel_event,
-                                      progress=lambda value: self.notify("progress", "Rendering current song", value * .15))
+                        render_export(
+                            self.song,
+                            self.library,
+                            source,
+                            tail=0,
+                            cancel=self.cancel_event,
+                            progress=lambda value: self.notify(
+                                "progress", "Rendering current song", value * 0.15
+                            ),
+                        )
                     except ExportCancelled as exc:
                         raise TranscriptionCancelled() from exc
-                result = self.convert(source, **self.settings, cancel=self.cancel_event,
-                                      progress=lambda message, value: self.notify("progress", message, .15 + .85 * value))
+                result = self.convert(
+                    source,
+                    **self.settings,
+                    cancel=self.cancel_event,
+                    progress=lambda message, value: self.notify(
+                        "progress", message, 0.15 + 0.85 * value
+                    ),
+                )
                 if self.cancel_event.is_set():
                     raise TranscriptionCancelled()
                 if self.song is not None:
@@ -113,9 +140,11 @@ class TranscriptionDialog(QDialog):
         layout.addLayout(sources)
         options = QHBoxLayout()
         self.mode = QComboBox()
-        for label, value in (("Song · vocals, bass, drums, other", "song4"),
-                             ("Song · also separate guitar and piano", "song6"),
-                             ("Single instrument · no separation", "single")):
+        for label, value in (
+            ("Song · vocals, bass, drums, other", "song4"),
+            ("Song · also separate guitar and piano", "song6"),
+            ("Single instrument · no separation", "single"),
+        ):
             self.mode.addItem(label, value)
         self.mode.setAccessibleName("Transcription mode")
         self.auto_tempo = QCheckBox("Detect tempo")
@@ -126,9 +155,9 @@ class TranscriptionDialog(QDialog):
         self.bpm.setSuffix(" BPM")
         self.bpm.setAccessibleName("Score tempo")
         self.threshold = QDoubleSpinBox()
-        self.threshold.setRange(.1, .9)
-        self.threshold.setSingleStep(.05)
-        self.threshold.setValue(.45)
+        self.threshold.setRange(0.1, 0.9)
+        self.threshold.setSingleStep(0.05)
+        self.threshold.setValue(0.45)
         self.threshold.setToolTip("Higher thresholds keep fewer, more confident notes.")
         self.threshold.setAccessibleName("Note confidence threshold")
         for widget in (self.mode, self.auto_tempo, self.bpm, QLabel("Threshold"), self.threshold):
@@ -144,12 +173,16 @@ class TranscriptionDialog(QDialog):
         actions.addWidget(self.cancel)
         actions.addWidget(self.progress, 1)
         layout.addLayout(actions)
-        self.status = QLabel("Choose a source. Scores use a fixed tempo, 4/4 and a sixteenth-note grid.")
+        self.status = QLabel(
+            "Choose a source. Scores use a fixed tempo, 4/4 and a sixteenth-note grid."
+        )
         self.status.setWordWrap(True)
         self.status.setTextFormat(Qt.PlainText)
         layout.addWidget(self.status)
         self.parts = QTableWidget(0, 4)
-        self.parts.setHorizontalHeaderLabels(["Include / instrument name", "Notes", "Pitch range", "Mean confidence"])
+        self.parts.setHorizontalHeaderLabels(
+            ["Include / instrument name", "Notes", "Pitch range", "Mean confidence"]
+        )
         self.parts.horizontalHeader().setStretchLastSection(True)
         self.parts.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.parts.setMaximumHeight(210)
@@ -173,8 +206,10 @@ class TranscriptionDialog(QDialog):
         placement.addWidget(QLabel("Add at bar"))
         placement.addWidget(self.start_bar)
         layout.addLayout(placement)
-        note = QLabel("New score rows start muted. Unmute them in Song to audition synthesized parts. "
-                      "Drum families and mixed-instrument stems may need correction.")
+        note = QLabel(
+            "New score rows start muted. Unmute them in Song to audition synthesized parts. "
+            "Drum families and mixed-instrument stems may need correction."
+        )
         note.setWordWrap(True)
         layout.addWidget(note)
         footer = QHBoxLayout()
@@ -208,14 +243,26 @@ class TranscriptionDialog(QDialog):
             self.bpm.setValue(self.window.project.bpm)
 
     def choose_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Choose audio to transcribe", self.path.text(),
-                                             "Audio (*.wav *.mp3 *.flac *.ogg *.aif *.aiff *.m4a);;All files (*)")
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Choose audio to transcribe",
+            self.path.text(),
+            "Audio (*.wav *.mp3 *.flac *.ogg *.aif *.aiff *.m4a);;All files (*)",
+        )
         if path:
             self.path.setText(path)
 
     def set_busy(self, busy):
-        for widget in (self.convert, self.source_kind, self.mode, self.auto_tempo,
-                       self.bpm, self.threshold, self.path, self.browse):
+        for widget in (
+            self.convert,
+            self.source_kind,
+            self.mode,
+            self.auto_tempo,
+            self.bpm,
+            self.threshold,
+            self.path,
+            self.browse,
+        ):
             widget.setEnabled(not busy)
         self.cancel.setEnabled(busy)
         self.add.setEnabled(not busy and self.result is not None and self.result.note_count > 0)
@@ -242,7 +289,9 @@ class TranscriptionDialog(QDialog):
                 return
             song = Project.from_dict(self.window.project.to_dict())
             if song.song_length_beats * 60 / song.bpm > 900:
-                self.status.setText("Convert songs up to 15 minutes long. Shorten the arrangement first.")
+                self.status.setText(
+                    "Convert songs up to 15 minutes long. Shorten the arrangement first."
+                )
                 return
         self.source_project = self.window.project
         self.result = None
@@ -251,10 +300,18 @@ class TranscriptionDialog(QDialog):
         self.progress.setValue(0)
         self.set_busy(True)
         self.status.setText("Starting local audio transcription…")
-        settings = {"mode": self.mode.currentData(), "threshold": self.threshold.value(),
-                    "bpm": None if self.auto_tempo.isChecked() else self.bpm.value()}
-        self.job = TranscriptionJob(source, settings, self, song=song,
-                                    library=library_snapshot(self.window.library) if song is not None else None)
+        settings = {
+            "mode": self.mode.currentData(),
+            "threshold": self.threshold.value(),
+            "bpm": None if self.auto_tempo.isChecked() else self.bpm.value(),
+        }
+        self.job = TranscriptionJob(
+            source,
+            settings,
+            self,
+            song=song,
+            library=library_snapshot(self.window.library) if song is not None else None,
+        )
         self.job.progress.connect(self.report_progress)
         self.job.succeeded.connect(self.completed)
         self.job.failed.connect(self.status.setText)
@@ -284,24 +341,32 @@ class TranscriptionDialog(QDialog):
             name.setCheckState(Qt.Checked)
             self.parts.setItem(row, 0, name)
             pitches = [note.pitch for note in part.notes]
-            values = [str(len(pitches)), "Percussion" if part.percussion else f"MIDI {min(pitches)}–{max(pitches)}",
-                      f"{sum(note.confidence for note in part.notes) / len(pitches):.0%}"]
+            values = [
+                str(len(pitches)),
+                "Percussion" if part.percussion else f"MIDI {min(pitches)}–{max(pitches)}",
+                f"{sum(note.confidence for note in part.notes) / len(pitches):.0%}",
+            ]
             for column, value in enumerate(values, 1):
                 item = QTableWidgetItem(value)
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                 self.parts.setItem(row, column, item)
         self.parts.blockSignals(False)
-        self.status.setText(f"{result.note_count} notes in {len(result.parts)} parts · {result.bpm:g} BPM. "
-                            "Review the first four bars below; change the tempo or part names as needed."
-                            if result.note_count else "No notes detected. Try a lower threshold or Single instrument mode.")
+        self.status.setText(
+            f"{result.note_count} notes in {len(result.parts)} parts · {result.bpm:g} BPM. "
+            "Review the first four bars below; change the tempo or part names as needed."
+            if result.note_count
+            else "No notes detected. Try a lower threshold or Single instrument mode."
+        )
         self.render_preview()
 
     def selected_parts(self):
         if self.result is None:
             return []
-        return [replace(part, name=self.parts.item(row, 0).text().strip())
-                for row, part in enumerate(self.result.parts)
-                if self.parts.item(row, 0) and self.parts.item(row, 0).checkState() == Qt.Checked]
+        return [
+            replace(part, name=self.parts.item(row, 0).text().strip())
+            for row, part in enumerate(self.result.parts)
+            if self.parts.item(row, 0) and self.parts.item(row, 0).checkState() == Qt.Checked
+        ]
 
     def render_preview(self):
         if self.result is None or self.parts.rowCount() != len(self.result.parts):
@@ -323,7 +388,9 @@ class TranscriptionDialog(QDialog):
         import verovio
 
         toolkit = verovio.toolkit()
-        toolkit.setOptions({"pageWidth": 2100, "pageHeight": 2970, "scale": 40, "adjustPageHeight": True})
+        toolkit.setOptions(
+            {"pageWidth": 2100, "pageHeight": 2970, "scale": 40, "adjustPageHeight": True}
+        )
         if toolkit.loadData(musicxml(Score(self.result.title, bpm, 4, parts))):
             self.preview.load(qt_score_svg(toolkit.renderToSVG(1)))
             self.preview.resize(self.preview.renderer().defaultSize())
@@ -341,12 +408,18 @@ class TranscriptionDialog(QDialog):
         if self.result is None or self.job is not None:
             return
         if self.window.project is not self.source_project:
-            self.status.setText("The project changed during conversion. Convert again for the current project.")
+            self.status.setText(
+                "The project changed during conversion. Convert again for the current project."
+            )
             return
         try:
-            apply_transcription(self.window, self.result, parts=self.selected_parts(),
-                                bpm=self.bpm.value() if self.use_tempo.isChecked() else self.window.project.bpm,
-                                start_beat=(self.start_bar.value() - 1) * 4)
+            apply_transcription(
+                self.window,
+                self.result,
+                parts=self.selected_parts(),
+                bpm=self.bpm.value() if self.use_tempo.isChecked() else self.window.project.bpm,
+                start_beat=(self.start_bar.value() - 1) * 4,
+            )
         except (ValueError, RuntimeError, OSError) as exc:
             self.status.setText(str(exc))
             return

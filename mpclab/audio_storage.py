@@ -76,10 +76,14 @@ def read_channels(path, channels, heap_budget=16 * 1024 * 1024, directory=None):
         if source.channels != channels:
             raise ValueError("Recording channel count changed unexpectedly")
         shape = (source.frames, channels)
-        data = np.empty(shape, np.float32) if source.frames * channels * 4 <= heap_budget else mapped_array(shape, directory)
+        data = (
+            np.empty(shape, np.float32)
+            if source.frames * channels * 4 <= heap_budget
+            else mapped_array(shape, directory)
+        )
         offset = 0
         for block in source.blocks(blocksize=DECODE_BLOCK, dtype="float32", always_2d=True):
-            data[offset:offset + len(block)] = block
+            data[offset : offset + len(block)] = block
             offset += len(block)
         if offset != source.frames:
             raise OSError("Recording ended before its declared length")

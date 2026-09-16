@@ -55,7 +55,9 @@ def test_midi_records_song_notes_and_unplug_finishes_them(window):
     controller._tick()
     window.stop_all()
     pattern = next(p for p in window.project.patterns if p.id == row.clips[0].ref)
-    assert [(n.pitch, n.start, n.duration) for n in pattern.notes] == [(60, pytest.approx(0.125, abs=0.002), pytest.approx(0.5, abs=0.002))]
+    assert [(n.pitch, n.start, n.duration) for n in pattern.notes] == [
+        (60, pytest.approx(0.125, abs=0.002), pytest.approx(0.5, abs=0.002))
+    ]
     assert pattern.notes[0].velocity == pytest.approx(80 / 127)
 
 

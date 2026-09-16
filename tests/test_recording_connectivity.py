@@ -1,4 +1,5 @@
 """Recording and MIDI acceptance checks without touching desktop devices."""
+
 import ctypes as ct
 from types import SimpleNamespace
 
@@ -21,8 +22,10 @@ def engine(frames=128):
 @pytest.mark.skipif(NATIVE is None, reason="Build native DSP")
 def test_capture_callback_splits_blocks_and_retains_stereo_and_adc_position():
     q = InputQueue(NATIVE.lib, 16, 2, slots=4)
+
     class HostTime(ct.Structure):
         _fields_ = [("adc", ct.c_double), ("current", ct.c_double), ("dac", ct.c_double)]
+
     source = np.arange(70, dtype=np.float32).reshape(35, 2)
     stamp = HostTime(10, 11, 12)
     try:
@@ -32,7 +35,7 @@ def test_capture_callback_splits_blocks_and_retains_stereo_and_adc_position():
             assert q.read()
             assert q.info.position == position
             assert q.info.adc == pytest.approx(10 + position / 48000)
-            blocks.append(q.audio[:q.info.frames].copy())
+            blocks.append(q.audio[: q.info.frames].copy())
         np.testing.assert_array_equal(np.concatenate(blocks), source)
         assert not q.read()
     finally:
@@ -111,8 +114,14 @@ def test_midi_controls_round_trip_with_channel_and_instrument():
 
 def test_sostenuto_holds_only_notes_down_when_pressed_and_soft_pedal_changes_velocity():
     calls = []
-    r = MidiRouter(lambda *a: calls.append(("on", *a)), lambda *a: calls.append(("off", *a)),
-                   lambda *a: None, lambda *a: None, lambda: 0, lambda *a: None)
+    r = MidiRouter(
+        lambda *a: calls.append(("on", *a)),
+        lambda *a: calls.append(("off", *a)),
+        lambda *a: None,
+        lambda *a: None,
+        lambda: 0,
+        lambda *a: None,
+    )
     r.handle("keys", [0x90, 60, 127])
     r.handle("keys", [0xB0, 66, 127])
     r.handle("keys", [0xB0, 67, 127])

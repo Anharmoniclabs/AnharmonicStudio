@@ -8,9 +8,20 @@ from PySide6.QtGui import QPainter, QPdfWriter, QPageSize
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton,
-    QScrollArea, QSpinBox, QDoubleSpinBox, QFileDialog, QMessageBox,
-    QTableWidget, QTableWidgetItem, QAbstractItemView,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QComboBox,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QMessageBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QAbstractItemView,
 )
 
 from ..music import Note
@@ -36,8 +47,9 @@ def qt_score_svg(svg):
 
         def flatten(node, inherited, result):
             attrs = dict(inherited)
-            attrs.update({key: value for key, value in node.attrib.items()
-                          if key not in ("id", "class")})
+            attrs.update(
+                {key: value for key, value in node.attrib.items() if key not in ("id", "class")}
+            )
             if node.text and node.text.strip():
                 content = node.text
                 if "\ue1d5" in content:
@@ -82,11 +94,20 @@ class ScoringPanel(QWidget):
         self.parts.setAccessibleName("Instrument part")
         refresh = QPushButton("Refresh score")
         self.convert_button = QPushButton("Audio → score…")
-        self.convert_button.setToolTip("Convert a song, library sample or instrument recording to editable notation")
+        self.convert_button.setToolTip(
+            "Convert a song, library sample or instrument recording to editable notation"
+        )
         self.convert_button.clicked.connect(self.convert_audio)
         self.xml_button = QPushButton("MusicXML…")
         self.pdf_button = QPushButton("PDF…")
-        for widget in (self.scope, self.parts, refresh, self.convert_button, self.xml_button, self.pdf_button):
+        for widget in (
+            self.scope,
+            self.parts,
+            refresh,
+            self.convert_button,
+            self.xml_button,
+            self.pdf_button,
+        ):
             row.addWidget(widget)
         row.addStretch()
         layout.addWidget(scrolling_bar(toolbar))
@@ -117,9 +138,13 @@ class ScoringPanel(QWidget):
         self.editor = QWidget()
         edit_layout = QVBoxLayout(self.editor)
         edit_layout.setContentsMargins(0, 0, 0, 0)
-        edit_layout.addWidget(QLabel("Compose in the current pattern · select a note to edit its placement"))
+        edit_layout.addWidget(
+            QLabel("Compose in the current pattern · select a note to edit its placement")
+        )
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Instrument", "Pitch", "Bar : beat", "Length (beats)"])
+        self.table.setHorizontalHeaderLabels(
+            ["Instrument", "Pitch", "Bar : beat", "Length (beats)"]
+        )
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -139,13 +164,18 @@ class ScoringPanel(QWidget):
         self.bar.setRange(1, 2048)
         self.beat = QDoubleSpinBox()
         self.beat.setRange(1, 4.75)
-        self.beat.setSingleStep(.25)
+        self.beat.setSingleStep(0.25)
         self.duration = QDoubleSpinBox()
-        self.duration.setRange(.25, 4096)
-        self.duration.setSingleStep(.25)
+        self.duration.setRange(0.25, 4096)
+        self.duration.setSingleStep(0.25)
         self.duration.setValue(1)
-        for label, widget in (("Instrument", self.target), ("Pitch", self.pitch),
-                              ("Bar", self.bar), ("Beat", self.beat), ("Length", self.duration)):
+        for label, widget in (
+            ("Instrument", self.target),
+            ("Pitch", self.pitch),
+            ("Bar", self.bar),
+            ("Beat", self.beat),
+            ("Length", self.duration),
+        ):
             edit.addWidget(QLabel(label))
             widget.setAccessibleName(label)
             edit.addWidget(widget)
@@ -185,7 +215,9 @@ class ScoringPanel(QWidget):
         try:
             self.score = collect_score(self.app.project, self.scope.currentIndex() == 1)
             for part in self.score.parts:
-                self.parts.addItem(part.name + (" · percussion" if part.percussion else ""), part.key)
+                self.parts.addItem(
+                    part.name + (" · percussion" if part.percussion else ""), part.key
+                )
             self.parts.setCurrentIndex(max(0, self.parts.findData(selected)))
         except ValueError as exc:
             self.score = None
@@ -216,8 +248,11 @@ class ScoringPanel(QWidget):
             self.message.setText(
                 "4/4 · concert pitch · sharps · notation rounded to 1/16; playback stays unchanged. "
                 "Song includes all placed parts, including muted clips."
-                + (f" {self.score.audio_clips} audio clip(s): use Audio → score to detect their notes."
-                   if self.score.audio_clips else "")
+                + (
+                    f" {self.score.audio_clips} audio clip(s): use Audio → score to detect their notes."
+                    if self.score.audio_clips
+                    else ""
+                )
             )
             try:
                 self.xml = musicxml(self.score, self.parts.currentData())
@@ -225,8 +260,15 @@ class ScoringPanel(QWidget):
                 import verovio
 
                 self.toolkit = verovio.toolkit()
-                self.toolkit.setOptions({"pageWidth": 2100, "pageHeight": 2970, "scale": 40,
-                                         "adjustPageHeight": False, "breaks": "auto"})
+                self.toolkit.setOptions(
+                    {
+                        "pageWidth": 2100,
+                        "pageHeight": 2970,
+                        "scale": 40,
+                        "adjustPageHeight": False,
+                        "breaks": "auto",
+                    }
+                )
                 if not self.toolkit.loadData(self.xml):
                     raise ValueError("The notation engine could not read this score.")
                 self.page_count = self.toolkit.getPageCount()
@@ -239,7 +281,9 @@ class ScoringPanel(QWidget):
         self.page = max(1, min(page, self.page_count))
         self.previous.setEnabled(self.page > 1)
         self.next.setEnabled(self.page < self.page_count)
-        self.page_label.setText(f"Page {self.page} of {self.page_count}" if self.page_count else "No score pages")
+        self.page_label.setText(
+            f"Page {self.page} of {self.page_count}" if self.page_count else "No score pages"
+        )
         if not self.toolkit or not self.page_count:
             return
         svg = self.toolkit.renderToSVG(self.page)
@@ -266,15 +310,23 @@ class ScoringPanel(QWidget):
         key = self.parts.currentData()
         if self.target.findData(key) >= 0:
             self.target.setCurrentIndex(self.target.findData(key))
-        self.note_rows = [n for n in self.app.project.pattern().notes if key is None or note_key(n) == key]
+        self.note_rows = [
+            n for n in self.app.project.pattern().notes if key is None or note_key(n) == key
+        ]
         names = {p.key: p.name for p in self.score.parts} if self.score else {}
         self.table.setRowCount(0)
         for note in self.note_rows:
             row = self.table.rowCount()
             self.table.insertRow(row)
-            pitch = ("C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B")[note.pitch % 12]
-            values = (names.get(note_key(note), note_key(note)), f"{pitch}{note.pitch // 12 - 1}",
-                      f"{int(note.start // 4) + 1} : {note.start % 4 + 1:g}", f"{note.duration:g}")
+            pitch = ("C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B")[
+                note.pitch % 12
+            ]
+            values = (
+                names.get(note_key(note), note_key(note)),
+                f"{pitch}{note.pitch // 12 - 1}",
+                f"{int(note.start // 4) + 1} : {note.start % 4 + 1:g}",
+                f"{note.duration:g}",
+            )
             for col, value in enumerate(values):
                 self.table.setItem(row, col, QTableWidgetItem(value))
         self.select_note()
@@ -302,15 +354,21 @@ class ScoringPanel(QWidget):
             return
         start = (self.bar.value() - 1) * 4 + self.beat.value() - 1
         if start + self.duration.value() > pattern.length_beats:
-            QMessageBox.information(self, "Note exceeds pattern", "Shorten the note or extend the pattern in Notes.")
+            QMessageBox.information(
+                self, "Note exceeds pattern", "Shorten the note or extend the pattern in Notes."
+            )
             return
         key = self.target.currentData()
-        note = Note(pitch=self.pitch.value(), start=start, duration=self.duration.value(),
-                    pad=int(key.split(":", 1)[1]) if key.startswith("pad:") else None,
-                    instrument=key.split(":", 1)[1] if key.startswith("instrument:") else None,
-                    velocity=old.velocity if old else .8,
-                    channel=old.channel if old else 0,
-                    release_velocity=old.release_velocity if old else 0)
+        note = Note(
+            pitch=self.pitch.value(),
+            start=start,
+            duration=self.duration.value(),
+            pad=int(key.split(":", 1)[1]) if key.startswith("pad:") else None,
+            instrument=key.split(":", 1)[1] if key.startswith("instrument:") else None,
+            velocity=old.velocity if old else 0.8,
+            channel=old.channel if old else 0,
+            release_velocity=old.release_velocity if old else 0,
+        )
         self.app.snapshot()
         if old is not None:
             index = next(i for i, n in enumerate(pattern.notes) if n is old)
@@ -335,8 +393,12 @@ class ScoringPanel(QWidget):
     def export_xml(self):
         if not self.xml:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Export MusicXML", safe_filename(self.score.title) + ".musicxml",
-                                             "MusicXML (*.musicxml)")
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export MusicXML",
+            safe_filename(self.score.title) + ".musicxml",
+            "MusicXML (*.musicxml)",
+        )
         if path:
             try:
                 Path(path).write_text(self.xml, encoding="utf-8")
@@ -358,15 +420,18 @@ class ScoringPanel(QWidget):
                 renderer = QSvgRenderer(qt_score_svg(self.toolkit.renderToSVG(page)))
                 size = renderer.defaultSize()
                 factor = min(writer.width() / size.width(), writer.height() / size.height())
-                renderer.render(painter, QRectF(0, 0, size.width() * factor, size.height() * factor))
+                renderer.render(
+                    painter, QRectF(0, 0, size.width() * factor, size.height() * factor)
+                )
         finally:
             painter.end()
 
     def export_pdf(self):
         if not self.page_count:
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Export score PDF", safe_filename(self.score.title) + ".pdf",
-                                             "PDF (*.pdf)")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export score PDF", safe_filename(self.score.title) + ".pdf", "PDF (*.pdf)"
+        )
         if path:
             try:
                 self.write_pdf(path)

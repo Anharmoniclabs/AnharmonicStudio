@@ -12,8 +12,13 @@ from mpclab.model import Project, Clip
 from mpclab.music import Note
 from mpclab.scoring import collect_score, musicxml
 from mpclab.transcription import (
-    DetectedNote, DetectedPart, Transcription, TranscriptionCancelled,
-    transcribe_file, decode_activations, FRAME_SECONDS,
+    DetectedNote,
+    DetectedPart,
+    Transcription,
+    TranscriptionCancelled,
+    transcribe_file,
+    decode_activations,
+    FRAME_SECONDS,
 )
 from mpclab.transcription_project import transcribed_project
 from mpclab.ui.transcription import TranscriptionJob, TranscriptionDialog
@@ -25,13 +30,19 @@ def musical_audio(tmp_path):
     rate = 22050
     audio = np.zeros(rate * 6, dtype=np.float32)
     for start, pitches in ((1, [60, 64, 67]), (3, [62]), (4, [69])):
-        times = np.arange(int(rate * .75)) / rate
-        envelope = np.minimum(1, times / .02) * np.minimum(1, (.75 - times) / .08)
+        times = np.arange(int(rate * 0.75)) / rate
+        envelope = np.minimum(1, times / 0.02) * np.minimum(1, (0.75 - times) / 0.08)
         for pitch in pitches:
             frequency = 440 * 2 ** ((pitch - 69) / 12)
-            wave = sum(np.sin(2 * np.pi * frequency * harmonic * times) / harmonic ** 1.5
-                       for harmonic in range(1, 5)) * .12 * envelope
-            audio[start * rate:start * rate + len(wave)] += wave
+            wave = (
+                sum(
+                    np.sin(2 * np.pi * frequency * harmonic * times) / harmonic**1.5
+                    for harmonic in range(1, 5)
+                )
+                * 0.12
+                * envelope
+            )
+            audio[start * rate : start * rate + len(wave)] += wave
     path = tmp_path / "chord-and-melody.wav"
     sf.write(path, audio, rate)
     return path
@@ -43,8 +54,8 @@ def test_real_model_recovers_chord_melody_and_silence(musical_audio, tmp_path):
     notes = result.parts[0].notes
     assert [note.pitch for note in notes] == [60, 64, 67, 62, 69]
     for note, onset in zip(notes, [1, 1, 1, 3, 4], strict=True):
-        assert abs(note.start - onset) < .08
-        assert abs(note.end - (onset + .75)) < .08
+        assert abs(note.start - onset) < 0.08
+        assert abs(note.end - (onset + 0.75)) < 0.08
     silence = tmp_path / "silence.wav"
     sf.write(silence, np.zeros(22050), 22050)
     assert transcribe_file(silence, mode="single").note_count == 0
@@ -53,13 +64,14 @@ def test_real_model_recovers_chord_melody_and_silence(musical_audio, tmp_path):
 def test_decoder_keeps_chords_repeated_notes_and_long_sustains():
     frames = np.zeros((400, 88), np.float32)
     onsets = np.zeros_like(frames)
-    frames[20:300, 39] = .9
-    frames[20:90, 43] = .8
-    onsets[20, 39] = .9
-    onsets[160, 39] = .9
+    frames[20:300, 39] = 0.9
+    frames[20:90, 43] = 0.8
+    onsets[20, 39] = 0.9
+    onsets[160, 39] = 0.9
     notes = decode_activations(frames, onsets, 400 * FRAME_SECONDS)
-    assert [(n.pitch, round(n.start / FRAME_SECONDS), round(n.end / FRAME_SECONDS))
-            for n in notes] == [(60, 20, 160), (64, 20, 90), (60, 160, 300)]
+    assert [
+        (n.pitch, round(n.start / FRAME_SECONDS), round(n.end / FRAME_SECONDS)) for n in notes
+    ] == [(60, 20, 160), (64, 20, 90), (60, 160, 300)]
 
 
 def test_cancel_and_invalid_audio_never_return_a_score(musical_audio, tmp_path):
@@ -76,9 +88,16 @@ def test_cancel_and_invalid_audio_never_return_a_score(musical_audio, tmp_path):
 
 
 def example_result(duration=6):
-    return Transcription("Example", duration, 120, [
-        DetectedPart("Piano", [DetectedNote(60, 1, 1.75, .9), DetectedNote(64, 1, 1.75, .8)]),
-        DetectedPart("Kick", [DetectedNote(36, 1, 1.1, .8)], True)], "song4")
+    return Transcription(
+        "Example",
+        duration,
+        120,
+        [
+            DetectedPart("Piano", [DetectedNote(60, 1, 1.75, 0.9), DetectedNote(64, 1, 1.75, 0.8)]),
+            DetectedPart("Kick", [DetectedNote(36, 1, 1.1, 0.8)], True),
+        ],
+        "song4",
+    )
 
 
 def test_import_is_additive_preserves_timing_and_round_trips(tmp_path):
@@ -107,15 +126,27 @@ def test_import_is_additive_preserves_timing_and_round_trips(tmp_path):
 
 
 def test_long_import_splits_at_persistable_pattern_boundaries():
-    result = Transcription("Long recording", 300, 120,
-                           [DetectedPart("Piano", [DetectedNote(60, 127.75, 128.25, .9),
-                                                    DetectedNote(62, 299, 299.9, .8)])], "single")
+    result = Transcription(
+        "Long recording",
+        300,
+        120,
+        [
+            DetectedPart(
+                "Piano", [DetectedNote(60, 127.75, 128.25, 0.9), DetectedNote(62, 299, 299.9, 0.8)]
+            )
+        ],
+        "single",
+    )
     project = transcribed_project(Project(), result)
     assert [p.bars for p in project.patterns[1:]] == [64, 64, 22]
-    assert [(c.start_beat, c.length_beats) for c in project.rows[-1].clips] == [(0, 256), (256, 256), (512, 88)]
-    assert project.patterns[1].notes[0].duration == .5
+    assert [(c.start_beat, c.length_beats) for c in project.rows[-1].clips] == [
+        (0, 256),
+        (256, 256),
+        (512, 88),
+    ]
+    assert project.patterns[1].notes[0].duration == 0.5
     assert project.patterns[2].notes[0].start == 0
-    assert project.patterns[2].notes[0].duration == .5
+    assert project.patterns[2].notes[0].duration == 0.5
     Project.from_dict(project.to_dict())
 
 
@@ -125,7 +156,7 @@ def test_empty_and_invalid_results_do_not_change_project():
     with pytest.raises(ValueError, match="No detected"):
         transcribed_project(project, Transcription("Empty", 1, 120, [], "single"))
     result = example_result()
-    result.parts[0].notes.append(DetectedNote(60, 0, float("nan"), .5))
+    result.parts[0].notes.append(DetectedNote(60, 0, float("nan"), 0.5))
     with pytest.raises(ValueError, match="invalid"):
         transcribed_project(project, result)
     assert project.to_dict() == before
@@ -135,7 +166,7 @@ def pump_until(condition, timeout=10):
     deadline = time.monotonic() + timeout
     while not condition() and time.monotonic() < deadline:
         QApplication.processEvents()
-        time.sleep(.01)
+        time.sleep(0.01)
     QApplication.processEvents()
     assert condition(), "Background operation did not complete"
 
