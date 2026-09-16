@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Anharmonic Studios
+GenericName=Music Production Workstation
+Comment=Create music with the sampler, synthesizer, sequencer and arranger
+Exec=/home/al/Projects/mpc-lab/run.sh %f
+TryExec=/home/al/Projects/mpc-lab/run.sh
+Path=/home/al/Projects/mpc-lab
+Icon=anharmonic-studios
+Terminal=false
+Categories=AudioVideo;Audio;Midi;Sequencer;
+Keywords=Anharmonic;Studio;DAW;music;sampler;synthesizer;beats;
+StartupNotify=false
