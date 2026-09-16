@@ -96,6 +96,8 @@ def main():
             f"{root / 'mpclab/prism_arps.json'}:mpclab",
             "--add-data",
             f"{root / 'mpclab/prism_parameters.json'}:mpclab",
+            "--add-data",
+            f"{root / 'mpclab/prism_performances.json'}:mpclab",
             "--collect-all",
             "pedalboard",
             "--collect-all",

@@ -14,6 +14,11 @@
 
 # Local development notes, agent state, evidence, and reviews
 /docs/
+!/docs/
+!/docs/audit/
+!/docs/audit/*.md
+!/docs/architecture/
+!/docs/architecture/*.md
 /automation/
 /.agents/
 /.claude/

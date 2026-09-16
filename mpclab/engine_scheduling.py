@@ -12,7 +12,7 @@ import numpy as np
 
 from .model import NPADS
 from .music import Note
-from .event_source import EventSource, ScheduledNote
+from .event_source import EventSource
 from .instrument_state import event_destination
 from .midi_playback import ScheduledNote, sustained_duration
 
@@ -84,7 +84,7 @@ def pattern_events(
         last = max(first, int((min(b1, limit) - origin) // length))
         for cycle in range(first, last + 1):
             base = origin + cycle * length
-            for note_index, note in enumerate(pat.notes):
+            for note in pat.notes:
                 beat = base + note.start
                 if note.start < length and b0 - 1e-10 <= beat < min(b1, limit) - 1e-10:
                     gate = min(sustained_duration(pat, note), length - note.start, limit - beat)

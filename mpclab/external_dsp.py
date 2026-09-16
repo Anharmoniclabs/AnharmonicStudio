@@ -32,9 +32,10 @@ class ExternalDSP:
 
     def note_on(self, note, velocity, offset=0, gate=None, live=True, channel=None):
         channel = (0 if live else 1) if channel is None else channel
-        self.events.append(
-            ([0x90 | channel, note, max(1, min(127, round(velocity * 127)))], offset)
-        )
+        onset = [0x90 | channel, note, max(1, min(127, round(velocity * 127)))]
+        voice = ExternalNote(self, note, channel, onset=onset)
+        self.voices.append(voice)
+        self.events.append((onset, offset))
         if gate is not None:
             ending = (offset + gate, channel, note)
             self.ends.append(ending)
