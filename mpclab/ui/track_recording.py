@@ -242,6 +242,8 @@ class TrackCapture(WindowClient, QObject):
                     channel=channel,
                 )
             )
+            if isinstance(self.session, (MidiCaptureSession, SamplerCaptureSession)):
+                self.session.add(self.notes[-1])
 
     def finish(self):
         if self.pending:
