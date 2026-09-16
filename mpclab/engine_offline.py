@@ -287,6 +287,7 @@ def iter_offline_blocks(
                         max(1, int(gate * spb * engine.sr)),
                         instrument_id,
                         getattr(event, "channel", 0),
+                        _sequence_id,
                     )
                 )
         synth_events.sort(key=lambda event: event[0])
@@ -413,7 +414,7 @@ def iter_offline_blocks(
                     del active[index]
 
             while next_synth < len(synth_events) and synth_events[next_synth][0] < stop:
-                at, pitch, velocity, gate, instrument_id, channel = synth_events[next_synth]
+                at, pitch, velocity, gate, instrument_id, channel, sequence_id = synth_events[next_synth]
                 if instrument_id is not None or plugins is None or plugins.instrument is None:
                     engine._spawn_synth(
                         pitch,
@@ -424,6 +425,7 @@ def iter_offline_blocks(
                         live_trigger=False,
                         instrument_id=instrument_id,
                         midi_channel=channel,
+                        sequence_id=sequence_id,
                     )
                 next_synth += 1
             block_controls = []

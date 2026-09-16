@@ -542,6 +542,7 @@ class SynthVoice:
     patch_ref: SynthPatch | None = None
     midi_channel: int = 0
     midi_owner: str | None = None
+    sequence_id: str | None = None
     pitch_bend: float = 0.0
     expression_gain: float = 1.0
     modulation: float = 0.0

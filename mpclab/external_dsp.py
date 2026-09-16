@@ -28,6 +28,8 @@ class ExternalNote:
     channel: int
     event_source: object = None
     trigger_id: object = None
+    sequence_id: str | None = None
+    live_trigger: bool = True
     dead: bool = False
     onset: object = None
 
@@ -55,6 +57,7 @@ class ExternalDSP:
         channel=None,
         event_source=None,
         trigger_id=None,
+        sequence_id=None,
     ):
         channel = (0 if live else 1) if channel is None else channel
         onset = [0x90 | channel, note, max(1, min(127, round(velocity * 127)))]
@@ -64,6 +67,8 @@ class ExternalDSP:
             channel,
             event_source=event_source,
             trigger_id=trigger_id,
+            sequence_id=sequence_id,
+            live_trigger=live,
             onset=onset,
         )
         self.voices.append(voice)
@@ -109,6 +114,18 @@ class ExternalDSP:
             self.events.append(([0x80, note, 0], 0))
         for voice in owned:
             self.release_voice(voice)
+
+    def release_sequence(self, sequence_id, offset=0):
+        """Release only voices owned by one scheduled pattern placement."""
+        for voice in self.voices:
+            if not voice.dead and not voice.live_trigger and voice.sequence_id == sequence_id:
+                self.release_voice(voice, offset)
+
+    def release_sequenced(self, offset=0):
+        """Release all scheduled voices while leaving live performance notes held."""
+        for voice in self.voices:
+            if not voice.dead and not voice.live_trigger:
+                self.release_voice(voice, offset)
 
     def panic(self):
         self.events = [([0xB0 | channel, 123, 0], 0) for channel in range(16)]

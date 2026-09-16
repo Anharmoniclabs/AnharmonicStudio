@@ -780,6 +780,7 @@ class Engine:
         instrument_id: str | None = None,
         midi_channel: int = 0,
         midi_owner: str | None = None,
+        sequence_id: str | None = None,
         event_source=None,
         trigger_id=None,
     ) -> None:
@@ -799,6 +800,7 @@ class Engine:
                 gate_frames,
                 live_trigger,
                 channel=channel,
+                sequence_id=sequence_id,
                 event_source=event_source,
                 trigger_id=trigger_id,
             )
@@ -813,6 +815,7 @@ class Engine:
                 and voice.live_trigger == live_trigger
                 and voice.midi_channel == midi_channel
                 and voice.midi_owner == midi_owner
+                and voice.sequence_id == sequence_id
                 and not voice.dead
             ):
                 voice.note_off(0.008)
@@ -852,6 +855,7 @@ class Engine:
                 instrument_id=instrument_id,
                 midi_channel=midi_channel,
                 midi_owner=midi_owner,
+                sequence_id=sequence_id,
                 patch_ref=patch if instrument_id is not None else None,
                 event_source=event_source,
                 trigger_id=trigger_id,
@@ -1088,8 +1092,11 @@ class Engine:
             except queue.Empty:
                 break
             kind = cmd[0]
-            if kind in ("panic", "synthpanic", "stopt", "seek"):
+            if kind in ("panic", "synthpanic"):
                 self.external.panic()
+                self.midi_playback_state.clear()
+            elif kind in ("stopt", "seek"):
+                self.external.release_sequenced()
                 self.midi_playback_state.clear()
             if kind == "midiexpression":
                 if self.external.instrument is not None:

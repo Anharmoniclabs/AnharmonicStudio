@@ -94,6 +94,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
                     live_trigger=False,
                     instrument_id=instrument_id,
                     midi_channel=getattr(event, "channel", 0),
+                    sequence_id=sequence_id,
                     event_source=source,
                 )
             elif pad_idx >= NPADS:
