@@ -134,7 +134,11 @@ class TrackCapture(WindowClient, QObject):
             if row.record_source == "sampler"
             else MidiCaptureSession
         )
-        self.session = session_type(self.target)
+        self.session = (
+            session_type(self.recorder, self.target)
+            if session_type is AudioCaptureSession
+            else session_type(self.target)
+        )
         self.session.arm(self.target)
         self.project = self.app.project
         self.settings = replace(self.project.vocal_record)
