@@ -115,25 +115,26 @@ class PinchMapper:
         return dict(self._values)
 
 
-# Whole-hand pose, destination, display name, description, color.
-HAND_EFFECTS = (
-    ("Open palm", "12", "Filter", "Open hand · dark to bright", "#78e5c5"),
-    ("Closed fist", "26", "Echo", "Fist · dry to repeating", "#a99aff"),
-    ("Pinch", "57", "Texture", "Thumb and index · clean to character", "#ffbc7b"),
+# Finger, destination, display name, description, color.
+FINGER_EFFECTS = (
+    ("Index", "12", "Filter", "Dark to bright", "#78e5c5"),
+    ("Middle", "26", "Echo", "Repeating trails", "#a99aff"),
+    ("Ring", "29", "Reverb", "Room to atmosphere", "#79c9ff"),
+    ("Pinky", "57", "Texture", "Clean to character", "#ffbc7b"),
 )
-HAND_MAPPING = tuple(effect[1] for effect in HAND_EFFECTS)
+FINGER_MAPPING = tuple(effect[1] for effect in FINGER_EFFECTS)
 
 
-class HandFXMapper:
-    """Use stable whole-hand poses to select effects; hand movement adjusts amount.
+class FingerFXMapper:
+    """One thumb/finger pinch selects one effect; movement adjusts its amount.
 
-    No individual finger is selected. Open palm, closed fist, and thumb/index
-    pinch are the three deliberate poses. Relative pickup preserves the sound.
+    Relative pickup preserves the playing sound. Release leaves the chosen
+    value in place and returns control to any playing automation.
     """
 
-    def __init__(self, mapping=HAND_MAPPING, sensitivity=1.5, smoothing=0.12):
-        if len(mapping) != 3 or len(set(mapping)) != 3 or any(k not in CONTROLS for k in mapping):
-            raise ValueError("Give each hand pose a different effect")
+    def __init__(self, mapping=FINGER_MAPPING, sensitivity=1.5, smoothing=0.12):
+        if len(mapping) != 4 or len(set(mapping)) != 4 or any(k not in CONTROLS for k in mapping):
+            raise ValueError("Give each finger a different effect")
         self.mapping = tuple(mapping)
         self.sensitivity = sensitivity
         self.smoothing = smoothing
@@ -141,40 +142,13 @@ class HandFXMapper:
 
     def release(self):
         self.active = False
-        self.pose = None
+        self.finger = None
         self._candidate = None
         self._since = None
         self._last = None
         self._value = 0.0
         self._base = 0.0
-        self._anchor = (0.0, 0.0)
-
-    @staticmethod
-    def _features(points):
-        palm = math.dist(points[5][:2], points[17][:2])
-        if palm < 0.025:
-            return None
-        wrist = points[0][:2]
-        tips = (8, 12, 16, 20)
-        openness = sum(math.dist(wrist, points[index][:2]) for index in tips) / (4 * palm)
-        pinch = math.dist(points[4][:2], points[8][:2]) / palm
-        center_x = sum(point[0] for point in points) / len(points)
-        center_y = sum(point[1] for point in points) / len(points)
-        return openness, pinch, clamp(center_x), clamp(1 - center_y)
-
-    @classmethod
-    def _pose(cls, points):
-        features = cls._features(points)
-        if features is None:
-            return None
-        openness, pinch, _, _ = features
-        if pinch <= 0.3:
-            return "pinch"
-        if openness <= 1.0:
-            return "fist"
-        if openness >= 1.4:
-            return "open"
-        return None
+        self._anchor = 0.0
 
     def update(self, frame, current):
         if frame.signals() is None:
@@ -183,34 +157,35 @@ class HandFXMapper:
         if self._last is not None and not 0 < frame.timestamp - self._last <= 0.3:
             self.release()
             return {}
-        features = self._features(frame.points)
-        pose = self._pose(frame.points)
-        if features is None or pose is None:
-            self.release()
-            return {}
-        _, _, x, y = features
+        points = frame.points
+        palm = math.dist(points[5][:2], points[17][:2])
+        gaps = [math.dist(points[4][:2], points[i][:2]) / palm for i in (8, 12, 16, 20)]
         dt = 1 / 30 if self._last is None else frame.timestamp - self._last
         self._last = frame.timestamp
         if self.active:
-            if pose != self.pose:
+            finger = self.finger
+            if gaps[finger] > 0.45:
                 self.release()
                 return {}
         else:
-            if self._candidate != pose:
-                self._candidate = pose
+            finger = min(range(4), key=gaps.__getitem__)
+            if gaps[finger] > 0.28:
+                self._candidate = None
+                return {}
+            if self._candidate != finger:
+                self._candidate = finger
                 self._since = frame.timestamp
             if frame.timestamp - self._since < 0.07:
                 return {}
             self.active = True
-            self.pose = pose
-            index = ("open", "fist", "pinch").index(pose)
-            self._base = self._value = clamp(float(current.get(self.mapping[index], 0)))
-            self._anchor = (x, y)
-        index = ("open", "fist", "pinch").index(self.pose)
-        movement = (x - self._anchor[0]) if self.pose != "fist" else (y - self._anchor[1])
-        wanted = clamp(self._base + movement * self.sensitivity)
+            self.finger = finger
+            self._base = self._value = clamp(float(current.get(self.mapping[finger], 0)))
+            self._anchor = points[4][0] - points[4][1]
+        # Right or up adds more; left or down adds less.
+        position = points[4][0] - points[4][1]
+        wanted = clamp(self._base + (position - self._anchor) * self.sensitivity)
         self._value += (1 - math.exp(-dt / self.smoothing)) * (wanted - self._value)
-        return {self.mapping[index]: self._value}
+        return {self.mapping[finger]: self._value}
 
 
 class GestureTake:
