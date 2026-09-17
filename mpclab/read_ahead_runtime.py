@@ -45,10 +45,10 @@ def install_read_ahead_runtime() -> None:
             options["read_ahead_frames"], options["request_capacity"]
         )
         library.read_ahead = manager
-        if options["enabled"]:
-            manager.start()
         for clip_id, audio in library._audio.items():
             manager.register(clip_id, audio)
+        if options["enabled"]:
+            manager.start()
         return manager
 
     def library_init(library, *args, **kwargs):
@@ -69,12 +69,23 @@ def install_read_ahead_runtime() -> None:
         return original_delete(library, clip_id)
 
     def configure_rate(library, sample_rate):
+        old = getattr(library, "read_ahead", None)
+        was_running = bool(old is not None and old.running)
+        read_ahead_frames = getattr(old, "read_ahead_frames", 262_144)
+        request_capacity = getattr(old, "capacity", 1024)
         result = (
             original_configure_rate(library, sample_rate)
             if original_configure_rate is not None
             else sample_rate
         )
-        make_manager(library)
+        make_manager(
+            library,
+            {
+                "enabled": was_running,
+                "read_ahead_frames": read_ahead_frames,
+                "request_capacity": request_capacity,
+            },
+        )
         return result
 
     def voice_for_pad(engine, pad, velocity, note=None):
@@ -111,7 +122,7 @@ def install_read_ahead_runtime() -> None:
         elif options["enabled"]:
             manager.start()
         else:
-            manager.close()
+            manager.pause()
         return manager
 
     Library.__init__ = library_init
