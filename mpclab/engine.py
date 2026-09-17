@@ -33,6 +33,7 @@ from .orchestra import prepare_patch
 from .external_dsp import ExternalDSP
 from .native_dsp import NATIVE
 from .native_output import NativeOutputStream
+from .audio_trace import AudioEventTrace
 
 # Preserve imports used by extensions and tests during the modular transition.
 from .sample_voice import (
@@ -105,6 +106,10 @@ class Engine:
         # Song note takes receive the same generated notes as the live arp.
         self.arp_note_capture: tuple[list[Note], float] | None = None
         self.external = ExternalDSP()
+        # Disabled by default: diagnosis gets a bounded, allocation-stable
+        # event history without changing normal playback semantics.
+        self.audio_trace = AudioEventTrace()
+        self._trace_frame = 0
 
         # transport
         self.playing = False
@@ -183,6 +188,44 @@ class Engine:
     def sample_rate(self) -> int:
         """The frame clock used by live playback and song timing."""
         return int(self.sr)
+
+    def set_audio_trace_enabled(self, enabled: bool, *, clear: bool = False) -> None:
+        """Enable the bounded event trace used for audio-overlap diagnosis."""
+        self.audio_trace.set_enabled(enabled, clear=clear)
+
+    def audio_trace_snapshot(self):
+        """Copy the current trace for inspection outside the audio callback."""
+        return self.audio_trace.snapshot()
+
+    def _trace(
+        self,
+        kind: str,
+        *,
+        source: int = -1,
+        voice=None,
+        owner=None,
+        reason=None,
+        offset: int = 0,
+    ) -> int:
+        trace = self.audio_trace
+        if not trace.enabled:
+            return 0
+        return trace.record(
+            kind,
+            frame=self._trace_frame + max(0, int(offset)),
+            source=int(source),
+            voice=voice,
+            owner=owner,
+            reason=reason,
+        )
+
+    @staticmethod
+    def _voice_owner(voice):
+        for name in ("event_source", "sequence_id", "midi_owner", "instrument_id"):
+            value = getattr(voice, name, None)
+            if value is not None:
+                return value
+        return None
 
     def _lock_realtime_working_set(self) -> None:
         """Keep callback scratch resident without pinning decoded songs."""
@@ -711,7 +754,18 @@ class Engine:
             )
         fade = int(FADE * self.sr)
         for other in self.voices:
-            if not other.dead and self._pad_trigger_cuts(other, v, pad, index):
+            if other.dead:
+                continue
+            reason = self._pad_cut_reason(other, v, pad, index)
+            if reason is not None:
+                self._trace(
+                    "pad_steal",
+                    source=other.pad_index,
+                    voice=other,
+                    owner=self._voice_owner(other),
+                    reason=reason,
+                    offset=v.start_offset,
+                )
                 other.release_now(fade, v.start_offset - other.start_offset)
         # Long one-shots may intentionally overlap, but callback work must stay
         # bounded under dense controller input or a malformed event stream.
@@ -728,45 +782,67 @@ class Engine:
         if index >= 0 and pad_voice_count >= MAX_PAD_VOICES:
             if oldest is None:
                 # At the cap, preserve other performances and pattern layers.
+                self._trace(
+                    "pad_steal",
+                    source=index,
+                    voice=v,
+                    owner=self._voice_owner(v),
+                    reason="voice_limit_drop",
+                    offset=v.start_offset,
+                )
                 return
+            self._trace(
+                "pad_steal",
+                source=oldest.pad_index,
+                voice=oldest,
+                owner=self._voice_owner(oldest),
+                reason="voice_limit",
+                offset=v.start_offset,
+            )
             self.voices.remove(oldest)
         self.voices.append(v)
+        self._trace(
+            "pad_on",
+            source=index,
+            voice=v,
+            owner=self._voice_owner(v),
+            reason="live" if live_trigger else "sequence",
+            offset=v.start_offset,
+        )
         self.hit_flash[index] = time.monotonic()
 
-    def _pad_trigger_cuts(
+    def _pad_cut_reason(
         self, previous: PadVoice, current: PadVoice, pad: Pad, index: int
-    ) -> bool:
-        """Whether a new pad hit steals an existing voice.
-
-        Live MPC taps and each placed pattern own separate choking domains.
-        Within one sequence, groups and CUT SOURCE still work across pad banks.
-        Overlapping placements retain their layers when played or bounced.
-        """
+    ) -> str | None:
+        """Name the ownership/retrigger rule that makes a new hit steal a voice."""
         if index < 0 or previous.pad_index < 0:
-            return False
+            return None
         if previous.live_trigger != current.live_trigger:
-            return False
+            return None
         if not current.live_trigger and previous.sequence_id != current.sequence_id:
-            return False
+            return None
         if previous.note is not None or current.note is not None:
-            # A chromatic chord must not choke itself, a drum hit or another
-            # instrument using the same source. Ownership above also protects
-            # live playing from sequenced backing parts.
-            return bool(
+            if (
                 previous.note is not None
                 and current.note is not None
                 and previous.pad_index == index
                 and (pad.mono or previous.note == current.note)
-            )
+            ):
+                return "mono_retrigger" if pad.mono else "note_retrigger"
+            return None
         if pad.choke and previous.choke == pad.choke:
-            return True
+            return "choke_group"
         if pad.mode != "one-shot" and previous.pad_index == index:
-            return True
-        return bool(
-            self.project.self_choke
-            and current.source_id
-            and previous.source_id == current.source_id
-        )
+            return "pad_retrigger"
+        if self.project.self_choke and current.source_id and previous.source_id == current.source_id:
+            return "self_choke"
+        return None
+
+    def _pad_trigger_cuts(
+        self, previous: PadVoice, current: PadVoice, pad: Pad, index: int
+    ) -> bool:
+        """Compatibility predicate retained for tests/extensions."""
+        return self._pad_cut_reason(previous, current, pad, index) is not None
 
     def _spawn_synth(
         self,
@@ -804,6 +880,13 @@ class Engine:
                 event_source=event_source,
                 trigger_id=trigger_id,
             )
+            self._trace(
+                "synth_on",
+                source=note,
+                owner=event_source if event_source is not None else sequence_id,
+                reason="external_host",
+                offset=offset,
+            )
             return
         patch = self.project.instrument_patch(instrument_id)
         # Retrigger within the same performance source. Playing along must not
@@ -818,6 +901,14 @@ class Engine:
                 and voice.sequence_id == sequence_id
                 and not voice.dead
             ):
+                self._trace(
+                    "synth_steal",
+                    source=voice.note,
+                    voice=voice,
+                    owner=self._voice_owner(voice),
+                    reason="retrigger",
+                    offset=offset,
+                )
                 voice.note_off(0.008)
         max_voices = min(64, max(8, int(self.synth_polyphony)))
         live_count = 0
@@ -828,6 +919,14 @@ class Engine:
                 if oldest is None or voice.age > oldest.age:
                     oldest = voice
         if live_count >= max_voices and oldest is not None:
+            self._trace(
+                "synth_steal",
+                source=oldest.note,
+                voice=oldest,
+                owner=self._voice_owner(oldest),
+                reason="polyphony_limit",
+                offset=offset,
+            )
             oldest.dead = True
             voices.remove(oldest)
         source_key = (patch.sample_source, patch.sample_layer)
@@ -861,6 +960,15 @@ class Engine:
                 trigger_id=trigger_id,
             )
         )
+        created = voices[-1]
+        self._trace(
+            "synth_on",
+            source=note,
+            voice=created,
+            owner=self._voice_owner(created),
+            reason="live" if live_trigger else "sequence",
+            offset=offset,
+        )
 
     def _release_synth(
         self, note: int, instrument_id=None, midi_owner=None, midi_channel=0
@@ -876,6 +984,13 @@ class Engine:
                 and voice.live_trigger
                 and not voice.dead
             ):
+                self._trace(
+                    "synth_release",
+                    source=voice.note,
+                    voice=voice,
+                    owner=self._voice_owner(voice),
+                    reason="note_off",
+                )
                 voice.note_off((voice.patch_ref or self.project.synth).release)
 
     def _schedule_arp(self, frames: int, start_beat: float) -> None:
@@ -1061,6 +1176,7 @@ class Engine:
                     count = min(count, max(1, int(np.ceil(until_end - 1e-9))))
             cue = None if monitor is None else monitor[offset : offset + count]
             self._render_block(outdata[offset : offset + count], count, cue)
+            self._trace_frame += count
             offset += count
             # Finish the old audio before wrapping; the rest of this host
             # callback belongs to the next loop, never discarded musical time.
@@ -1069,6 +1185,7 @@ class Engine:
                 self.playing = self.loop_song
                 if self.loop_song:
                     self._resume_audio = True
+                    self._trace("transport_seek", reason="loop_wrap")
                     fade = int(FADE * self.sr)
                     for voice in self.voices:
                         if voice.pad_index == -1 and not voice.dead:
@@ -1110,6 +1227,13 @@ class Engine:
                     if v.pad_index == cmd[1] and v.note is None and v.live_trigger and not v.dead:
                         pad = proj.pads[cmd[1]]
                         if pad.mode != "one-shot":
+                            self._trace(
+                                "pad_release",
+                                source=v.pad_index,
+                                voice=v,
+                                owner=self._voice_owner(v),
+                                reason="pad_off",
+                            )
                             v.release_now(v.release)
             elif kind == "sampleon":
                 _, index, note, velocity, *tokens = cmd
@@ -1128,10 +1252,24 @@ class Engine:
                 _, index, note = cmd
                 for v in self.voices:
                     if v.pad_index == index and v.note == note and v.live_trigger and v.gated:
+                        self._trace(
+                            "pad_release",
+                            source=v.pad_index,
+                            voice=v,
+                            owner=self._voice_owner(v),
+                            reason="note_off",
+                        )
                         v.release_now(v.release)
             elif kind == "samplepanic":
                 for v in self.voices:
                     if v.note is not None and v.live_trigger:
+                        self._trace(
+                            "pad_release",
+                            source=v.pad_index,
+                            voice=v,
+                            owner=self._voice_owner(v),
+                            reason="sample_panic",
+                        )
                         v.release_now(max(1, int(FADE * self.sr)))
             elif kind == "synthon":
                 note, vel = cmd[1], cmd[2]
@@ -1161,6 +1299,14 @@ class Engine:
                 self.arp_state.held.clear()
                 self._arp_samples_until = 0.0
                 for voice in self.synth_voices:
+                    if not voice.dead:
+                        self._trace(
+                            "synth_release",
+                            source=voice.note,
+                            voice=voice,
+                            owner=self._voice_owner(voice),
+                            reason="synth_panic",
+                        )
                     voice.note_off(0.008)
             elif kind == "audition":
                 # Scrub events can arrive faster than audio blocks. Only the
@@ -1188,19 +1334,41 @@ class Engine:
                     self.rack.master.install_tone(prepared)
             elif kind == "panic":
                 pending_audition = None
+                self._trace("panic", reason="user")
                 fade = int(FADE * self.sr)
                 for v in self.voices:
+                    if not v.dead:
+                        self._trace(
+                            "pad_release",
+                            source=v.pad_index,
+                            voice=v,
+                            owner=self._voice_owner(v),
+                            reason="panic",
+                        )
                     v.release_now(fade)
                 self.arp_state.held.clear()
                 self._arp_samples_until = 0.0
                 for voice in self.synth_voices:
+                    if not voice.dead:
+                        self._trace(
+                            "synth_release",
+                            source=voice.note,
+                            voice=voice,
+                            owner=self._voice_owner(voice),
+                            reason="panic",
+                        )
                     voice.note_off(0.008)
             elif kind == "play":
                 if cmd[1] is not None:
                     self.beat = float(cmd[1])
                 self.playing = True
                 self._resume_audio = self.mode == "song"
+                self._trace(
+                    "transport_play",
+                    reason="from_position" if cmd[1] is not None else "resume",
+                )
             elif kind == "stopt":
+                self._trace("transport_stop", reason="rewind" if cmd[1] else "stop")
                 for voice in self.synth_voices:
                     if not voice.live_trigger:
                         voice.note_off(0.008)
@@ -1214,6 +1382,7 @@ class Engine:
                     if v.pad_index >= -1 and not (v.note is not None and v.live_trigger):
                         v.release_now(fade)
             elif kind == "seek":
+                self._trace("transport_seek", reason=float(cmd[1]))
                 for voice in self.synth_voices:
                     if not voice.live_trigger:
                         voice.note_off(0.008)
