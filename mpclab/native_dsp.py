@@ -44,6 +44,18 @@ def _array(array, size=None):
     return array.ctypes.data
 
 
+def _float32_vector(array):
+    if (
+        not isinstance(array, np.ndarray)
+        or array.dtype != np.float32
+        or array.ndim != 1
+        or not array.flags.c_contiguous
+        or not array.flags.writeable
+    ):
+        raise ValueError("Native control smoothing requires a contiguous writable float32 vector")
+    return array.ctypes.data
+
+
 class NativeDSP:
     def __init__(self, path):
         # CDLL releases the GIL during the C routines; PyDLL would not.
@@ -75,6 +87,10 @@ class NativeDSP:
         self.lib.mpc_synth.restype = None
         self.lib.mpc_onepole.argtypes = [ptr, count, count, ptr, real]
         self.lib.mpc_onepole.restype = None
+        self.lib.mpc_control_linear.argtypes = [ptr, count, ptr]
+        self.lib.mpc_control_linear.restype = None
+        self.lib.mpc_control_onepole.argtypes = [ptr, count, ptr]
+        self.lib.mpc_control_onepole.restype = None
         self.core = CoreBindings(self.lib)
 
     def onepole(self, block, state, b):
@@ -90,6 +106,12 @@ class NativeDSP:
         ):
             raise ValueError("Native smoothing needs contiguous float32 audio and channel state")
         self.lib.mpc_onepole(block.ctypes.data, len(block), block.shape[1], state.ctypes.data, b)
+
+    def control_linear(self, out, state):
+        self.lib.mpc_control_linear(_float32_vector(out), len(out), _array(state, 4))
+
+    def control_onepole(self, out, state):
+        self.lib.mpc_control_onepole(_float32_vector(out), len(out), _array(state, 3))
 
     def synth(self, output, noise, params, state, age, gate):
         if (
