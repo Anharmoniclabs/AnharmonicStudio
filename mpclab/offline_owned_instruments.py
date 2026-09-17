@@ -7,7 +7,6 @@ from contextlib import ExitStack
 import numpy as np
 
 from .expansion_instruments import ExpansionInstrumentBridge
-from .plugin_host import IsolatedPlugin, PluginError
 from .plugin_latency import (
     PluginDelayCompensator,
     StereoDelayCompensator,
@@ -39,6 +38,8 @@ class OfflineOwnedInstruments:
             raise
 
     def _open_processors(self) -> None:
+        from .plugin_host import IsolatedPlugin, PluginError
+
         expansion = getattr(self.project, "daw_expansion", {})
         engines = expansion.get("instrument_engines", {}) if isinstance(expansion, dict) else {}
         external = getattr(self.project, "instrument_plugins", {})
@@ -124,6 +125,8 @@ class OfflineOwnedInstruments:
             return
         block = np.asarray(output, dtype=np.float32)
         if block.shape != (frames, 2) or not np.isfinite(block).all():
+            from .plugin_host import PluginError
+
             raise PluginError("Owned instrument returned invalid offline audio")
         delay = self.delays.get(instrument_id)
         if delay is not None:

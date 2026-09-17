@@ -52,6 +52,8 @@ def test_all_optional_project_fields_roundtrip_without_install_order():
         "timeline_markers",
         "midi_files",
         "track_folders",
+        "instrument_plugins",
+        "daw_expansion",
     }
 
 

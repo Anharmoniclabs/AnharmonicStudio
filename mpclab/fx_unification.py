@@ -52,8 +52,8 @@ def configure_fx_sample_rate(sample_rate: int) -> None:
     from . import fx
 
     rate = int(sample_rate)
-    if rate not in (44_100, 48_000, 88_200, 96_000):
-        raise ValueError("unsupported project sample rate")
+    if not 1 <= rate <= 768_000:
+        raise ValueError("DSP sample rate must be between 1 Hz and 768 kHz")
     scale = rate / 48_000.0
     fx.SR = rate
     fx.TONE_TAPS = max(256, round(1536 * scale))

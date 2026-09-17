@@ -104,6 +104,20 @@ class SidechainRouter:
     def track_order(self) -> tuple[int, ...]:
         return self._track_order
 
+    def ensure_blocksize(self, frames: int) -> None:
+        """Grow capture buffers at the engine's existing emergency resize boundary."""
+        frames = max(1, int(frames))
+        if frames <= self.blocksize:
+            return
+        self.blocksize = frames
+        self._buffers = {
+            route_id: np.zeros((frames, 2), dtype=np.float32) for route_id in self._buffers
+        }
+        self._slot_buffers = {
+            key: np.zeros((frames, 2), dtype=np.float32) for key in self._slot_buffers
+        }
+        self._stamp = None
+
     def begin_block(self, stamp, frames: int) -> None:
         frames = int(frames)
         if frames > self.blocksize:
