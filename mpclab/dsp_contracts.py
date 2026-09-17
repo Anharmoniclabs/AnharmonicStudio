@@ -63,7 +63,9 @@ def validate_audio_block(block: np.ndarray, *, channels: int | None = None) -> n
     return block
 
 
-def validate_prepare(sample_rate: float, max_block_size: int, channels: int) -> tuple[float, int, int]:
+def validate_prepare(
+    sample_rate: float, max_block_size: int, channels: int
+) -> tuple[float, int, int]:
     sample_rate = float(sample_rate)
     max_block_size = int(max_block_size)
     channels = int(channels)
