@@ -894,15 +894,12 @@ class Engine:
         trigger_id=None,
     ) -> None:
         voices = self.synth_voices if voices is None else voices
-        if (
-            instrument_id is None
-            and voices is self.synth_voices
-            and self.external.instrument is not None
-        ):
+        hosted = self.external.instrument_for(instrument_id)
+        if voices is self.synth_voices and hosted is not None:
             channel = midi_channel
             if channel == 0 and not live_trigger:
                 channel = 1
-            self.external.note_on(
+            hosted_voice = self.external.note_on(
                 note,
                 velocity,
                 offset,
@@ -912,11 +909,16 @@ class Engine:
                 sequence_id=sequence_id,
                 event_source=event_source,
                 trigger_id=trigger_id,
+                instrument_id=instrument_id,
             )
+            owner = instrument_id
+            if owner is None:
+                owner = event_source if event_source is not None else sequence_id
             self._trace(
                 "synth_on",
                 source=note,
-                owner=event_source if event_source is not None else sequence_id,
+                voice=hosted_voice,
+                owner=owner,
                 reason="external_host",
                 offset=offset,
             )
@@ -1006,8 +1008,18 @@ class Engine:
     def _release_synth(
         self, note: int, instrument_id=None, midi_owner=None, midi_channel=0
     ) -> None:
-        if instrument_id is None and self.external.instrument is not None:
-            self.external.note_off(note)
+        if self.external.instrument_for(instrument_id) is not None:
+            self.external.note_off(
+                note,
+                instrument_id=instrument_id,
+                channel=midi_channel,
+            )
+            self._trace(
+                "synth_release",
+                source=note,
+                owner=instrument_id,
+                reason="external_host_note_off",
+            )
         for voice in self.synth_voices:
             if (
                 voice.note == note

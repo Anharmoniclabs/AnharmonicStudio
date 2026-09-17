@@ -162,8 +162,12 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
             )
         ]
     for frame, control in midi_controls:
-        if control.instrument is None and control.pad is None:
-            engine.external.events.append((control.message, max(0, frame)))
+        if control.pad is None:
+            engine.external.queue_event(
+                control.message,
+                max(0, frame),
+                instrument_id=control.instrument,
+            )
     for voice in engine.synth_voices:
         render_expressive_voice(
             voice,
@@ -178,30 +182,63 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         if engine.synth_voices[index].dead:
             del engine.synth_voices[index]
 
-    # Deliver Prism curves with their audio block, without UI timers or camera work.
-    prism_parameters = {}
-    if (
-        engine.playing
-        and engine.mode == "song"
-        and getattr(engine.external.instrument, "info", {}).get("name") == "Anharmonic Prism"
-    ):
-        prism_parameters = automation_parameters(
-            proj, start_beat, getattr(engine, "prism_gesture_targets", ())
-        )
-    synth_track = proj.validate_track_index(proj.synth.track, "synth output")
+    # Render every hosted instrument as its own owned path. Native/built-in
+    # tracks are delayed to the slowest hosted route; each faster hosted route
+    # receives only its differential PDC before entering its mixer track.
+    hosted = []
+    legacy = engine.external.instrument_for(None)
+    if legacy is not None:
+        hosted.append((None, legacy, proj.validate_track_index(proj.synth.track, "synth output")))
+    for instrument in proj.instruments:
+        plugin = engine.external.instrument_for(instrument.id)
+        if plugin is not None:
+            hosted.append(
+                (
+                    instrument.id,
+                    plugin,
+                    proj.validate_track_index(instrument.patch.track, "instrument output"),
+                )
+            )
+
     external_bus = getattr(engine, "_external_instrument", None)
-    if external_bus is None:
-        engine.external.render_instrument(
-            tbuf[synth_track], frames, engine.sr, proj.bpm, prism_parameters
-        )
-    else:
+    dry_pdc = getattr(engine, "plugin_pdc", None)
+    instrument_pdc = getattr(engine, "instrument_pdc", None)
+    if hosted and dry_pdc is not None and dry_pdc.delay_samples > 0:
+        dry_pdc.process(tbuf, frames)
+
+    for instrument_id, plugin, target_track in hosted:
+        prism_parameters = {}
+        if (
+            engine.playing
+            and engine.mode == "song"
+            and getattr(plugin, "info", {}).get("name") == "Anharmonic Prism"
+        ):
+            prism_parameters = automation_parameters(
+                proj, start_beat, getattr(engine, "prism_gesture_targets", ())
+            )
+        if external_bus is None:
+            engine.external.render_instrument(
+                tbuf[target_track],
+                frames,
+                engine.sr,
+                proj.bpm,
+                prism_parameters,
+                instrument_id=instrument_id,
+            )
+            continue
         external = external_bus[:frames]
         external.fill(0.0)
-        engine.external.render_instrument(external, frames, engine.sr, proj.bpm, prism_parameters)
-        pdc = getattr(engine, "plugin_pdc", None)
-        if engine.external.instrument is not None and pdc is not None and pdc.delay_samples > 0:
-            pdc.process(tbuf, frames)
-        np.add(tbuf[synth_track], external, out=tbuf[synth_track])
+        engine.external.render_instrument(
+            external,
+            frames,
+            engine.sr,
+            proj.bpm,
+            prism_parameters,
+            instrument_id=instrument_id,
+        )
+        if instrument_pdc is not None:
+            instrument_pdc.process(instrument_id, external, frames)
+        np.add(tbuf[target_track], external, out=tbuf[target_track])
 
     # 4 ─ inserts → track buses → arbitrary routing → sends → master
     any_solo = False

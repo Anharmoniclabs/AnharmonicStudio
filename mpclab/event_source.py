@@ -31,7 +31,7 @@ class ScheduledNote(tuple):
 def release_deleted_events(engine):
     patterns = None
     notes = {}
-    for collection in (engine.voices, engine.synth_voices, engine.external.voices):
+    for collection in (engine.voices, engine.synth_voices, engine.external.all_voices()):
         for voice in collection:
             source = voice.event_source
             if source is None or voice.dead:

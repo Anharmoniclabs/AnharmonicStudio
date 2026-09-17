@@ -319,7 +319,7 @@ def install_engine_routing_extensions() -> None:
         return
 
     from .engine import Engine
-    from .plugin_latency import PluginDelayCompensator, plugin_path_latency_samples
+    from .plugin_latency import HostedInstrumentDelayBank, PluginDelayCompensator
 
     original_init = Engine.__init__
     original_prepare_fx = Engine.prepare_fx
@@ -333,6 +333,7 @@ def install_engine_routing_extensions() -> None:
             engine.plugin_pdc = PluginDelayCompensator(count, engine.blocksize)
         else:
             engine.plugin_pdc.configure(0, engine.blocksize)
+        engine.instrument_pdc = HostedInstrumentDelayBank(engine.blocksize)
         engine._routing_plan = compile_routing(engine.project)
         engine.linux_audio.lock_arrays(
             engine._routing_buses,
@@ -357,15 +358,20 @@ def install_engine_routing_extensions() -> None:
             engine.linux_audio.lock_arrays(engine.plugin_pdc.history, engine.plugin_pdc.output)
         plan = compile_routing(proj)
         engine._routing_plan = plan
+        prepare_plugin_latency(engine)
         refresh = getattr(engine, "prepare_plugin_chain_latency", None)
         if refresh is not None:
             refresh()
         return plan
 
     def prepare_plugin_latency(engine):
-        delay = plugin_path_latency_samples(engine.external.instrument, include_live_bridge=True)
+        delay = engine.instrument_pdc.configure(engine.external.plugin_map(), engine.blocksize)
         engine.plugin_pdc.configure(delay, engine.blocksize)
-        engine.linux_audio.lock_arrays(engine.plugin_pdc.history, engine.plugin_pdc.output)
+        engine.linux_audio.lock_arrays(
+            engine.plugin_pdc.history,
+            engine.plugin_pdc.output,
+            *engine.instrument_pdc.locked_arrays(),
+        )
         return delay
 
     def prepare_fx(engine, project=None):
