@@ -795,7 +795,16 @@ class PadInspector(WindowClient, QScrollArea):
         mode = QComboBox()
         mode.addItems(MODES)
         mode.setCurrentText(pad.mode)
-        mode.currentTextChanged.connect(lambda t: (setattr(pad, "mode", t), self.changed.emit()))
+
+        def set_mode(value):
+            old_mode = pad.mode
+            old_default = "layer" if old_mode == "one-shot" else "restart"
+            if pad.retrigger == old_default:
+                pad.retrigger = "layer" if value == "one-shot" else "restart"
+            pad.mode = value
+            self.changed.emit()
+
+        mode.currentTextChanged.connect(set_mode)
         form.addRow(self._lbl("MODE"), mode)
 
         retrigger = QComboBox()

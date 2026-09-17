@@ -755,16 +755,20 @@ class Engine:
         fade = int(FADE * self.sr)
         if pad.retrigger == "ignore":
             for other in self.voices:
-                if not other.dead and self._same_pad_retrigger(other, v, index):
-                    self._trace(
-                        "pad_ignore",
-                        source=index,
-                        voice=other,
-                        owner=self._voice_owner(other),
-                        reason="ignore_retrigger",
-                        offset=v.start_offset,
-                    )
-                    return
+                if other.dead or not self._same_pad_retrigger(other, v, index):
+                    continue
+                stronger = self._pad_cut_reason(other, v, pad, index)
+                if stronger in ("choke_group", "self_choke"):
+                    continue
+                self._trace(
+                    "pad_ignore",
+                    source=index,
+                    voice=other,
+                    owner=self._voice_owner(other),
+                    reason="ignore_retrigger",
+                    offset=v.start_offset,
+                )
+                return
         if pad.retrigger == "crossfade":
             v.attack = max(v.attack, fade)
         for other in self.voices:

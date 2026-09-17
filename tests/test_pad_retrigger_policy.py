@@ -91,3 +91,25 @@ def test_retrigger_policy_roundtrips_in_project():
     project.pads[0].retrigger = "crossfade"
     loaded = Project.from_dict(project.to_dict())
     assert loaded.pads[0].retrigger == "crossfade"
+
+
+def test_ignore_does_not_override_explicit_choke_group():
+    engine = engine_with_policy("ignore")
+    pad = engine.project.pads[0]
+    pad.choke = 2
+    engine._spawn(pad, 0, 1)
+    first = engine.voices[0]
+    engine._spawn(pad, 0, 1)
+    assert len(engine.voices) == 2
+    assert first.length == max(1, int(FADE * SR))
+
+
+def test_ignore_does_not_override_global_self_choke():
+    engine = engine_with_policy("ignore")
+    engine.project.self_choke = True
+    pad = engine.project.pads[0]
+    engine._spawn(pad, 0, 1)
+    first = engine.voices[0]
+    engine._spawn(pad, 0, 1)
+    assert len(engine.voices) == 2
+    assert first.length == max(1, int(FADE * SR))
