@@ -23,3 +23,24 @@ replace_once(
     '''    if len({item["id"] for item in result["sidechains"]}) != len(result["sidechains"]):\n        raise ValueError("sidechain IDs must be unique")\n\n    # Sidechain track dependencies are part of callback scheduling. Reject\n    # cycles at project-validation time instead of discovering them when audio\n    # starts. Bus/master targets terminate this dependency graph.\n    track_nodes = {\n        f"track:{track.id}" for track in project.tracks\n    } if project is not None else {\n        item["source"] for item in result["sidechains"]\n    } | {\n        item["target"] for item in result["sidechains"] if item["target"].startswith("track:")\n    }\n    edges = {node: set() for node in track_nodes}\n    indegree = dict.fromkeys(track_nodes, 0)\n    for item in result["sidechains"]:\n        if not item["enabled"] or not item["target"].startswith("track:"):\n            continue\n        source, target = item["source"], item["target"]\n        if source in edges and target in indegree and target not in edges[source]:\n            edges[source].add(target)\n            indegree[target] += 1\n    ready = sorted(node for node, degree in indegree.items() if degree == 0)\n    visited = 0\n    while ready:\n        source = ready.pop(0)\n        visited += 1\n        for target in sorted(edges[source]):\n            indegree[target] -= 1\n            if indegree[target] == 0:\n                ready.append(target)\n                ready.sort()\n    if visited != len(track_nodes):\n        raise ValueError("track sidechain routes must form an acyclic graph")\n\n    channels = value.get("track_channels", {})\n''',
     "sidechain dependency cycle validation",
 )
+
+replace_once(
+    "mpclab/engine_mixing.py",
+    '''    preview_bus = engine._preview_bus[:frames]\n''',
+    '''    preview_bus = engine._preview[:frames]\n''',
+    "preview scratch name",
+)
+
+replace_once(
+    "mpclab/ui/devices.py",
+    '''        if instrument_id is not None:\n            instrument = self.app.project.instrument(instrument_id)\n            target = f" · {instrument.name}"\n''',
+    '''        if instrument_id is not None:\n            instrument = next(\n                (item for item in self.app.project.instruments if item.id == instrument_id),\n                None,\n            )\n            if instrument is not None:\n                target = f" · {instrument.name}"\n''',
+    "stable instrument display lookup",
+)
+
+replace_once(
+    "tests/test_project_audio_expansion.py",
+    '''            assert engine.rack.blocksize == 128\n''',
+    '''            assert engine.blocksize == 128\n            assert engine._tbuf.shape[1] >= 128\n''',
+    "sample-rate prepared block assertion",
+)
