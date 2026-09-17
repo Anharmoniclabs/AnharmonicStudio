@@ -1,0 +1,42 @@
+name: Fix retrigger compatibility
+
+on:
+  push:
+    branches:
+      - finalize/realtime-foundations-20260917
+    paths:
+      - scripts/_fix_retrigger_compat.py
+      - .github/workflows/fix-retrigger-compat.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: finalize/realtime-foundations-20260917
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply compatibility corrections
+        run: python scripts/_fix_retrigger_compat.py
+      - name: Format and validate
+        run: |
+          python -m pip install 'ruff==0.16.5'
+          ruff format mpclab/engine.py mpclab/ui/padgrid.py tests/test_pad_retrigger_policy.py
+          ruff check mpclab/engine.py mpclab/ui/padgrid.py tests/test_pad_retrigger_policy.py
+          python -m compileall -q mpclab/engine.py mpclab/ui/padgrid.py tests/test_pad_retrigger_policy.py
+          git diff --check
+      - name: Commit clean corrections
+        run: |
+          rm -f scripts/_fix_retrigger_compat.py .github/workflows/fix-retrigger-compat.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Preserve retrigger compatibility and choke precedence'
+          git push origin HEAD:finalize/realtime-foundations-20260917
