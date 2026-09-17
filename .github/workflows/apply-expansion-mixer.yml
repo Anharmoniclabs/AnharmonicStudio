@@ -5,6 +5,7 @@ on:
     branches: [finalize/daw-expansion-implementation-20260917]
     paths:
       - scripts/_apply_expansion_mixer.py
+      - scripts/_apply_expansion_mixer_v2.py
       - .github/workflows/apply-expansion-mixer.yml
 
 permissions:
@@ -22,7 +23,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Apply guarded realtime/offline patch
-        run: python scripts/_apply_expansion_mixer.py
+        run: python scripts/_apply_expansion_mixer_v2.py
       - name: Format and validate
         run: |
           python -m pip install 'ruff==0.16.5'
@@ -35,6 +36,6 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add mpclab/engine_mixing.py mpclab/engine_offline.py mpclab/expansion_instruments.py
-          git rm scripts/_apply_expansion_mixer.py .github/workflows/apply-expansion-mixer.yml
+          git rm scripts/_apply_expansion_mixer.py scripts/_apply_expansion_mixer_v2.py .github/workflows/apply-expansion-mixer.yml
           git commit -m 'Integrate realtime and offline DAW expansion paths'
           git push origin HEAD:finalize/daw-expansion-implementation-20260917
