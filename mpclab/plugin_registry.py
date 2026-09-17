@@ -68,55 +68,52 @@ def compatibility(candidate: "PluginCandidate") -> str:
     return "Ready to load"
 
 
+def validate_plugin_spec(spec) -> dict:
+    if not isinstance(spec, dict):
+        raise ValueError("project plugin must be an object")
+    path = spec.get("path")
+    if (
+        not isinstance(path, str)
+        or len(path) > 4096
+        or Path(path).suffix.casefold() not in {".vst3", ".component"}
+    ):
+        raise ValueError("project plugin path must identify a VST3 or Audio Unit")
+    parameters = spec.get("parameters", {})
+    if not isinstance(parameters, dict) or len(parameters) > 512:
+        raise ValueError("project plugin parameters must be a bounded object")
+    for key, number in parameters.items():
+        if (
+            not isinstance(key, str)
+            or len(key) > 256
+            or type(number) not in (int, float)
+            or not math.isfinite(number)
+            or not 0 <= number <= 1
+        ):
+            raise ValueError("project plugin parameters must be normalized finite numbers")
+    state = spec.get("state", "")
+    if not isinstance(state, str) or len(state) > 2_800_000:
+        raise ValueError("project plugin state is too large")
+    try:
+        if len(base64.b64decode(state, validate=True)) > 2 * 1024 * 1024:
+            raise ValueError("project plugin state is too large")
+    except ValueError as exc:
+        raise ValueError("project plugin state is invalid") from exc
+    name = spec.get("plugin_name", "")
+    if not isinstance(name, str) or len(name) > 512 or type(spec.get("bypass", False)) is not bool:
+        raise ValueError("project plugin name or bypass is invalid")
+    return {
+        "path": path,
+        "plugin_name": name,
+        "parameters": dict(parameters),
+        "state": state,
+        "bypass": spec.get("bypass", False),
+    }
+
+
 def validate_project_plugins(value) -> dict:
     if not isinstance(value, dict) or set(value) - {"instrument", "effect"}:
         raise ValueError("project plugins must contain instrument/effect slots")
-    result = {}
-    for slot, spec in value.items():
-        if not isinstance(spec, dict):
-            raise ValueError("project plugin must be an object")
-        path = spec.get("path")
-        if (
-            not isinstance(path, str)
-            or len(path) > 4096
-            or Path(path).suffix.casefold() not in {".vst3", ".component"}
-        ):
-            raise ValueError("project plugin path must identify a VST3 or Audio Unit")
-        parameters = spec.get("parameters", {})
-        if not isinstance(parameters, dict) or len(parameters) > 512:
-            raise ValueError("project plugin parameters must be a bounded object")
-        for key, number in parameters.items():
-            if (
-                not isinstance(key, str)
-                or len(key) > 256
-                or type(number) not in (int, float)
-                or not math.isfinite(number)
-                or not 0 <= number <= 1
-            ):
-                raise ValueError("project plugin parameters must be normalized finite numbers")
-        state = spec.get("state", "")
-        if not isinstance(state, str) or len(state) > 2_800_000:
-            raise ValueError("project plugin state is too large")
-        try:
-            if len(base64.b64decode(state, validate=True)) > 2 * 1024 * 1024:
-                raise ValueError("project plugin state is too large")
-        except ValueError as exc:
-            raise ValueError("project plugin state is invalid") from exc
-        name = spec.get("plugin_name", "")
-        if (
-            not isinstance(name, str)
-            or len(name) > 512
-            or type(spec.get("bypass", False)) is not bool
-        ):
-            raise ValueError("project plugin name or bypass is invalid")
-        result[slot] = {
-            "path": path,
-            "plugin_name": name,
-            "parameters": dict(parameters),
-            "state": state,
-            "bypass": spec.get("bypass", False),
-        }
-    return result
+    return {slot: validate_plugin_spec(spec) for slot, spec in value.items()}
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,12 +12,14 @@ EXTENSION_FIELDS = (
     "timeline_markers",
     "midi_files",
     "track_folders",
+    "instrument_plugins",
 )
 
 
 def _validators():
     from .automation_mode_state import validate_automation_control
     from .midi_file_state import validate_midi_file_state
+    from .instrument_plugin_state import validate_instrument_plugins
     from .pro_daw_state import validate_pro_daw
     from .timeline_markers import validate_timeline_markers
     from .workflow_organization import validate_track_folders
@@ -30,6 +32,7 @@ def _validators():
         "timeline_markers": validate_timeline_markers,
         "midi_files": validate_midi_file_state,
         "track_folders": validate_track_folders,
+        "instrument_plugins": validate_instrument_plugins,
     }
 
 
@@ -55,6 +58,9 @@ def validate_extensions(value, *, project=None) -> dict:
         "timeline_markers": validators["timeline_markers"](value.get("timeline_markers")),
         "midi_files": validators["midi_files"](value.get("midi_files")),
         "track_folders": validators["track_folders"](folders, project),
+        "instrument_plugins": validators["instrument_plugins"](
+            value.get("instrument_plugins", {}), project
+        ),
     }
     return result
 

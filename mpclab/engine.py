@@ -753,6 +753,24 @@ class Engine:
                 v.length, max(gate_frames, 1 if note is not None else v.attack) + v.release
             )
         fade = int(FADE * self.sr)
+        if pad.retrigger == "ignore":
+            for other in self.voices:
+                if other.dead or not self._same_pad_retrigger(other, v, index):
+                    continue
+                stronger = self._pad_cut_reason(other, v, pad, index)
+                if stronger in ("choke_group", "self_choke"):
+                    continue
+                self._trace(
+                    "pad_ignore",
+                    source=index,
+                    voice=other,
+                    owner=self._voice_owner(other),
+                    reason="ignore_retrigger",
+                    offset=v.start_offset,
+                )
+                return
+        if pad.retrigger == "crossfade":
+            v.attack = max(v.attack, fade)
         for other in self.voices:
             if other.dead:
                 continue
@@ -811,6 +829,14 @@ class Engine:
         )
         self.hit_flash[index] = time.monotonic()
 
+    @staticmethod
+    def _same_pad_retrigger(previous: PadVoice, current: PadVoice, index: int) -> bool:
+        if previous.pad_index != index or previous.note is not None or current.note is not None:
+            return False
+        if previous.live_trigger != current.live_trigger:
+            return False
+        return current.live_trigger or previous.sequence_id == current.sequence_id
+
     def _pad_cut_reason(
         self, previous: PadVoice, current: PadVoice, pad: Pad, index: int
     ) -> str | None:
@@ -832,14 +858,17 @@ class Engine:
             return None
         if pad.choke and previous.choke == pad.choke:
             return "choke_group"
-        if pad.mode != "one-shot" and previous.pad_index == index:
-            return "pad_retrigger"
         if (
             self.project.self_choke
             and current.source_id
             and previous.source_id == current.source_id
         ):
             return "self_choke"
+        if self._same_pad_retrigger(previous, current, index):
+            if pad.retrigger == "restart":
+                return "pad_restart"
+            if pad.retrigger == "crossfade":
+                return "pad_crossfade"
         return None
 
     def _pad_trigger_cuts(

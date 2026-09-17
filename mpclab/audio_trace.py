@@ -16,6 +16,7 @@ EVENT_KINDS = (
     "pad_on",
     "pad_release",
     "pad_steal",
+    "pad_ignore",
     "synth_on",
     "synth_release",
     "synth_steal",

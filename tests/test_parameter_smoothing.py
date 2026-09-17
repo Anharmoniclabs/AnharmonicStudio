@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+import mpclab.parameter_smoothing as smoothing
 from mpclab.parameter_smoothing import LinearSmoother, OnePoleSmoother, smoothing_frames
 
 
@@ -38,3 +39,60 @@ def test_smoothing_frames_validates_clock():
     assert smoothing_frames(48000, 10) == 480
     with pytest.raises(ValueError):
         smoothing_frames(0, 10)
+
+
+def test_native_linear_fill_matches_reference_without_python_sample_loop(monkeypatch):
+    native = smoothing.NATIVE
+    if native is None:
+        pytest.skip("Build native DSP with scripts/build_native.py")
+
+    monkeypatch.setattr(smoothing, "NATIVE", None)
+    reference = LinearSmoother(0.25, 48000, 7.5)
+    expected = []
+    for target, frames, time_ms in ((1.0, 127, None), (-0.5, 257, 3.0), (0.0, 513, 0.5)):
+        reference.set_target(target, time_ms=time_ms)
+        expected.append(reference.process(frames, dtype=np.float32))
+
+    monkeypatch.setattr(smoothing, "NATIVE", native)
+    accelerated = LinearSmoother(0.25, 48000, 7.5)
+
+    def forbidden():
+        raise AssertionError("native fill entered the Python per-sample loop")
+
+    monkeypatch.setattr(accelerated, "next_value", forbidden)
+    actual = []
+    for target, frames, time_ms in ((1.0, 127, None), (-0.5, 257, 3.0), (0.0, 513, 0.5)):
+        accelerated.set_target(target, time_ms=time_ms)
+        actual.append(accelerated.process(frames, dtype=np.float32))
+
+    np.testing.assert_allclose(np.concatenate(actual), np.concatenate(expected), rtol=0, atol=2e-7)
+    assert accelerated.current == pytest.approx(reference.current, abs=1e-12)
+    assert accelerated.remaining == reference.remaining
+
+
+def test_native_onepole_fill_matches_reference_without_python_sample_loop(monkeypatch):
+    native = smoothing.NATIVE
+    if native is None:
+        pytest.skip("Build native DSP with scripts/build_native.py")
+
+    monkeypatch.setattr(smoothing, "NATIVE", None)
+    reference = OnePoleSmoother(-0.25, 48000, 10.0)
+    expected = []
+    for target, frames, time_ms in ((1.0, 127, None), (-0.5, 257, 2.0), (0.75, 513, 20.0)):
+        reference.set_target(target, time_ms=time_ms)
+        expected.append(reference.process(frames, dtype=np.float32))
+
+    monkeypatch.setattr(smoothing, "NATIVE", native)
+    accelerated = OnePoleSmoother(-0.25, 48000, 10.0)
+
+    def forbidden():
+        raise AssertionError("native fill entered the Python per-sample loop")
+
+    monkeypatch.setattr(accelerated, "next_value", forbidden)
+    actual = []
+    for target, frames, time_ms in ((1.0, 127, None), (-0.5, 257, 2.0), (0.75, 513, 20.0)):
+        accelerated.set_target(target, time_ms=time_ms)
+        actual.append(accelerated.process(frames, dtype=np.float32))
+
+    np.testing.assert_allclose(np.concatenate(actual), np.concatenate(expected), rtol=0, atol=2e-7)
+    assert accelerated.current == pytest.approx(reference.current, abs=1e-12)

@@ -6,6 +6,8 @@ import math
 
 import numpy as np
 
+from .native_dsp import NATIVE
+
 
 def smoothing_frames(sample_rate: float, time_ms: float) -> int:
     """Return the number of frames in a smoothing interval."""
@@ -14,6 +16,15 @@ def smoothing_frames(sample_rate: float, time_ms: float) -> int:
     if not math.isfinite(time_ms):
         raise ValueError("time_ms must be finite")
     return max(0, round(sample_rate * max(0.0, time_ms) / 1000.0))
+
+
+def _native_destination(out: np.ndarray) -> bool:
+    return (
+        NATIVE is not None
+        and out.dtype == np.float32
+        and out.flags.c_contiguous
+        and out.flags.writeable
+    )
 
 
 class LinearSmoother:
@@ -29,6 +40,7 @@ class LinearSmoother:
         self.target = float(value)
         self.remaining = 0
         self.step = 0.0
+        self._native_state = np.empty(4, dtype=np.float64)
 
     def reset(self, value: float) -> None:
         if not math.isfinite(value):
@@ -64,9 +76,20 @@ class LinearSmoother:
         return self.current
 
     def fill(self, out: np.ndarray) -> np.ndarray:
-        """Fill a one-dimensional destination without allocating a second array."""
+        """Fill a one-dimensional destination without callback-time allocation."""
         if out.ndim != 1:
             raise ValueError("out must be one-dimensional")
+        if not len(out):
+            return out
+        if _native_destination(out):
+            state = self._native_state
+            state[:] = self.current, self.target, self.step, self.remaining
+            NATIVE.control_linear(out, state)
+            self.current = float(state[0])
+            self.target = float(state[1])
+            self.step = float(state[2])
+            self.remaining = int(state[3])
+            return out
         for index in range(len(out)):
             out[index] = self.next_value()
         return out
@@ -92,6 +115,7 @@ class OnePoleSmoother:
         self.current = float(value)
         self.target = float(value)
         self._coefficient = self._make_coefficient(self.time_ms)
+        self._native_state = np.empty(3, dtype=np.float64)
 
     def _make_coefficient(self, time_ms: float) -> float:
         frames = self.sample_rate * max(0.0, time_ms) / 1000.0
@@ -123,6 +147,14 @@ class OnePoleSmoother:
     def fill(self, out: np.ndarray) -> np.ndarray:
         if out.ndim != 1:
             raise ValueError("out must be one-dimensional")
+        if not len(out):
+            return out
+        if _native_destination(out):
+            state = self._native_state
+            state[:] = self.current, self.target, self._coefficient
+            NATIVE.control_onepole(out, state)
+            self.current = float(state[0])
+            return out
         for index in range(len(out)):
             out[index] = self.next_value()
         return out
