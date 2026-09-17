@@ -270,3 +270,32 @@ def test_latency_compensation_clamps_at_song_start(panel):
     panel.app.project.vocal_record.input_latency_ms = 500.0
     panel._place_clip("dry", beat=0.25, compensate_latency=True)
     assert panel.app.project.rows[0].clips[-1].start_beat == 0.0
+
+
+def test_vocal_input_channel_selector_owns_one_physical_channel(panel, monkeypatch):
+    from mpclab.ui import vocal_recording
+
+    devices = [
+        {
+            "index": 3,
+            "key": "test/interface",
+            "name": "Test Interface",
+            "label": "Test Interface · 4 in",
+            "channels": 4,
+        }
+    ]
+    monkeypatch.setattr(vocal_recording, "input_device_inventory", lambda: (devices, 3))
+    panel.app.project.vocal_record.input_device = "test/interface"
+    panel.app.project.vocal_record.input_channels = [2]
+    panel.scan_inputs()
+
+    assert panel.input_channel.count() == 4
+    assert panel.input_channel.currentData() == 2
+    panel.input_channel.setCurrentIndex(3)
+    assert panel.app.project.vocal_record.input_channels == [3]
+
+    starts = []
+    monkeypatch.setattr(panel.capture_session, "arm", lambda *_args: None)
+    monkeypatch.setattr(panel.capture_session, "start", lambda **kwargs: starts.append(kwargs))
+    panel._start_capture()
+    assert starts and starts[0]["input_channels"] == (3,)

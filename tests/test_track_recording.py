@@ -83,6 +83,19 @@ def test_audio_stays_on_armed_lane_when_selection_and_order_change(window, monke
     assert window.library.audio(clip.ref) is not None
 
 
+def test_song_audio_capture_does_not_inherit_vocal_monitor(window, monkeypatch):
+    _data, calls = mock_audio(window, monkeypatch)
+    window.project.vocal_record.monitor = True
+    window.project.vocal_record.corrected_monitor = True
+    arm(window)
+    window.btn_rec.click()
+    window.engine._process_commands()
+    assert window.track_capture.settings.monitor is False
+    assert window.track_capture.settings.corrected_monitor is False
+    assert calls == [(None, 0.0, None)]
+    window.stop_all()
+
+
 @pytest.mark.parametrize("source", ["notes", "sampler"])
 def test_synth_and_sample_notes_keep_off_grid_timing_in_song(window, source):
     row = arm(window, source=source)

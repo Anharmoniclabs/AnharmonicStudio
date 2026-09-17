@@ -141,7 +141,7 @@ class TrackCapture(WindowClient, QObject):
         )
         self.session.arm(self.target)
         self.project = self.app.project
-        self.settings = replace(self.project.vocal_record)
+        self.settings = replace(self.project.vocal_record, monitor=False, corrected_monitor=False)
         self.start_beat = float(self.app.engine.beat)
         self.pending = True
         self.notes, self.held = [], {}
@@ -170,23 +170,12 @@ class TrackCapture(WindowClient, QObject):
                         )
                 self.recorder.sample_rate = app.engine.sr
                 self.recorder.blocksize = app.engine.blocksize
-                from ..autotune.live import LiveMonitor, MonitorRoute
-
-                route = MonitorRoute(self.recorder, app.engine, self.settings.monitor_gain)
                 self.session.start(
                     device=device,
                     gain_db=self.settings.input_gain_db,
                     input_channels=self.settings.input_channels,
-                    monitor_callback=route if self.settings.monitor else None,
+                    monitor_callback=None,
                 )
-                if self.settings.monitor and self.settings.corrected_monitor:
-                    try:
-                        self._live_monitor = LiveMonitor(
-                            self.project.vocal, self.recorder.sample_rate, route
-                        )
-                        self.recorder.monitor_callback = self._live_monitor.push
-                    except Exception as exc:
-                        self._cue_error = f"Corrected cue unavailable; monitoring dry · {exc}"
                 self._capture_sample_rate = self.recorder.sample_rate
             else:
                 self.session.start()
