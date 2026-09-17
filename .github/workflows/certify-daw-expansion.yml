@@ -37,7 +37,7 @@ jobs:
           sudo apt-get install --no-install-recommends -y build-essential cmake pkg-config ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libsndfile1 libportaudio2 portaudio19-dev libasound2-dev liblilv-dev
       - name: Install Python dependencies
         run: uv sync --locked --group dev
-      - name: Apply final validation tightening
+      - name: Apply final validation and focused fixes
         run: uv run --no-sync python scripts/_certify_daw_expansion.py
       - name: Format changed Python
         run: |
@@ -63,5 +63,6 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add mpclab tests
           git rm -f scripts/_certify_daw_expansion.py .github/workflows/certify-daw-expansion.yml
+          git rm -f .github/workflows/diagnose-daw-expansion.yml expansion_test_failures.txt || true
           git commit -m 'Certify DAW expansion 5 through 15'
           git push origin HEAD:finalize/daw-expansion-implementation-20260917
