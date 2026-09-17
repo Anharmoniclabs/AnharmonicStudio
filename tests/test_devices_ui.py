@@ -154,3 +154,54 @@ def test_missing_project_instrument_does_not_prevent_loading_its_effect(window, 
     assert window.engine.external.effect is not None
     assert window.engine.external.instrument.error == "Missing instrument"
     assert "instrument" in window.project.plugins
+
+
+def test_owned_instrument_plugins_load_and_remove_independently(window, monkeypatch):
+    class Plugin:
+        def __init__(self, specification, rate):
+            self.info = {
+                "name": specification["path"],
+                "instrument": True,
+                "state": "",
+            }
+            self.closed = False
+
+        def render(self, *args, **kwargs):
+            return np.zeros((128, 2), np.float32)
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(devices, "IsolatedPlugin", Plugin)
+    monkeypatch.setattr(
+        devices,
+        "LivePlugin",
+        lambda p, n: SimpleNamespace(info=p.info, blocksize=n, error="", close=p.close),
+    )
+    first = window.project.add_instrument("First", window.project.synth)
+    second = window.project.add_instrument("Second", window.project.synth)
+    controller = window.devices
+    controller.load_plugin("instrument", {"path": "first.vst3"}, instrument_id=first.id)
+    controller.load_plugin("instrument", {"path": "second.vst3"}, instrument_id=second.id)
+    until(lambda: not controller._loading and not controller._pending_loads)
+
+    assert window.engine.external.instrument_for(first.id).info["name"] == "first.vst3"
+    assert window.engine.external.instrument_for(second.id).info["name"] == "second.vst3"
+    assert set(window.project.instrument_plugins) == {first.id, second.id}
+
+    controller.remove_plugin("instrument", first.id)
+    assert window.engine.external.instrument_for(first.id) is None
+    assert window.engine.external.instrument_for(second.id) is not None
+    assert set(window.project.instrument_plugins) == {second.id}
+
+
+def test_devices_dialog_exposes_stable_instrument_plugin_targets(window):
+    owned = window.project.add_instrument("External Rack", window.project.synth)
+    dialog = devices.DevicesDialog(window.devices, window)
+    dialog.refresh()
+    assert dialog.instrument_target.findData(None) >= 0
+    assert (
+        dialog.instrument_target.itemText(dialog.instrument_target.findData(owned.id))
+        == "External Rack"
+    )
+    dialog.close()
