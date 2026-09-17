@@ -40,6 +40,20 @@ def test_ramp_continues_exactly_across_callback_boundaries():
     np.testing.assert_allclose(second_left, [0.375, 0.25, 0.125, 0.0])
 
 
+def test_split_realtime_chunk_returns_exact_requested_view_length():
+    smoother = RealtimeMixerControlSmoother(1000, 8, 1, time_ms=8)
+    smoother.render(0, 1.0, 1.0, 8)
+
+    left, right = smoother.render(0, 0.0, 0.5, 3)
+
+    assert left.shape == (3,)
+    assert right.shape == (3,)
+    np.testing.assert_allclose(left, [0.875, 0.75, 0.625])
+    np.testing.assert_allclose(right, [0.9375, 0.875, 0.8125])
+    assert np.shares_memory(left, smoother.left_buffers[0])
+    assert np.shares_memory(right, smoother.right_buffers[0])
+
+
 def test_automation_endpoint_snap_prevents_return_to_stale_manual_value():
     smoother = RealtimeMixerControlSmoother(1000, 4, 1, time_ms=4)
     smoother.render(0, 1.0, 1.0, 4)
