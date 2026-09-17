@@ -10,13 +10,17 @@ import numpy as np
 
 
 class SidechainRouter:
-    """Preallocated per-target auxiliary audio captured before track inserts."""
+    """Preallocated per-target auxiliary audio with dependency-safe track order."""
 
     def __init__(self, project, blocksize: int):
         self.blocksize = max(1, int(blocksize))
         self.routes = ()
         self._buffers: dict[str, np.ndarray] = {}
+        self._source_routes: dict[str, tuple[dict, ...]] = {}
         self._target_routes: dict[str, tuple[dict, ...]] = {}
+        self._slot_buffers: dict[tuple[str, int], np.ndarray] = {}
+        self._track_order = ()
+        self._stamp = None
         self.configure(project, blocksize)
 
     def configure(self, project, blocksize: int | None = None) -> None:
@@ -27,14 +31,16 @@ class SidechainRouter:
         track_ids = {track.id: index for index, track in enumerate(project.tracks)}
         compiled = []
         buffers = {}
+        sources = defaultdict(list)
         targets = defaultdict(list)
+        slot_buffers = {}
         for raw in routes:
             if not raw.get("enabled", True):
                 continue
             source = raw.get("source", "")
             if not source.startswith("track:"):
-                # Bus/master captures require a later graph-stage tap. Refuse to
-                # silently substitute previous-block RMS/control information.
+                # Source buses need a graph-stage tap that is not yet a track
+                # dependency. Never substitute control/RMS data for audio.
                 continue
             track_id = source.split(":", 1)[1]
             source_index = track_ids.get(track_id)
@@ -48,42 +54,94 @@ class SidechainRouter:
             }
             compiled.append(route)
             buffers[raw["id"]] = np.zeros((self.blocksize, 2), dtype=np.float32)
+            sources[source].append(route)
             targets[raw["target"]].append(route)
+            slot_buffers.setdefault(
+                (raw["target"], route["slot"]),
+                np.zeros((self.blocksize, 2), dtype=np.float32),
+            )
         self.routes = tuple(compiled)
         self._buffers = buffers
+        self._source_routes = {key: tuple(value) for key, value in sources.items()}
         self._target_routes = {key: tuple(value) for key, value in targets.items()}
+        self._slot_buffers = slot_buffers
+        self._track_order = self._compile_track_order(project)
+        self._stamp = None
 
-    def capture_tracks(self, project, tracks: np.ndarray, frames: int) -> None:
-        del project
+    def _compile_track_order(self, project) -> tuple[int, ...]:
+        ids = [track.id for track in project.tracks]
+        index = {track_id: position for position, track_id in enumerate(ids)}
+        edges = {position: set() for position in range(len(ids))}
+        indegree = [0] * len(ids)
+        for route in self.routes:
+            target = route["target"]
+            if not target.startswith("track:"):
+                continue
+            target_id = target.split(":", 1)[1]
+            target_index = index.get(target_id)
+            source_index = route["source_index"]
+            if target_index is None:
+                continue
+            if target_index == source_index:
+                raise ValueError("a track cannot sidechain a plugin on itself")
+            if target_index not in edges[source_index]:
+                edges[source_index].add(target_index)
+                indegree[target_index] += 1
+        ready = [position for position, degree in enumerate(indegree) if degree == 0]
+        order = []
+        while ready:
+            current = ready.pop(0)
+            order.append(current)
+            for target in sorted(edges[current]):
+                indegree[target] -= 1
+                if indegree[target] == 0:
+                    ready.append(target)
+                    ready.sort()
+        if len(order) != len(ids):
+            raise ValueError("track sidechain routes must form an acyclic graph")
+        return tuple(order)
+
+    def track_order(self) -> tuple[int, ...]:
+        return self._track_order
+
+    def begin_block(self, stamp, frames: int) -> None:
         frames = int(frames)
         if frames > self.blocksize:
             raise RuntimeError("sidechain block exceeds prepared size")
-        for route in self.routes:
+        if stamp == self._stamp:
+            return
+        self._stamp = stamp
+        for buffer in self._buffers.values():
+            buffer[:frames].fill(0.0)
+        for buffer in self._slot_buffers.values():
+            buffer[:frames].fill(0.0)
+
+    def capture(self, source: str, block: np.ndarray, frames: int, *, pre_fader: bool) -> None:
+        for route in self._source_routes.get(source, ()):
+            if bool(route.get("pre_fader", False)) != bool(pre_fader):
+                continue
             destination = self._buffers[route["id"]][:frames]
-            source = tracks[route["source_index"], :frames]
             gain = np.float32(route.get("gain", 1.0))
             if gain == 1.0:
-                np.copyto(destination, source)
+                np.copyto(destination, block[:frames])
             else:
-                np.multiply(source, gain, out=destination)
+                np.multiply(block[:frames], gain, out=destination)
 
     def for_target(self, target: str, frames: int) -> dict[int, np.ndarray]:
         routes = self._target_routes.get(target, ())
         if not routes:
             return {}
-        result = {}
+        slots = {}
+        touched = set()
         for route in routes:
             slot = route["slot"]
-            source = self._buffers[route["id"]][:frames]
-            existing = result.get(slot)
-            if existing is None:
-                result[slot] = source
-            else:
-                # Multiple sends to one plugin slot sum into the first route's
-                # prepared buffer. This mutation is safe after capture and the
-                # buffer is overwritten on the next block.
-                np.add(existing, source, out=existing)
-        return result
+            mixed = self._slot_buffers[(target, slot)][:frames]
+            if slot not in touched:
+                mixed.fill(0.0)
+                touched.add(slot)
+            np.add(mixed, self._buffers[route["id"]][:frames], out=mixed)
+            slots[slot] = mixed
+        return slots
 
     def pressure(self) -> float:
         return 0.0
@@ -148,7 +206,13 @@ class SidechainLivePlugin:
         }
         try:
             self.requests.put_nowait(
-                (sequence, np.array(audio, dtype=np.float32, copy=True, order="C"), frames, reset, copied)
+                (
+                    sequence,
+                    np.array(audio, dtype=np.float32, copy=True, order="C"),
+                    frames,
+                    reset,
+                    copied,
+                )
             )
         except queue.Full:
             self.error = "Plugin could not keep up; reload it or increase the audio buffer"
