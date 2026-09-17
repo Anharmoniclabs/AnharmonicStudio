@@ -64,6 +64,8 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
             engine._external_instrument = np.zeros((frames, 2), dtype=np.float32)
         if hasattr(engine, "plugin_pdc"):
             engine.plugin_pdc.ensure_blocksize(frames)
+        if hasattr(engine, "sidechains"):
+            engine.sidechains.ensure_blocksize(frames)
     tbuf = engine._tbuf[:, :frames]
     tbuf.fill(0.0)
     pro_graph = getattr(engine, "pro_audio_graph", None)
