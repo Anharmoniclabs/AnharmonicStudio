@@ -1,4 +1,4 @@
-"""Install project sidechain routing into live isolated plugin chains."""
+"""Install project sidechain routing into live and offline isolated plugin chains."""
 
 from __future__ import annotations
 
@@ -13,12 +13,13 @@ def install_sidechain_runtime() -> None:
         return
 
     from .engine import Engine
-    from .plugin_chain_runtime import LivePluginChains
+    from .plugin_chain_runtime import LivePluginChains, OfflinePluginChains
 
     original_init = Engine.__init__
     original_prepare_fx = Engine.prepare_fx
     original_configure_blocksize = Engine.configure_blocksize
-    original_render = LivePluginChains.render
+    original_live_render = LivePluginChains.render
+    original_offline_render = OfflinePluginChains.render
 
     def bind(engine) -> None:
         if not hasattr(engine, "sidechains"):
@@ -45,7 +46,7 @@ def install_sidechain_runtime() -> None:
         bind(engine)
         return result
 
-    def render(chains, target, block):
+    def live_render(chains, target, block):
         bridge = chains.bridges.get(target)
         if bridge is None or getattr(bridge, "error", ""):
             return
@@ -68,10 +69,27 @@ def install_sidechain_runtime() -> None:
             if output is not None:
                 block[:] = output
             return
-        original_render(chains, target, block)
+        original_live_render(chains, target, block)
+
+    def offline_render(chains, target, block):
+        chain = chains.chains.get(target)
+        if chain is None:
+            return
+        router = getattr(chains, "_sidechain_router", None)
+        sidechains = router.for_target(target, len(block)) if router is not None else {}
+        if not sidechains:
+            return original_offline_render(chains, target, block)
+        supported = set(getattr(chain, "info", {}).get("sidechain_slots", []))
+        requested = set(sidechains)
+        if not requested <= supported:
+            raise ValueError(
+                "Configured sidechain targets a plugin slot that does not expose auxiliary audio"
+            )
+        block[:] = chain.render(block, len(block), sidechains=sidechains)
 
     Engine.__init__ = init
     Engine.prepare_fx = prepare_fx
     Engine.configure_blocksize = configure_blocksize
-    LivePluginChains.render = render
+    LivePluginChains.render = live_render
+    OfflinePluginChains.render = offline_render
     _INSTALLED = True
