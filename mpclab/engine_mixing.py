@@ -66,9 +66,14 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
             engine.plugin_pdc.ensure_blocksize(frames)
     tbuf = engine._tbuf[:, :frames]
     tbuf.fill(0.0)
-    master = engine._master[:frames]
-    master.fill(0.0)
-    preview_bus = engine._preview[:frames]
+    pro_graph = getattr(engine, "pro_audio_graph", None)
+    high_precision = pro_graph is not None and pro_graph.precision == "float64"
+    if high_precision:
+        master = pro_graph.accumulator.clear(frames)
+    else:
+        master = engine._master[:frames]
+        master.fill(0.0)
+    preview_bus = engine._preview_bus[:frames]
     preview_bus.fill(0.0)
 
     # Automation uses the block start, before transport advances.
@@ -200,6 +205,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
                 )
             )
 
+    profiler = getattr(engine, "performance_profiler", None)
     external_bus = getattr(engine, "_external_instrument", None)
     dry_pdc = getattr(engine, "plugin_pdc", None)
     instrument_pdc = getattr(engine, "instrument_pdc", None)
@@ -207,6 +213,12 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         dry_pdc.process(tbuf, frames)
 
     for instrument_id, plugin, target_track in hosted:
+        instrument_metric = f"instrument:{instrument_id or 'legacy'}"
+        if profiler is not None:
+            profiler.register(instrument_metric)
+            instrument_started = profiler.begin(instrument_metric)
+        else:
+            instrument_started = None
         prism_parameters = {}
         if (
             engine.playing
@@ -225,6 +237,8 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
                 prism_parameters,
                 instrument_id=instrument_id,
             )
+            if profiler is not None:
+                profiler.end(instrument_metric, instrument_started)
             continue
         external = external_bus[:frames]
         external.fill(0.0)
@@ -239,6 +253,8 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         if instrument_pdc is not None:
             instrument_pdc.process(instrument_id, external, frames)
         np.add(tbuf[target_track], external, out=tbuf[target_track])
+        if profiler is not None:
+            profiler.end(instrument_metric, instrument_started)
 
     # 4 ─ inserts → track buses → arbitrary routing → sends → master
     any_solo = False
@@ -281,9 +297,17 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
     routed = routing_plan is not None and routing_buses is not None
     if routed:
         clear_bus_buffers(routing_plan, routing_buses, frames)
+    sidechains = getattr(engine, "sidechains", None)
+    if sidechains is not None:
+        sidechains.begin_block(engine._trace_frame, frames)
+        track_order = sidechains.track_order()
+    else:
+        track_order = range(track_count)
 
-    for i in range(track_count):
+    for i in track_order:
         t = proj.tracks[i]
+        track_metric = f"track:{t.id}"
+        track_started = profiler.begin(track_metric) if profiler is not None else None
         left, right = engine._track_controls(i, automation_beats)
         # Faders are post-insert. A zero fader must not reset filter or
         # compressor history before an automated fade opens again.
@@ -309,9 +333,13 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         # can drain without ever blocking this callback.
         if chains is not None:
             chains.render(f"track:{t.id}", buf)
+        if sidechains is not None:
+            sidechains.capture(f"track:{t.id}", buf, frames, pre_fader=True)
         if g <= 0.0:
             engine.meters[i] = 0.0
             engine.peaks[i] = 0.0
+            if profiler is not None:
+                profiler.end(track_metric, track_started)
             continue
         if NATIVE is not None:
             NATIVE.core.mix_meter(buf, bus, left, right, engine._native_meter)
@@ -323,6 +351,8 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
             engine.meters[i] = float(np.sqrt(np.mean(meter_scratch)))
             np.abs(bus, out=meter_scratch)
             engine.peaks[i] = float(np.max(meter_scratch))
+        if sidechains is not None:
+            sidechains.capture(f"track:{t.id}", bus, frames, pre_fader=False)
         if routed:
             route_track(
                 routing_plan,
@@ -343,6 +373,8 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
             if t.fx.send_reverb > 1e-4:
                 np.multiply(bus, np.float32(t.fx.send_reverb), out=send_scratch)
                 np.add(reverb_send, send_scratch, out=reverb_send)
+        if profiler is not None:
+            profiler.end(track_metric, track_started)
 
     if routed:
         finish_buses(
@@ -360,6 +392,11 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
             master += rack.delay.process(delay_send, proj.delay_fx, proj.bpm)
         if proj.reverb_fx.enabled:
             master += rack.reverb.process(reverb_send, proj.reverb_fx)
+
+    if high_precision:
+        float_master = engine._master[:frames]
+        np.copyto(float_master, master, casting="unsafe")
+        master = float_master
 
     # Master tone and glue sit ahead of the fader, so riding the fader
     # never changes how hard the bus compressor is working.

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 
 import numpy as np
 
@@ -35,6 +34,9 @@ def _oscillator(shape: str, phase: np.ndarray) -> np.ndarray:
         return np.where(cycle < 0.5, 1.0, -1.0)
     if shape == "triangle":
         return 1.0 - 4.0 * np.abs(cycle - 0.5)
+    if shape == "noise":
+        hashed = np.sin((wrapped + 0.17320508075688773) * 12.9898) * 43758.5453
+        return 2.0 * (hashed - np.floor(hashed)) - 1.0
     raise ValueError(f"unsupported oscillator source: {shape}")
 
 
@@ -60,7 +62,11 @@ class _Envelope:
         attack_end = self.attack
         decay_end = attack_end + self.decay
         attack_mask = seconds < attack_end if attack_end > 0 else np.zeros_like(seconds, bool)
-        decay_mask = (~attack_mask) & (seconds < decay_end) if self.decay > 0 else np.zeros_like(seconds, bool)
+        decay_mask = (
+            (~attack_mask) & (seconds < decay_end)
+            if self.decay > 0
+            else np.zeros_like(seconds, bool)
+        )
         sustain_mask = ~(attack_mask | decay_mask)
         if attack_mask.any():
             out[attack_mask] = seconds[attack_mask] / attack_end
@@ -200,7 +206,9 @@ class KarplusVoice(_Voice):
         rng = np.random.default_rng(int(seed) ^ (note * 0x9E3779B1))
         excitation = rng.uniform(-1.0, 1.0, (self.delay, 1)).astype(np.float32)
         # Pick-position comb: subtract a shifted excitation copy.
-        shift = max(1, min(self.delay - 1, round(self.delay * float(state.get("pick_position", 0.2)))))
+        shift = max(
+            1, min(self.delay - 1, round(self.delay * float(state.get("pick_position", 0.2))))
+        )
         excitation[shift:] -= excitation[:-shift]
         self.line.write(excitation * np.float32(self.velocity))
         self.previous = 0.0
@@ -224,7 +232,9 @@ class KarplusVoice(_Voice):
             prior[0, 0] = self.previous
             if take > 1:
                 prior[1:, 0] = delayed[:-1, 0]
-            filtered = (delayed * (0.5 + 0.45 * self.brightness) + prior * (0.5 - 0.45 * self.brightness))
+            filtered = delayed * (0.5 + 0.45 * self.brightness) + prior * (
+                0.5 - 0.45 * self.brightness
+            )
             filtered *= np.float32(damping)
             self.previous = float(delayed[-1, 0])
             self.line.write(filtered)
@@ -278,7 +288,9 @@ class FMVoice(_Voice):
         outputs = []
         dead = True
         for index, item in enumerate(self.operators):
-            frequency = float(item.get("fixed_hz", 0.0)) or self.base * float(item.get("ratio", 1.0))
+            frequency = float(item.get("fixed_hz", 0.0)) or self.base * float(
+                item.get("ratio", 1.0)
+            )
             increment = TAU * min(self.sr * 0.45, frequency) / self.sr
             envelope, op_dead = self.envelopes[index].render(frames)
             dead &= op_dead
@@ -290,17 +302,30 @@ class FMVoice(_Voice):
         edges = self.ALGORITHMS[self.algorithm]
         rendered = list(outputs)
         for source, target in edges:
-            phase_mod = rendered[source] * (2.0 + 10.0 * float(self.operators[source].get("level", 1.0)))
+            phase_mod = rendered[source] * (
+                2.0 + 10.0 * float(self.operators[source].get("level", 1.0))
+            )
             if source == 3 and self.feedback:
                 phase_mod = phase_mod + self.feedback_sample * self.feedback * 6.0
             carrier_item = self.operators[target]
-            frequency = float(carrier_item.get("fixed_hz", 0.0)) or self.base * float(carrier_item.get("ratio", 1.0))
+            frequency = float(carrier_item.get("fixed_hz", 0.0)) or self.base * float(
+                carrier_item.get("ratio", 1.0)
+            )
             increment = TAU * min(self.sr * 0.45, frequency) / self.sr
             base_phase = (self.phase[target] - increment * frames) + increment * indices
-            envelope, _ = self.envelopes[target]._level_at(  # state already advanced above
-                np.arange(self.envelopes[target].age - frames, self.envelopes[target].age, dtype=float)
-            ).astype(np.float32), False
-            rendered[target] = np.sin(base_phase + phase_mod) * envelope * float(carrier_item.get("level", 1.0))
+            envelope, _ = (
+                self.envelopes[target]
+                ._level_at(  # state already advanced above
+                    np.arange(
+                        self.envelopes[target].age - frames, self.envelopes[target].age, dtype=float
+                    )
+                )
+                .astype(np.float32),
+                False,
+            )
+            rendered[target] = (
+                np.sin(base_phase + phase_mod) * envelope * float(carrier_item.get("level", 1.0))
+            )
         carriers = {0, 1, 2, 3} - {source for source, _ in edges}
         mono = sum((rendered[index] for index in carriers), np.zeros(frames, dtype=np.float64))
         self.feedback_sample = float(rendered[3][-1]) if frames else self.feedback_sample
@@ -371,7 +396,9 @@ class MultisampleFactory:
             counter = self.counters.get(key, 0)
             selected_rr = rr_values[counter % len(rr_values)]
             self.counters[key] = counter + 1
-            chosen.extend(region for region in regions if region.get("round_robin", 0) == selected_rr)
+            chosen.extend(
+                region for region in regions if region.get("round_robin", 0) == selected_rr
+            )
         voices = []
         for region in chosen:
             audio = self.library.cached_audio(region["sample_id"])
@@ -425,7 +452,9 @@ class ExpansionInstrumentBridge:
         self.voices: list[_Voice] = []
         self.held: dict[tuple[int, int], list[_Voice]] = {}
         self.multisample = (
-            MultisampleFactory(library, state) if engine_type == "multisample" and library is not None else None
+            MultisampleFactory(library, state)
+            if engine_type == "multisample" and library is not None
+            else None
         )
         self.seed = 0
 
