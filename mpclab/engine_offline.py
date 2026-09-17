@@ -19,7 +19,13 @@ from .music import automation_values
 from .prism_motion import automation_parameters
 from .instrument_state import decode_destination, voice_patch
 from .plugin_chain_runtime import OfflinePluginChains, RoutingDelayBank, compile_chain_latency_plan
-from .plugin_latency import PluginDelayCompensator, plugin_path_latency_samples
+from .plugin_latency import (
+    PluginDelayCompensator,
+    StereoDelayCompensator,
+    plugin_path_latency_samples,
+)
+from .offline_owned_instruments import OfflineOwnedInstruments
+from .sidechain import SidechainRouter
 from .sample_voice import PadRenderWorkspace, PadVoice, _balance_gains
 from .midi_playback import controls_in_range, render_expressive_voice, remember_control
 from .workflow_routing import (
@@ -272,6 +278,7 @@ def iter_offline_blocks(
     saved_mode, engine.mode = engine.mode, mode
     plugins = None
     chains = None
+    owned = None
     try:
         notes, audio = engine._collect(0.0, length_beats)
         synth_events = []
@@ -313,6 +320,7 @@ def iter_offline_blocks(
                     if c.instrument is None and c.pad is None
                 )
                 plugins.events.sort(key=lambda event: event[0])
+        owned = OfflineOwnedInstruments(engine, proj, synth_events, control_events)
         voices: list[tuple[int, PadVoice]] = []
         for event in notes:
             item = engine._offline_pad_event(*event, spb)
@@ -373,11 +381,22 @@ def iter_offline_blocks(
         external = np.zeros((blocksize, 2), dtype=np.float32)
         routing_plan = compile_routing(proj)
         plugin_pdc = PluginDelayCompensator(track_count, blocksize)
-        if plugins is not None and plugins.instrument is not None:
-            plugin_pdc.configure(
-                plugin_path_latency_samples(plugins.instrument, include_live_bridge=False)
-            )
+        legacy_latency = (
+            plugin_path_latency_samples(plugins.instrument, include_live_bridge=False)
+            if plugins is not None and plugins.instrument is not None
+            else 0
+        )
+        global_latency = max(legacy_latency, owned.max_latency if owned is not None else 0)
+        plugin_pdc.configure(global_latency)
+        legacy_extra = StereoDelayCompensator(blocksize)
+        legacy_extra.configure(max(0, global_latency - legacy_latency), blocksize)
+        if owned is not None:
+            for instrument_id, plugin in owned.plugins.items():
+                latency = plugin_path_latency_samples(plugin, include_live_bridge=False)
+                owned.delays[instrument_id].configure(max(0, global_latency - latency), blocksize)
         chains = OfflinePluginChains(proj, engine.sr)
+        sidechains = SidechainRouter(proj, blocksize)
+        chains._sidechain_router = sidechains
         chain_delays = RoutingDelayBank(blocksize)
         chain_delays.configure(compile_chain_latency_plan(routing_plan, chains.latencies()))
         voice_workspace = PadRenderWorkspace(blocksize)
@@ -417,7 +436,10 @@ def iter_offline_blocks(
                 at, pitch, velocity, gate, instrument_id, channel, sequence_id = synth_events[
                     next_synth
                 ]
-                if instrument_id is not None or plugins is None or plugins.instrument is None:
+                owned_id = owned is not None and instrument_id in owned.plugins
+                if not owned_id and (
+                    instrument_id is not None or plugins is None or plugins.instrument is None
+                ):
                     engine._spawn_synth(
                         pitch,
                         velocity,
@@ -446,6 +468,8 @@ def iter_offline_blocks(
             for _, control in block_controls:
                 remember_control(control_state, control)
             synth_voices[:] = [voice for voice in synth_voices if not voice.dead]
+            if global_latency > 0:
+                plugin_pdc.process(tracks, frames)
             if plugins is not None and plugins.instrument is not None:
                 external_block = external[:frames]
                 external_block.fill(0.0)
@@ -453,16 +477,22 @@ def iter_offline_blocks(
                 if mode == "song" and plugins.instrument.info.get("name") == "Anharmonic Prism":
                     parameters = automation_parameters(proj, start / (spb * engine.sr))
                 plugins.render_instrument(external_block, start, frames, parameters)
-                if plugin_pdc.delay_samples > 0:
-                    plugin_pdc.process(tracks, frames)
+                legacy_extra.process(external_block, frames)
                 synth_track = proj.validate_track_index(proj.synth.track, "synth output")
                 np.add(tracks[synth_track], external_block, out=tracks[synth_track])
+            if owned is not None:
+                for instrument in proj.instruments:
+                    if instrument.id not in owned.plugins:
+                        continue
+                    target = proj.validate_track_index(instrument.patch.track, "instrument output")
+                    owned.render(instrument.id, tracks[target], start, frames)
 
             automation_beats = engine._automation_beats(mode, start / (spb * engine.sr), frames)
             delay_send = reverb_send = None
             if run_sends:
                 delay_send, reverb_send = rack.send_buffers(frames)
-            for i in range(track_count):
+            sidechains.begin_block(start, frames)
+            for i in sidechains.track_order():
                 track = proj.tracks[i]
                 left, right = engine._track_controls(i, automation_beats)
                 if track.mute or (any_solo and not track.solo):
@@ -472,8 +502,10 @@ def iter_offline_blocks(
                 if fx.active:
                     rack.tracks[i].process(buf, fx)
                 chains.render(f"track:{track.id}", buf)
+                sidechains.capture(f"track:{track.id}", buf, frames, pre_fader=True)
                 np.multiply(buf[:, 0], left, out=panned[:frames, 0])
                 np.multiply(buf[:, 1], right, out=panned[:frames, 1])
+                sidechains.capture(f"track:{track.id}", panned[:frames], frames, pre_fader=False)
                 route_track(
                     routing_plan,
                     i,
@@ -523,6 +555,8 @@ def iter_offline_blocks(
             plugins.close()
         if chains is not None:
             chains.close()
+        if owned is not None:
+            owned.close()
         engine.mode = saved_mode
     if progress:
         progress(1.0)

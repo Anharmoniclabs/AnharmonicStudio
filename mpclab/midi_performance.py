@@ -317,9 +317,14 @@ class MidiPerformance:
         e = self.engine
         if pad is not None:
             e._spawn(e.project.pads[pad], pad, velocity, self.offset, note=note)
-        elif e.external.instrument is not None and instrument is None:
-            e.external.events.append(
-                ([0x90 | channel, note, max(1, round(velocity * 127))], self.offset)
+        elif e.external.instrument_for(instrument) is not None:
+            e.external.note_on(
+                note,
+                velocity,
+                self.offset,
+                live=True,
+                channel=channel,
+                instrument_id=instrument,
             )
         else:
             e._spawn_synth(
@@ -340,9 +345,12 @@ class MidiPerformance:
         e = self.engine
         if pad is not None:
             e.sample_note_off(pad, note)
-        elif e.external.instrument is not None and instrument is None:
-            e.external.events.append(
-                ([0x80 | channel, note, self.router.release_velocity], self.offset)
+        elif e.external.instrument_for(instrument) is not None:
+            e.external.note_off(
+                note,
+                instrument_id=instrument,
+                channel=channel,
+                offset=self.offset,
             )
         else:
             e._release_synth(note, instrument, midi_owner=port, midi_channel=channel)
@@ -357,7 +365,9 @@ class MidiPerformance:
         self.engine.release_pad(pad)
 
     def _expression(self, message):
-        self.engine.external.events.append((message, self.offset))
+        instrument_id = self.route[1]
+        if not self.engine.external.queue_event(message, self.offset, instrument_id=instrument_id):
+            self.engine.external.queue_event(message, self.offset, instrument_id=None)
         control = MidiControl(0, list(message), self.route[1], self.route[0])
         apply_expression(
             [

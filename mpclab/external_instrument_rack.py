@@ -200,7 +200,9 @@ class HostedInstrumentRack:
             self.LEGACY: HostedInstrumentRoute(self.LEGACY)
         }
 
-    def route(self, instrument_id: str | None = None, *, create=False) -> HostedInstrumentRoute | None:
+    def route(
+        self, instrument_id: str | None = None, *, create=False
+    ) -> HostedInstrumentRoute | None:
         route = self._routes.get(instrument_id)
         if route is None and create:
             route = HostedInstrumentRoute(instrument_id)

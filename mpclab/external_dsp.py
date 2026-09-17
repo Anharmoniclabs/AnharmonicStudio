@@ -10,6 +10,8 @@ from .external_instrument_rack import (
     prism_tempo_events,
 )
 
+__all__ = ("ExternalDSP", "ExternalNote", "OfflinePlugins")
+
 
 class ExternalDSP:
     """Compatibility facade over independently owned hosted instrument routes."""
@@ -67,6 +69,27 @@ class ExternalDSP:
     def active_instrument_ids(self):
         return self.instruments.active_ids()
 
+    def plugin_map(self):
+        plugins = {}
+        legacy = self.instrument_for(None)
+        if legacy is not None:
+            plugins[None] = legacy
+        for instrument_id in self.active_instrument_ids():
+            plugin = self.instrument_for(instrument_id)
+            if plugin is not None:
+                plugins[instrument_id] = plugin
+        return plugins
+
+    def queue_event(self, message, offset=0, *, instrument_id=None):
+        route = self.instruments.route(instrument_id)
+        if route is None or route.plugin is None:
+            return False
+        route.events.append((message, max(0, int(offset))))
+        return True
+
+    def all_voices(self):
+        return tuple(voice for route in self.instruments.all_routes() for voice in route.voices)
+
     def note_on(
         self,
         note,
@@ -94,9 +117,7 @@ class ExternalDSP:
         )
 
     def note_off(self, note, *, instrument_id=None, channel=0, offset=0):
-        self.instruments.note_off(
-            note, instrument_id=instrument_id, channel=channel, offset=offset
-        )
+        self.instruments.note_off(note, instrument_id=instrument_id, channel=channel, offset=offset)
 
     def release_sequence(self, sequence_id, offset=0):
         self.instruments.release_sequence(sequence_id, offset)
@@ -117,9 +138,7 @@ class ExternalDSP:
         *,
         instrument_id=None,
     ):
-        self.instruments.render(
-            instrument_id, destination, frames, sample_rate, bpm, parameters
-        )
+        self.instruments.render(instrument_id, destination, frames, sample_rate, bpm, parameters)
 
     def render_effect(self, block):
         effect = self.effect
