@@ -12,6 +12,7 @@ def install_application_runtime():
     from .premium_workflows import install_premium_runtime
     from .pro_audio_runtime import install_pro_audio_runtime
     from .pro_daw_state import install_pro_daw_state
+    from .processor_runtime import install_processor_runtime
     from .profiler_runtime import install_profiler_runtime
     from .project_audio_runtime import install_project_audio_runtime
     from .read_ahead_runtime import install_read_ahead_runtime
@@ -33,6 +34,7 @@ def install_application_runtime():
     install_expansion_instrument_runtime()
     install_project_audio_runtime()
     install_read_ahead_runtime()
+    install_processor_runtime()
     install_profiler_runtime()
     install_pro_audio_runtime()
     install_recording_capture_extensions()
@@ -57,6 +59,7 @@ def attach_application_features(window):
     from .ui.loudness_delivery import attach_loudness_delivery
     from .ui.timeline_markers import attach_timeline_markers
     from .ui.track_management import attach_track_management
+    from .ui.daw_expansion import attach_daw_expansion
     from .workflow_compat import restore_unmanaged_legacy_shortcuts
     from .ui.audio_analysis import attach_audio_analysis
     from .workflow_organization import attach_organization_workflows
@@ -77,5 +80,6 @@ def attach_application_features(window):
     attach_mastering_workspace(window, controller)
     attach_organization_workflows(window, controller)
     attach_dawproject_interchange(window, controller)
+    attach_daw_expansion(window, controller)
     restore_unmanaged_legacy_shortcuts(controller)
     return controller
