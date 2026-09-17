@@ -869,7 +869,14 @@ class PianoRollPanel(WindowClient, QWidget):
         )
         self.channel.addItem(instrument_name, None)
         for instrument in project.instruments:
-            self.channel.addItem(f"{instrument.name} · {instrument.patch.name}", instrument.id)
+            bridge = self.app.engine.external_for(instrument.id).instrument
+            label = (
+                f"{instrument.name} · VST · "
+                f"{Path((instrument.plugin or {}).get('path', '')).stem or 'External instrument'}"
+                if bridge is not None
+                else f"{instrument.name} · {instrument.patch.name}"
+            )
+            self.channel.addItem(label, instrument.id)
         for index, pad in enumerate(project.pads):
             if not pad.empty or index in referenced:
                 label = f"{chr(65 + index // 16)}{index % 16 + 1} · {pad.name or 'Missing sound'}"

@@ -119,6 +119,13 @@ def validate_project_plugins(value) -> dict:
     return result
 
 
+def validate_instrument_plugin(spec) -> dict | None:
+    """Validate one stable instrument's own external-plugin spec, or None."""
+    if spec is None:
+        return None
+    return validate_project_plugins({"instrument": spec})["instrument"]
+
+
 @dataclass(frozen=True, slots=True)
 class PluginCandidate:
     id: str

@@ -215,6 +215,10 @@ class DevicesController(WindowClient, QObject):
                 if bridge is not None and bridge.error:
                     state = "silenced" if slot == "instrument" else "bypassed"
                     self.plugin_status = f"{slot.title()} {state} · {bridge.error}"
+            for instrument in self.app.project.instruments:
+                bridge = self.app.engine.external_for(instrument.id).instrument
+                if bridge is not None and bridge.error:
+                    self.plugin_status = f"{instrument.name} silenced · {bridge.error}"
             self.changed.emit()
 
     def show(self):
@@ -305,8 +309,68 @@ class DevicesController(WindowClient, QObject):
             except Exception as exc:
                 app._audio_start_error = str(exc)
 
+    def _plugin_target(self, slot):
+        """Resolve one plugin slot to its bridge object and saved-spec location.
+
+        ``slot`` is either the legacy string "instrument"/"effect" (the
+        project-wide default instrument and master effect), or a tuple
+        ``("instrument", instrument_id)`` naming one stable, independent
+        instrument's own plugin instance.
+        """
+        if isinstance(slot, tuple):
+            instrument_id = slot[1]
+            engine = self.app.engine
+
+            def get_bridge():
+                return engine.external_for(instrument_id).instrument
+
+            def set_bridge(value):
+                engine.external_for(instrument_id).instrument = value
+
+            def get_spec():
+                instrument = next(
+                    (i for i in self.app.project.instruments if i.id == instrument_id), None
+                )
+                return instrument.plugin if instrument else None
+
+            def set_spec(value):
+                instrument = next(
+                    (i for i in self.app.project.instruments if i.id == instrument_id), None
+                )
+                if instrument is not None:
+                    instrument.plugin = value
+
+            return get_bridge, set_bridge, get_spec, set_spec
+
+        def get_bridge():
+            return getattr(self.app.engine.external, slot)
+
+        def set_bridge(value):
+            setattr(self.app.engine.external, slot, value)
+
+        def get_spec():
+            return self.app.project.plugins.get(slot)
+
+        def set_spec(value):
+            if value is None:
+                self.app.project.plugins.pop(slot, None)
+            else:
+                self.app.project.plugins[slot] = value
+
+        return get_bridge, set_bridge, get_spec, set_spec
+
+    def load_instrument_plugin(self, instrument_id, specification, *, save=True):
+        """Load a plugin into one stable instrument's own independent slot."""
+        self.load_plugin(("instrument", instrument_id), specification, save=save)
+
+    def remove_instrument_plugin(self, instrument_id):
+        self.remove_plugin(("instrument", instrument_id))
+
     def load_plugin(self, slot, specification, *, save=True):
-        if slot not in self._slot_generation or self._closed:
+        valid = slot in ("instrument", "effect") or (
+            isinstance(slot, tuple) and len(slot) == 2 and slot[0] == "instrument"
+        )
+        if not valid or self._closed:
             return
         self._generation += 1
         generation = self._generation
@@ -324,6 +388,7 @@ class DevicesController(WindowClient, QObject):
         self.plugin_status = "Loading plugin…"
         reference = weakref.ref(self)
         rate, frames = self.app.engine.sr, self.app.engine.blocksize
+        is_instrument = slot == "instrument" or (isinstance(slot, tuple) and slot[0] == "instrument")
 
         def work():
             bridge = None
@@ -331,12 +396,12 @@ class DevicesController(WindowClient, QObject):
             error = ""
             try:
                 plugin = IsolatedPlugin(specification, rate)
-                if not plugin.info.get(slot):
-                    raise ValueError(f"This plugin is not an {slot}")
+                if not plugin.info.get("instrument" if is_instrument else "effect"):
+                    raise ValueError(f"This plugin is not an {'instrument' if is_instrument else 'effect'}")
                 # Warm caches while the previous instrument/effect stays playable.
                 silence = np.zeros((frames, 2), np.float32)
                 for i in range(3):
-                    plugin.render(None if slot == "instrument" else silence, frames, reset=i == 0)
+                    plugin.render(None if is_instrument else silence, frames, reset=i == 0)
                 specification["state"] = plugin.info["state"]
                 bridge = LivePlugin(plugin, frames)
             except Exception as exc:
@@ -359,15 +424,17 @@ class DevicesController(WindowClient, QObject):
 
     def _plugin_loaded(self, generation, slot, bridge, saved, error):
         self._loading = False
-        if generation != self._slot_generation[slot] or self._closed:
+        if generation != self._slot_generation.get(slot) or self._closed:
             if bridge is not None:
                 bridge.close()
             self._continue_load()
             return
         specification, save = saved
+        get_bridge, set_bridge, get_spec, set_spec = self._plugin_target(slot)
+        is_instrument = slot == "instrument" or (isinstance(slot, tuple) and slot[0] == "instrument")
         if error:
             if not save:
-                setattr(self.app.engine.external, slot, UnavailablePlugin(error))
+                set_bridge(UnavailablePlugin(error))
             self.plugin_status = "Plugin unavailable · " + error
             key = next(
                 (
@@ -388,15 +455,16 @@ class DevicesController(WindowClient, QObject):
             return
         if save:
             self.app.snapshot()
-            self.app.project.plugins[slot] = specification
+            set_spec(specification)
             self.app._set_dirty(True)
-        old = getattr(self.app.engine.external, slot)
-        setattr(self.app.engine.external, slot, bridge)
+        old = get_bridge()
+        set_bridge(bridge)
         if old is not None:
             old.close()
-        if slot == "instrument":
+        if is_instrument:
             self.app.panic_synth()
-            self.app.piano_roll.select_channel(None)
+            if slot == "instrument":
+                self.app.piano_roll.select_channel(None)
         self.plugin_status = f"{bridge.info['name']} ready · monitoring adds {2 * bridge.blocksize / self.app.engine.sr * 1000:.1f} ms"
         self.changed.emit()
         self._continue_load()
@@ -405,11 +473,12 @@ class DevicesController(WindowClient, QObject):
         self._generation += 1
         self._slot_generation[slot] = self._generation
         self._pending_loads.pop(slot, None)
+        get_bridge, set_bridge, _get_spec, set_spec = self._plugin_target(slot)
         self.app.snapshot()
-        self.app.project.plugins.pop(slot, None)
+        set_spec(None)
         self.app._set_dirty(True)
-        old = getattr(self.app.engine.external, slot)
-        setattr(self.app.engine.external, slot, None)
+        old = get_bridge()
+        set_bridge(None)
         if old is not None:
             old.close()
         self.app.engine.cmds.put(("synthpanic",))
@@ -418,15 +487,25 @@ class DevicesController(WindowClient, QObject):
 
     def sync_project(self):
         self._generation += 1
-        self._slot_generation = dict.fromkeys(self._slot_generation, self._generation)
+        self._slot_generation = {"instrument": self._generation, "effect": self._generation}
         self._pending_loads.clear()
         self.app.engine.midi.release()
         self.app.engine.external.close()
+        for external in self.app.engine.external_instruments.values():
+            external.close()
+        self.app.engine.external_instruments.clear()
         self.app.engine.cmds.put(("synthpanic",))
         for slot, spec in self.app.project.plugins.items():
             if not spec.get("bypass"):
                 setattr(self.app.engine.external, slot, UnavailablePlugin("Loading plugin…"))
                 self.load_plugin(slot, spec, save=False)
+        for instrument in self.app.project.instruments:
+            spec = instrument.plugin
+            if spec and not spec.get("bypass"):
+                self.app.engine.external_for(instrument.id).instrument = UnavailablePlugin(
+                    "Loading plugin…"
+                )
+                self.load_instrument_plugin(instrument.id, spec, save=False)
 
     def shutdown(self):
         if self._closed:
@@ -440,6 +519,9 @@ class DevicesController(WindowClient, QObject):
         self.service.close()
         self.output.close()
         self.app.engine.external.close()
+        for external in self.app.engine.external_instruments.values():
+            external.close()
+        self.app.engine.external_instruments.clear()
 
 
 class DevicesDialog(QDialog):

@@ -69,6 +69,32 @@ class PatternActionsMixin:
             steps={k: dict(v) for k, v in src.steps.items()},
             notes=[replace(note) for note in src.notes],
         )
+        # An instrument that owns its own external plugin (Prism) must never
+        # end up aliased between the source and the copy; give the copy an
+        # independent clone of that instrument instead.
+        remap = {}
+        for note in copy.notes:
+            if note.instrument is None or note.instrument in remap:
+                continue
+            source_instrument = next(
+                (i for i in self.project.instruments if i.id == note.instrument), None
+            )
+            if source_instrument is None or not source_instrument.plugin:
+                continue
+            try:
+                clone = self.project.add_instrument(
+                    f"{source_instrument.name} copy",
+                    source_instrument.patch,
+                    source_instrument.midi_channel,
+                    source_instrument.plugin,
+                )
+            except ValueError as exc:
+                self.status.showMessage(str(exc), 5000)
+                break
+            remap[note.instrument] = clone.id
+        for note in copy.notes:
+            if note.instrument in remap:
+                note.instrument = remap[note.instrument]
         self.project.patterns.append(copy)
         self.project.current_pattern = copy.id
         self._sync_pattern_controls()

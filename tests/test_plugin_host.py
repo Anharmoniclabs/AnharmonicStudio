@@ -107,6 +107,7 @@ def live_fixture():
     bridge.error = ""
     bridge.misses = 0
     bridge._consecutive_misses = 0
+    bridge._backlog_since = None
     bridge._position = 0
     bridge._pending = {}
     return bridge
@@ -148,14 +149,49 @@ def test_live_timeout_recovers_without_waiting_or_replaying_old_audio():
     assert queued[2][3:] == (note_off, True)
 
 
-def test_live_sustained_deadline_misses_still_fail_closed():
+def test_live_brief_stall_self_heals_instead_of_failing_closed(monkeypatch):
+    """A short backlog (one slow render, a parameter round-trip) must recover.
+
+    Regression for Prism permanently going silent after an ordinary transient
+    hiccup: only a backlog that never clears for a real, sustained stretch may
+    fail the bridge closed.
+    """
+    from mpclab import plugin_host
+
+    clock = [1000.0]
+    monkeypatch.setattr(plugin_host.time, "monotonic", lambda: clock[0])
     bridge = live_fixture()
+    result = None
     for _ in range(10):
         result = bridge.render(None, 16)
+        # Simulate a worker that is momentarily behind but still alive.
+        bridge.requests.get_nowait()
+        clock[0] += 0.05  # ten blocks span half a second, well under the grace period
+    assert result is not None
+    assert not bridge.error
+    assert bridge.misses == 8
+    # Recovering clears the backlog timer so a later stall gets a fresh window.
+    bridge.results.put((bridge._position - 2 * bridge.blocksize, np.zeros((16, 2), np.float32)))
+    bridge.render(None, 16)
+    assert bridge._backlog_since is None
+
+
+def test_live_sustained_deadline_misses_still_fail_closed(monkeypatch):
+    from mpclab import plugin_host
+
+    clock = [1000.0]
+    monkeypatch.setattr(plugin_host.time, "monotonic", lambda: clock[0])
+    bridge = live_fixture()
+    result = None
+    for _ in range(50):
+        result = bridge.render(None, 16)
+        if bridge.error:
+            break
         # Simulate a worker accepting requests but always returning too late.
         bridge.requests.get_nowait()
+        clock[0] += 0.1
     assert result is None
-    assert bridge.misses == 8 and "deadline" in bridge.error
+    assert "deadline" in bridge.error
 
 
 def test_live_partial_deadline_miss_retains_only_timely_samples():
@@ -169,11 +205,29 @@ def test_live_partial_deadline_miss_retains_only_timely_samples():
     assert bridge.misses == 1 and not bridge.error
 
 
-def test_live_request_overflow_remains_a_fatal_error():
+def test_live_request_overflow_eventually_fails_closed(monkeypatch):
+    """A request queue that never drains still fails closed, but only once
+    the resulting silence has been sustained for a real, meaningful stretch."""
+    from mpclab import plugin_host
+
+    clock = [1000.0]
+    monkeypatch.setattr(plugin_host.time, "monotonic", lambda: clock[0])
     bridge = live_fixture()
+    result = None
     for _ in range(5):
         result = bridge.render(None, 16)
-    assert result is None and "could not keep up" in bridge.error
+        clock[0] += 0.05
+    # Nothing has drained the request queue, but under a second of backlog
+    # is not yet a sustained failure.
+    assert result is not None
+    assert not bridge.error
+    for _ in range(40):
+        result = bridge.render(None, 16)
+        if bridge.error:
+            break
+        clock[0] += 0.1
+    assert result is None
+    assert "deadline" in bridge.error
 
 
 def test_plugin_state_roundtrip_and_legacy_projects(tmp_path):

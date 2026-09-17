@@ -31,6 +31,17 @@ def automation_beats(engine: Engine, mode, start, frames):
     return start + np.arange(frames) * (engine.project.bpm / 60.0 / engine.sr)
 
 
+def _instrument_prism_parameters(engine: Engine, proj, external_dsp, start_beat):
+    """Independent Prism automation for one additional instrument's own instance."""
+    if not (
+        engine.playing
+        and engine.mode == "song"
+        and getattr(external_dsp.instrument, "info", {}).get("name") == "Anharmonic Prism"
+    ):
+        return {}
+    return automation_parameters(proj, start_beat, ())
+
+
 def track_controls(engine: Engine, index, beats):
     track = engine.project.tracks[index]
     if beats is None:
@@ -194,6 +205,16 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         engine.external.render_instrument(
             tbuf[synth_track], frames, engine.sr, proj.bpm, prism_parameters
         )
+        for instrument_id, external_dsp in engine.external_instruments.items():
+            instrument = next((i for i in proj.instruments if i.id == instrument_id), None)
+            if instrument is None:
+                continue
+            track_index = proj.validate_track_index(instrument.patch.track, "instrument output")
+            external_dsp.render_instrument(
+                tbuf[track_index], frames, engine.sr, proj.bpm, _instrument_prism_parameters(
+                    engine, proj, external_dsp, start_beat
+                )
+            )
     else:
         external = external_bus[:frames]
         external.fill(0.0)
@@ -202,6 +223,21 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         if engine.external.instrument is not None and pdc is not None and pdc.delay_samples > 0:
             pdc.process(tbuf, frames)
         np.add(tbuf[synth_track], external, out=tbuf[synth_track])
+        # Each additional instrument owns an independent plugin instance and
+        # renders into its own mixer track; only the legacy slot above gets
+        # session-wide plugin-latency compensation.
+        for instrument_id, external_dsp in engine.external_instruments.items():
+            instrument = next((i for i in proj.instruments if i.id == instrument_id), None)
+            if instrument is None:
+                continue
+            track_index = proj.validate_track_index(instrument.patch.track, "instrument output")
+            external.fill(0.0)
+            external_dsp.render_instrument(
+                external, frames, engine.sr, proj.bpm, _instrument_prism_parameters(
+                    engine, proj, external_dsp, start_beat
+                )
+            )
+            np.add(tbuf[track_index], external, out=tbuf[track_index])
 
     # 4 ─ inserts → track buses → arbitrary routing → sends → master
     any_solo = False

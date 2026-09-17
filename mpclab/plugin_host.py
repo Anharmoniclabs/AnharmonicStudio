@@ -15,12 +15,17 @@ from pathlib import Path
 import queue
 import struct
 import threading
+import time
 
 import numpy as np
 
 MAX_PACKET = 4 * 1024 * 1024
 MAX_FRAMES = 8192
 MAX_STATE = 2 * 1024 * 1024
+# A single slow render, a parameter round-trip, or GC/scheduler jitter can miss
+# several consecutive blocks and still be perfectly healthy. Only a backlog
+# that never clears for this long indicates a genuinely stuck worker.
+RECOVERY_GRACE_SECONDS = 2.0
 
 
 class PluginError(RuntimeError):
@@ -299,6 +304,7 @@ class LivePlugin:
         self.error = ""
         self.misses = 0
         self._consecutive_misses = 0
+        self._backlog_since: float | None = None
         self._position = 0
         self._pending = {}
         self._parameter_lock = threading.Lock()
@@ -344,8 +350,17 @@ class LivePlugin:
                 try:
                     self.results.put_nowait((sequence, output))
                 except queue.Full:
-                    self.error = "Plugin output queue overflowed; reload the plugin"
-                    break
+                    # The callback side briefly stopped draining results (a GUI
+                    # stall, not a plugin failure). Drop the oldest queued
+                    # audio to make room rather than killing this worker.
+                    try:
+                        self.results.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        self.results.put_nowait((sequence, output))
+                    except queue.Full:
+                        pass
         except Exception as exc:
             self.error = str(exc) or "Plugin processing failed"
         finally:
@@ -365,8 +380,11 @@ class LivePlugin:
                 + ((dict(parameters),) if parameters else ())
             )
         except queue.Full:
-            self.error = "Plugin could not keep up; reload it or increase the audio buffer"
-            return None
+            # The worker is momentarily behind; skip this block's request
+            # instead of failing immediately. The gap is filled with silence
+            # below, and the sustained-backlog check still fails closed if
+            # this never clears.
+            pass
         while True:
             try:
                 number, result = self.results.get_nowait()
@@ -387,17 +405,22 @@ class LivePlugin:
         if covered < max(0, end - max(0, wanted)):
             self.misses += 1
             self._consecutive_misses += 1
-            # A brief worker stall drops only the unavailable samples. Keep
-            # advancing the timeline and forwarding MIDI (especially note-off)
-            # so a healthy plugin can catch up without replaying late audio.
-            # Persistent lag still fails closed, as do queue and worker errors.
-            if self._consecutive_misses >= 8:
+            # A brief worker stall (a slow render, a parameter round-trip, GC
+            # or scheduler jitter) recovers on its own long before this timer
+            # elapses. Only a backlog that never clears for a real, sustained
+            # stretch fails closed.
+            now = time.monotonic()
+            if self._backlog_since is None:
+                self._backlog_since = now
+            elif now - self._backlog_since >= RECOVERY_GRACE_SECONDS:
                 self.error = (
-                    "Plugin repeatedly missed its audio deadline; reload it or increase the buffer"
+                    "Plugin missed its audio deadline for too long; "
+                    "reload it or increase the buffer"
                 )
                 return None
         else:
             self._consecutive_misses = 0
+            self._backlog_since = None
         return result
 
     def close(self):
