@@ -1,0 +1,66 @@
+name: Apply post-expansion CI repair
+
+on:
+  push:
+    branches: [fix/recording-isolation-current-main-20260917]
+    paths:
+      - scripts/_apply_post_expansion_ci_repair.py
+      - .github/workflows/apply-post-expansion-ci-repair.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    env:
+      QT_QPA_PLATFORM: offscreen
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix/recording-isolation-current-main-20260917
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.12'
+      - name: Install test dependencies
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential cmake pkg-config ffmpeg libegl1 libgl1 libopengl0 libxkbcommon0 libsndfile1 libportaudio2 portaudio19-dev libasound2-dev liblilv-dev
+          uv sync --locked --group dev
+      - name: Build native helpers
+        run: |
+          uv run --no-sync python scripts/build_native.py
+          uv run --no-sync python scripts/build_rubberband.py
+          bash scripts/build-native.sh
+      - name: Apply guarded repair
+        run: uv run --no-sync python scripts/_apply_post_expansion_ci_repair.py
+      - name: Format lint and compile
+        run: |
+          uv run --no-sync ruff format mpclab/fx_unification.py mpclab/sidechain.py mpclab/engine_mixing.py mpclab/offline_owned_instruments.py tests/test_project_schema.py
+          uv run --no-sync ruff check mpclab/fx_unification.py mpclab/sidechain.py mpclab/engine_mixing.py mpclab/offline_owned_instruments.py tests/test_project_schema.py
+          uv run --no-sync python -m compileall -q mpclab/fx_unification.py mpclab/sidechain.py mpclab/engine_mixing.py mpclab/offline_owned_instruments.py tests/test_project_schema.py
+          git diff --check
+      - name: Re-run exact post-expansion failure classes
+        run: >-
+          uv run --no-sync pytest -q -o faulthandler_timeout=30
+          tests/test_pattern_layer_choke.py
+          tests/test_fx_preparation.py::test_unexpected_callback_size_does_not_create_a_filter_fft_plan
+          tests/test_engine_modules.py::test_shared_modules_import_without_coordinator_devices_or_gui
+          tests/test_project_schema.py::test_all_optional_project_fields_roundtrip_without_install_order
+          tests/test_track_recording.py::test_song_audio_capture_does_not_inherit_vocal_monitor
+          tests/test_vocal_panel.py::test_vocal_input_channel_selector_owns_one_physical_channel
+      - name: Commit production repair
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mpclab/fx_unification.py mpclab/sidechain.py mpclab/engine_mixing.py mpclab/offline_owned_instruments.py tests/test_project_schema.py
+          git rm -f scripts/_apply_post_expansion_ci_repair.py .github/workflows/apply-post-expansion-ci-repair.yml
+          git commit -m 'Repair post-expansion runtime regressions'
+          git push origin HEAD:fix/recording-isolation-current-main-20260917
