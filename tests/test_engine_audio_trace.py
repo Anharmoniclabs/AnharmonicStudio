@@ -33,6 +33,7 @@ def test_pad_trace_names_voice_and_retrigger_reason():
     engine = _engine()
     pad = engine.project.pads[0]
     pad.mode = "gate"
+    pad.retrigger = "restart"
     engine._spawn(pad, 0, 1.0)
     first = engine.voices[-1]
     engine._spawn(pad, 0, 0.8, offset=7)
@@ -42,7 +43,7 @@ def test_pad_trace_names_voice_and_retrigger_reason():
     assert rows[1].voice == id(first)
     assert rows[1].source == 0
     assert rows[1].frame == 7
-    assert rows[1].reason == "pad_retrigger"
+    assert rows[1].reason == "pad_restart"
 
 
 def test_transport_trace_records_play_seek_stop():
