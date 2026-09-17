@@ -666,6 +666,7 @@ class Project:
     current_vocal_comp: str = ""
     automation: list[AutomationLane] = field(default_factory=list)
     plugins: dict = field(default_factory=dict)
+    instrument_plugins: dict = field(default_factory=dict)
     workflow: dict = field(default_factory=dict)
     pro_daw: dict = field(default_factory=dict)
     automation_control: dict = field(default_factory=dict)
@@ -838,7 +839,14 @@ class Project:
         ]
         from .project_schema import serialize_extensions
 
-        for name in ("workflow", "pro_daw", "automation_control", "timeline_markers", "midi_files"):
+        for name in (
+            "workflow",
+            "pro_daw",
+            "automation_control",
+            "timeline_markers",
+            "midi_files",
+            "instrument_plugins",
+        ):
             d.pop(name, None)
         d.pop("track_folders", None)
         d.update(serialize_extensions(self))
