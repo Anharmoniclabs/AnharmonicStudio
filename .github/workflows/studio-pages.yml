@@ -1,7 +1,9 @@
 name: Publish studio website
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Source checks"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -13,11 +15,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate:
-    uses: ./.github/workflows/quality.yml
   deploy:
-    needs: validate
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -28,6 +30,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       - name: Validate public website files
         run: python3 scripts/check_website.py
       - uses: actions/configure-pages@v5
