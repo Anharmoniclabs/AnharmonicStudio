@@ -40,4 +40,6 @@ def test_external_same_pitch_gate_cleanup_is_owner_specific():
     assert {voice.sequence_id for voice in external.voices} == {"clip-a", "clip-b"}
     external.release_sequence("clip-a")
     assert any(not voice.dead and voice.sequence_id == "clip-b" for voice in external.voices)
-    assert all(voice.sequence_id != "clip-a" for voice in external.voices if not voice.dead)
+    assert all(
+        voice.sequence_id != "clip-a" for voice in external.voices if not voice.dead
+    )
