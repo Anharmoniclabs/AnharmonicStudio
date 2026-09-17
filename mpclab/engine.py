@@ -834,7 +834,11 @@ class Engine:
             return "choke_group"
         if pad.mode != "one-shot" and previous.pad_index == index:
             return "pad_retrigger"
-        if self.project.self_choke and current.source_id and previous.source_id == current.source_id:
+        if (
+            self.project.self_choke
+            and current.source_id
+            and previous.source_id == current.source_id
+        ):
             return "self_choke"
         return None
 
