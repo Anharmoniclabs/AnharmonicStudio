@@ -105,9 +105,6 @@ class Engine:
         # Song note takes receive the same generated notes as the live arp.
         self.arp_note_capture: tuple[list[Note], float] | None = None
         self.external = ExternalDSP()
-        # One independent external-plugin bridge per stable instrument id, so
-        # separate patterns/instruments never share a single Prism instance.
-        self.external_instruments: dict[str, ExternalDSP] = {}
 
         # transport
         self.playing = False
@@ -788,12 +785,15 @@ class Engine:
         trigger_id=None,
     ) -> None:
         voices = self.synth_voices if voices is None else voices
-        external = self.external_for(instrument_id) if voices is self.synth_voices else None
-        if external is not None and external.instrument is not None:
+        if (
+            instrument_id is None
+            and voices is self.synth_voices
+            and self.external.instrument is not None
+        ):
             channel = midi_channel
             if channel == 0 and not live_trigger:
                 channel = 1
-            external.note_on(
+            self.external.note_on(
                 note,
                 velocity,
                 offset,
@@ -862,18 +862,11 @@ class Engine:
             )
         )
 
-    def external_for(self, instrument_id: str | None) -> ExternalDSP:
-        """Return this stable instrument's own external-plugin bridge, creating it lazily."""
-        if instrument_id is None:
-            return self.external
-        return self.external_instruments.setdefault(instrument_id, ExternalDSP())
-
     def _release_synth(
         self, note: int, instrument_id=None, midi_owner=None, midi_channel=0
     ) -> None:
-        external = self.external_for(instrument_id)
-        if external.instrument is not None:
-            external.note_off(note)
+        if instrument_id is None and self.external.instrument is not None:
+            self.external.note_off(note)
         for voice in self.synth_voices:
             if (
                 voice.note == note
@@ -1101,13 +1094,9 @@ class Engine:
             kind = cmd[0]
             if kind in ("panic", "synthpanic"):
                 self.external.panic()
-                for external in self.external_instruments.values():
-                    external.panic()
                 self.midi_playback_state.clear()
             elif kind in ("stopt", "seek"):
                 self.external.release_sequenced()
-                for external in self.external_instruments.values():
-                    external.release_sequenced()
                 self.midi_playback_state.clear()
             if kind == "midiexpression":
                 if self.external.instrument is not None:

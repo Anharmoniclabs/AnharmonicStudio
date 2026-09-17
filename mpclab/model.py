@@ -8,7 +8,6 @@ import os
 import re
 import tempfile
 import uuid
-from copy import deepcopy
 from dataclasses import dataclass, field, asdict, replace
 from pathlib import Path
 
@@ -169,9 +168,6 @@ class Instrument:
     name: str = "Instrument"
     patch: SynthPatch = field(default_factory=SynthPatch)
     midi_channel: int | None = None  # None = selected/typing input only, not omni.
-    # This instrument's own external plugin (e.g. Prism), independent of every
-    # other instrument's. None means it plays through the built-in synth.
-    plugin: dict | None = None
 
     def validate(self):
         if (
@@ -195,9 +191,6 @@ class Instrument:
         from .instrument_state import validate_patch
 
         validate_patch(self.patch)
-        from .plugin_registry import validate_instrument_plugin
-
-        validate_instrument_plugin(self.plugin)
 
 
 def remap_step_lane(steps, source_div: int, target_div: int, total_steps: int):
@@ -720,14 +713,10 @@ class Project:
                 return
         raise ValueError(f"unknown instrument: {instrument_id}")
 
-    def add_instrument(
-        self, name: str, patch: SynthPatch, midi_channel=None, plugin: dict | None = None
-    ) -> Instrument:
+    def add_instrument(self, name: str, patch: SynthPatch, midi_channel=None) -> Instrument:
         if len(self.instruments) >= MAX_INSTRUMENTS:
             raise ValueError(f"a project supports at most {MAX_INSTRUMENTS} additional instruments")
-        instrument = Instrument(
-            name=name, patch=replace(patch), midi_channel=midi_channel, plugin=deepcopy(plugin)
-        )
+        instrument = Instrument(name=name, patch=replace(patch), midi_channel=midi_channel)
         instrument.validate()
         self.validate_track_index(patch.track, "instrument output")
         self.instruments.append(instrument)
@@ -1037,19 +1026,16 @@ class Project:
         proj.tracks = tracks + defaults[len(tracks) :]
         proj._validate_track_ids()
         for item in instruments_data:
-            if set(item) - {"id", "name", "patch", "midi_channel", "plugin"}:
+            if set(item) - {"id", "name", "patch", "midi_channel"}:
                 raise ValueError("unsupported instrument fields")
             patch = item.get("patch")
             if not isinstance(patch, dict) or set(patch) - set(SynthPatch.__annotations__):
                 raise ValueError("instrument patch contains unsupported fields")
-            from .plugin_registry import validate_instrument_plugin
-
             instrument = Instrument(
                 id=item.get("id"),
                 name=item.get("name", "Instrument"),
                 patch=SynthPatch(**patch),
                 midi_channel=item.get("midi_channel"),
-                plugin=validate_instrument_plugin(item.get("plugin")),
             )
             instrument.validate()
             proj.instruments.append(instrument)

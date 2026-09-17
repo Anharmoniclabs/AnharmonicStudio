@@ -604,19 +604,10 @@ class PrismControls(WindowClient, QWidget):
         super().hideEvent(event)
 
     def bridge(self):
-        return self.app.engine.external_for(self.app.project.selected_instrument).instrument
-
-    def _spec(self):
-        instrument_id = self.app.project.selected_instrument
-        if instrument_id is None:
-            return self.app.project.plugins.get("instrument", {})
-        instrument = next(
-            (i for i in self.app.project.instruments if i.id == instrument_id), None
-        )
-        return (instrument.plugin if instrument else None) or {}
+        return getattr(self.app.engine.external, "instrument", None)
 
     def sync(self):
-        saved = self._spec().get("parameters", {})
+        saved = self.app.project.plugins.get("instrument", {}).get("parameters", {})
         info = getattr(self.bridge(), "info", {}).get("parameters", {})
         self.values = {
             str(i): saved.get(
@@ -647,15 +638,7 @@ class PrismControls(WindowClient, QWidget):
             return
         bridge.set_parameters(values)
         self.values.update(values)
-        instrument_id = self.app.project.selected_instrument
-        if instrument_id is None:
-            self.app.project.plugins["instrument"].setdefault("parameters", {}).update(values)
-        else:
-            instrument = next(
-                (i for i in self.app.project.instruments if i.id == instrument_id), None
-            )
-            if instrument is not None and instrument.plugin is not None:
-                instrument.plugin.setdefault("parameters", {}).update(values)
+        self.app.project.plugins["instrument"].setdefault("parameters", {}).update(values)
         self.app._set_dirty(True)
         self.refresh()
 

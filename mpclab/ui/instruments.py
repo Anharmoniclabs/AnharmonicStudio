@@ -25,12 +25,7 @@ def edit_instrument(window, operation, *, name=None, midi_channel=None, track=No
     selected = next((i for i in project.instruments if i.id == project.selected_instrument), None)
     if operation in ("add", "duplicate"):
         source = project.selected_patch if operation == "duplicate" else type(project.synth)()
-        plugin = None
-        if operation == "duplicate":
-            # An independent clone must never alias the source's mutable Prism
-            # state; add_instrument() deep-copies whatever spec is passed here.
-            plugin = selected.plugin if selected is not None else project.plugins.get("instrument")
-        instance = project.add_instrument(name or "New instrument", source, midi_channel, plugin)
+        instance = project.add_instrument(name or "New instrument", source, midi_channel)
         project.selected_instrument = instance.id
         if track is not None:
             instance.patch.track = track
@@ -48,10 +43,6 @@ def edit_instrument(window, operation, *, name=None, midi_channel=None, track=No
             raise ValueError(
                 "This instrument has notes. Move or delete those notes before removing it"
             )
-        devices = getattr(window, "devices", None)
-        if devices is not None:
-            devices.remove_instrument_plugin(selected.id)
-        window.engine.external_instruments.pop(selected.id, None)
         project.instruments.remove(selected)
         project.selected_instrument = None
     else:

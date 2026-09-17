@@ -404,7 +404,7 @@ class SynthPanel(WindowClient, QWidget):
         self.instrument_tabs.addTab("Prism")
         self.instrument_tabs.currentChanged.connect(self._instrument_tab_changed)
         outer.addWidget(self.instrument_tabs)
-        self._last_prism_spec = {}  # instrument id -> cached spec while toggling native/Prism
+        self._last_prism_spec = None
         self._prism_project = self.app.project
         head = QWidget()
         self._native_head = head
@@ -1153,17 +1153,15 @@ class SynthPanel(WindowClient, QWidget):
         if devices is not None:
             from .prism_controls import patch_parameters
 
-            instrument_id = self.app.project.selected_instrument
             patch = self.app.project.selected_patch
             if patch.sample_source:
                 patch = PATCHES["Carbon Pulse"]
-            cached = self._last_prism_spec.get(instrument_id)
             specification = (
-                copy.deepcopy(cached)
-                if cached
+                copy.deepcopy(self._last_prism_spec)
+                if self._last_prism_spec
                 else {"path": str(path), "parameters": patch_parameters(patch)}
             )
-            devices.load_instrument_plugin(instrument_id, specification)
+            devices.load_plugin("instrument", specification)
             self.app.status.showMessage("Opening Prism sound lab…", 4000)
 
     def _instrument_tab_changed(self, index):
@@ -1172,17 +1170,8 @@ class SynthPanel(WindowClient, QWidget):
         else:
             self._use_builtin()
 
-    def _instrument_plugin_spec(self, instrument_id):
-        if instrument_id is None:
-            return self.app.project.plugins.get("instrument", {})
-        instrument = next(
-            (i for i in self.app.project.instruments if i.id == instrument_id), None
-        )
-        return (instrument.plugin if instrument else None) or {}
-
     def _prism_controls(self):
-        instrument_id = self.app.project.selected_instrument
-        specification = self._instrument_plugin_spec(instrument_id)
+        specification = self.app.project.plugins.get("instrument", {})
         if (
             not self._external_selected()
             or Path(specification.get("path", "")).name != "Anharmonic Prism.vst3"
@@ -1192,20 +1181,19 @@ class SynthPanel(WindowClient, QWidget):
 
     def _use_builtin(self):
         devices = getattr(self.app, "devices", None)
-        instrument_id = self.app.project.selected_instrument
-        spec = self._instrument_plugin_spec(instrument_id)
-        if devices is not None and spec:
+        if devices is not None and "instrument" in self.app.project.plugins:
+            spec = self.app.project.plugins["instrument"]
             if Path(spec.get("path", "")).name == "Anharmonic Prism.vst3":
-                self._last_prism_spec[instrument_id] = copy.deepcopy(spec)
-            devices.remove_instrument_plugin(instrument_id)
+                self._last_prism_spec = copy.deepcopy(spec)
+            devices.remove_plugin("instrument")
             self.app.status.showMessage("Built-in instrument active", 4000)
 
     def sync_plugin_mode(self):
         if self._prism_project is not self.app.project:
-            self._last_prism_spec = {}
+            self._last_prism_spec = None
             self._prism_project = self.app.project
         active = self._external_selected()
-        specification = self._instrument_plugin_spec(self.app.project.selected_instrument)
+        specification = self.app.project.plugins.get("instrument", {})
         prism = active and Path(specification.get("path", "")).name == "Anharmonic Prism.vst3"
         self.instrument_tabs.blockSignals(True)
         self.instrument_tabs.setCurrentIndex(1 if prism else 0)
@@ -1238,8 +1226,7 @@ class SynthPanel(WindowClient, QWidget):
         self.visualizer.setVisible(not active and not patch.sample_source)
 
     def _external_selected(self):
-        engine = getattr(self.app, "engine", None)
-        if engine is None:
-            return False
-        external = engine.external_for(self.app.project.selected_instrument)
-        return external.instrument is not None
+        return (
+            self.app.project.selected_instrument is None
+            and getattr(getattr(self.app.engine, "external", None), "instrument", None) is not None
+        )

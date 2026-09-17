@@ -272,7 +272,6 @@ def iter_offline_blocks(
     saved_mode, engine.mode = engine.mode, mode
     plugins = None
     chains = None
-    instrument_plugins: dict[str, OfflinePlugins] = {}
     try:
         notes, audio = engine._collect(0.0, length_beats)
         synth_events = []
@@ -314,25 +313,6 @@ def iter_offline_blocks(
                     if c.instrument is None and c.pad is None
                 )
                 plugins.events.sort(key=lambda event: event[0])
-        # Every additional instrument owns an independent plugin instance, so
-        # bounce parity requires one bridge per instrument, fed only its notes.
-        for instrument in proj.instruments:
-            spec = instrument.plugin
-            if not spec or spec.get("bypass"):
-                continue
-            instrument_events = [
-                (*event[:4], event[5]) for event in synth_events if event[4] == instrument.id
-            ]
-            try:
-                bridge = OfflinePlugins({"instrument": spec}, engine.sr, instrument_events, proj.bpm)
-            except Exception:
-                # A missing/broken saved plugin reference silences only its own
-                # instrument track instead of failing the whole bounce.
-                continue
-            if bridge.instrument is None:
-                bridge.close()
-                continue
-            instrument_plugins[instrument.id] = bridge
         voices: list[tuple[int, PadVoice]] = []
         for event in notes:
             item = engine._offline_pad_event(*event, spb)
@@ -476,19 +456,6 @@ def iter_offline_blocks(
                 synth_track = proj.validate_track_index(proj.synth.track, "synth output")
                 np.add(tracks[synth_track], external_block, out=tracks[synth_track])
 
-            for instrument_id, bridge in instrument_plugins.items():
-                instrument = next((i for i in proj.instruments if i.id == instrument_id), None)
-                if instrument is None:
-                    continue
-                track_index = proj.validate_track_index(instrument.patch.track, "instrument output")
-                instrument_block = external[:frames]
-                instrument_block.fill(0.0)
-                parameters = {}
-                if mode == "song" and bridge.instrument.info.get("name") == "Anharmonic Prism":
-                    parameters = automation_parameters(proj, start / (spb * engine.sr))
-                bridge.render_instrument(instrument_block, start, frames, parameters)
-                np.add(tracks[track_index], instrument_block, out=tracks[track_index])
-
             automation_beats = engine._automation_beats(mode, start / (spb * engine.sr), frames)
             delay_send = reverb_send = None
             if run_sends:
@@ -552,8 +519,6 @@ def iter_offline_blocks(
     finally:
         if plugins is not None:
             plugins.close()
-        for bridge in instrument_plugins.values():
-            bridge.close()
         if chains is not None:
             chains.close()
         engine.mode = saved_mode
