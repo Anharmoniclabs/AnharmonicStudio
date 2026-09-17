@@ -154,7 +154,7 @@ class RealtimeMixerControlSmoother:
     def render(
         self, index: int, left: float, right: float, frames: int
     ) -> tuple[float | np.ndarray, float | np.ndarray]:
-        """Return scalar controls or preallocated ramps for one callback."""
+        """Return scalar controls or preallocated ramps for one realtime render chunk."""
         index = int(index)
         frames = int(frames)
         left = float(left)
@@ -212,11 +212,12 @@ def install_mixer_smoothing_runtime() -> None:
     original_configure_tracks = Engine.configure_tracks
     original_configure_blocksize = Engine.configure_blocksize
     original_start = Engine.start
-    original_callback = Engine._callback
+    original_render_block = Engine._render_block
 
     def init(engine, *args, **kwargs):
         original_init(engine, *args, **kwargs)
         engine._mixer_control_frames = engine.blocksize
+        engine._mixer_control_realtime = False
         engine._mixer_control_smoothing = RealtimeMixerControlSmoother(
             engine.sr,
             engine.blocksize,
@@ -244,14 +245,30 @@ def install_mixer_smoothing_runtime() -> None:
             state.invalidate()
         return original_start(engine, *args, **kwargs)
 
-    def callback(engine, outdata, frames, time_info, status):
+    def render_block(engine, outdata, frames, monitor=None):
+        # A callback may be split into multiple render chunks at transport/loop
+        # boundaries. Scope the control-array length to the exact chunk that is
+        # being mixed, not to the outer PortAudio request. Offline bounce does
+        # not call this realtime boundary and therefore retains exact reference
+        # output with scalar/manual controls.
+        previous_realtime = getattr(engine, "_mixer_control_realtime", False)
+        previous_frames = getattr(engine, "_mixer_control_frames", engine.blocksize)
+        engine._mixer_control_realtime = True
         engine._mixer_control_frames = int(frames)
-        return original_callback(engine, outdata, frames, time_info, status)
+        try:
+            return original_render_block(engine, outdata, frames, monitor)
+        finally:
+            engine._mixer_control_realtime = previous_realtime
+            engine._mixer_control_frames = previous_frames
 
     def track_controls(engine, index, beats):
         left, right = previous_controls(engine, index, beats)
         state = getattr(engine, "_mixer_control_smoothing", None)
-        if state is None or not 0 <= index < state.track_count:
+        if (
+            state is None
+            or not getattr(engine, "_mixer_control_realtime", False)
+            or not 0 <= index < state.track_count
+        ):
             return left, right
 
         left_array = isinstance(left, np.ndarray)
@@ -272,6 +289,6 @@ def install_mixer_smoothing_runtime() -> None:
     Engine.configure_tracks = configure_tracks
     Engine.configure_blocksize = configure_blocksize
     Engine.start = start
-    Engine._callback = callback
+    Engine._render_block = render_block
     engine_mixing.track_controls = track_controls
     _INSTALLED = True
