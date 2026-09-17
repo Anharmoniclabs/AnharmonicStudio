@@ -8,6 +8,7 @@ def install_application_runtime():
     from .fx_unification import install_fx_unification
     from .mastering_runtime import install_mastering_runtime
     from .midi_file_state import install_midi_file_state
+    from .mixer_smoothing_runtime import install_mixer_smoothing_runtime
     from .plugin_chain_runtime import install_plugin_chain_runtime
     from .premium_workflows import install_premium_runtime
     from .pro_audio_runtime import install_pro_audio_runtime
@@ -41,6 +42,9 @@ def install_application_runtime():
     install_mastering_runtime()
     install_timeline_marker_state()
     install_midi_file_state()
+    # Install last so the smoother sees the final advanced mixer-control output
+    # and the final callback/start wrapper chain used by the desktop runtime.
+    install_mixer_smoothing_runtime()
 
 
 def attach_application_features(window):
