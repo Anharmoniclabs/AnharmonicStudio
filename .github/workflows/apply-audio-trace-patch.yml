@@ -1,0 +1,544 @@
+name: Apply audio trace Engine wiring
+
+on:
+  push:
+    branches:
+      - fix/wire-audio-event-trace-20260917
+    paths:
+      - .github/workflows/apply-audio-trace-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/wire-audio-event-trace-20260917
+      - name: Wire bounded event trace into Engine
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("mpclab/engine.py")
+          text = path.read_text()
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              "from .native_output import NativeOutputStream\n",
+              "from .native_output import NativeOutputStream\nfrom .audio_trace import AudioEventTrace\n",
+              "trace import",
+          )
+
+          replace_once(
+              "        self.external = ExternalDSP()\n\n        # transport\n",
+              "        self.external = ExternalDSP()\n        # Diagnostics are disabled by default. The fixed-capacity trace lets us\n"
+              "        # identify an overlapping voice without printing, blocking or growing\n"
+              "        # callback-owned storage. ``_trace_frame`` is a monotonic rendered-frame\n"
+              "        # clock, deliberately independent from musical transport seeks.\n"
+              "        self.audio_trace = AudioEventTrace()\n"
+              "        self._trace_frame = 0\n\n        # transport\n",
+              "trace state",
+          )
+
+          replace_once(
+              "    @property\n    def sample_rate(self) -> int:\n        \"\"\"The frame clock used by live playback and song timing.\"\"\"\n        return int(self.sr)\n\n",
+              "    @property\n    def sample_rate(self) -> int:\n        \"\"\"The frame clock used by live playback and song timing.\"\"\"\n        return int(self.sr)\n\n"
+              "    def set_audio_trace_enabled(self, enabled: bool, *, clear: bool = False) -> None:\n"
+              "        \"\"\"Enable bounded realtime event tracing for diagnosis/tests.\"\"\"\n"
+              "        self.audio_trace.set_enabled(enabled, clear=clear)\n\n"
+              "    def audio_trace_snapshot(self):\n"
+              "        \"\"\"Return a stable diagnostic snapshot from the non-audio thread.\"\"\"\n"
+              "        return self.audio_trace.snapshot()\n\n"
+              "    def _trace(\n"
+              "        self, kind: str, *, source: int = -1, voice=None, owner=None, reason=None, offset: int = 0\n"
+              "    ) -> int:\n"
+              "        trace = self.audio_trace\n"
+              "        if not trace.enabled:\n"
+              "            return 0\n"
+              "        return trace.record(\n"
+              "            kind,\n"
+              "            frame=self._trace_frame + max(0, int(offset)),\n"
+              "            source=int(source),\n"
+              "            voice=voice,\n"
+              "            owner=owner,\n"
+              "            reason=reason,\n"
+              "        )\n\n"
+              "    @staticmethod\n"
+              "    def _voice_owner(voice):\n"
+              "        for name in (\"event_source\", \"sequence_id\", \"midi_owner\", \"instrument_id\"):\n"
+              "            value = getattr(voice, name, None)\n"
+              "            if value is not None:\n"
+              "                return value\n"
+              "        return None\n\n",
+              "trace API",
+          )
+
+          replace_once(
+              "        for other in self.voices:\n            if not other.dead and self._pad_trigger_cuts(other, v, pad, index):\n                other.release_now(fade, v.start_offset - other.start_offset)\n",
+              "        for other in self.voices:\n"
+              "            if other.dead:\n"
+              "                continue\n"
+              "            reason = self._pad_cut_reason(other, v, pad, index)\n"
+              "            if reason is not None:\n"
+              "                self._trace(\n"
+              "                    \"pad_steal\",\n"
+              "                    source=other.pad_index,\n"
+              "                    voice=other,\n"
+              "                    owner=self._voice_owner(other),\n"
+              "                    reason=reason,\n"
+              "                    offset=v.start_offset,\n"
+              "                )\n"
+              "                other.release_now(fade, v.start_offset - other.start_offset)\n",
+              "pad cut trace",
+          )
+
+          replace_once(
+              "        if index >= 0 and pad_voice_count >= MAX_PAD_VOICES:\n            if oldest is None:\n                # At the cap, preserve other performances and pattern layers.\n                return\n            self.voices.remove(oldest)\n        self.voices.append(v)\n        self.hit_flash[index] = time.monotonic()\n",
+              "        if index >= 0 and pad_voice_count >= MAX_PAD_VOICES:\n"
+              "            if oldest is None:\n"
+              "                # At the cap, preserve other performances and pattern layers.\n"
+              "                self._trace(\n"
+              "                    \"pad_steal\",\n"
+              "                    source=index,\n"
+              "                    voice=v,\n"
+              "                    owner=self._voice_owner(v),\n"
+              "                    reason=\"voice_limit_drop\",\n"
+              "                    offset=v.start_offset,\n"
+              "                )\n"
+              "                return\n"
+              "            self._trace(\n"
+              "                \"pad_steal\",\n"
+              "                source=oldest.pad_index,\n"
+              "                voice=oldest,\n"
+              "                owner=self._voice_owner(oldest),\n"
+              "                reason=\"voice_limit\",\n"
+              "                offset=v.start_offset,\n"
+              "            )\n"
+              "            self.voices.remove(oldest)\n"
+              "        self.voices.append(v)\n"
+              "        self._trace(\n"
+              "            \"pad_on\",\n"
+              "            source=index,\n"
+              "            voice=v,\n"
+              "            owner=self._voice_owner(v),\n"
+              "            reason=\"live\" if live_trigger else \"sequence\",\n"
+              "            offset=v.start_offset,\n"
+              "        )\n"
+              "        self.hit_flash[index] = time.monotonic()\n",
+              "pad on/cap trace",
+          )
+
+          old_pad_cut = '''    def _pad_trigger_cuts(
+        self, previous: PadVoice, current: PadVoice, pad: Pad, index: int
+    ) -> bool:
+        """Whether a new pad hit steals an existing voice.
+
+        Live MPC taps and each placed pattern own separate choking domains.
+        Within one sequence, groups and CUT SOURCE still work across pad banks.
+        Overlapping placements retain their layers when played or bounced.
+        """
+        if index < 0 or previous.pad_index < 0:
+            return False
+        if previous.live_trigger != current.live_trigger:
+            return False
+        if not current.live_trigger and previous.sequence_id != current.sequence_id:
+            return False
+        if previous.note is not None or current.note is not None:
+            # A chromatic chord must not choke itself, a drum hit or another
+            # instrument using the same source. Ownership above also protects
+            # live playing from sequenced backing parts.
+            return bool(
+                previous.note is not None
+                and current.note is not None
+                and previous.pad_index == index
+                and (pad.mono or previous.note == current.note)
+            )
+        if pad.choke and previous.choke == pad.choke:
+            return True
+        if pad.mode != "one-shot" and previous.pad_index == index:
+            return True
+        return bool(
+            self.project.self_choke
+            and current.source_id
+            and previous.source_id == current.source_id
+        )
+'''
+          new_pad_cut = '''    def _pad_cut_reason(
+        self, previous: PadVoice, current: PadVoice, pad: Pad, index: int
+    ) -> str | None:
+        """Return the ownership rule that makes a new pad hit steal a voice."""
+        if index < 0 or previous.pad_index < 0:
+            return None
+        if previous.live_trigger != current.live_trigger:
+            return None
+        if not current.live_trigger and previous.sequence_id != current.sequence_id:
+            return None
+        if previous.note is not None or current.note is not None:
+            if (
+                previous.note is not None
+                and current.note is not None
+                and previous.pad_index == index
+                and (pad.mono or previous.note == current.note)
+            ):
+                return "mono_retrigger" if pad.mono else "note_retrigger"
+            return None
+        if pad.choke and previous.choke == pad.choke:
+            return "choke_group"
+        if pad.mode != "one-shot" and previous.pad_index == index:
+            return "pad_retrigger"
+        if self.project.self_choke and current.source_id and previous.source_id == current.source_id:
+            return "self_choke"
+        return None
+
+    def _pad_trigger_cuts(
+        self, previous: PadVoice, current: PadVoice, pad: Pad, index: int
+    ) -> bool:
+        """Compatibility predicate used by tests/extensions during the transition."""
+        return self._pad_cut_reason(previous, current, pad, index) is not None
+'''
+          replace_once(old_pad_cut, new_pad_cut, "pad cut reason")
+
+          replace_once(
+              "            self.external.note_on(\n                note,\n                velocity,\n                offset,\n                gate_frames,\n                live_trigger,\n                channel=channel,\n                sequence_id=sequence_id,\n                event_source=event_source,\n                trigger_id=trigger_id,\n            )\n            return\n",
+              "            self.external.note_on(\n"
+              "                note,\n"
+              "                velocity,\n"
+              "                offset,\n"
+              "                gate_frames,\n"
+              "                live_trigger,\n"
+              "                channel=channel,\n"
+              "                sequence_id=sequence_id,\n"
+              "                event_source=event_source,\n"
+              "                trigger_id=trigger_id,\n"
+              "            )\n"
+              "            self._trace(\n"
+              "                \"synth_on\",\n"
+              "                source=note,\n"
+              "                owner=event_source if event_source is not None else sequence_id,\n"
+              "                reason=\"external_host\",\n"
+              "                offset=offset,\n"
+              "            )\n"
+              "            return\n",
+              "external synth trace",
+          )
+
+          replace_once(
+              "            ):\n                voice.note_off(0.008)\n        max_voices = min(64, max(8, int(self.synth_polyphony)))\n",
+              "            ):\n"
+              "                self._trace(\n"
+              "                    \"synth_steal\",\n"
+              "                    source=voice.note,\n"
+              "                    voice=voice,\n"
+              "                    owner=self._voice_owner(voice),\n"
+              "                    reason=\"retrigger\",\n"
+              "                    offset=offset,\n"
+              "                )\n"
+              "                voice.note_off(0.008)\n"
+              "        max_voices = min(64, max(8, int(self.synth_polyphony)))\n",
+              "synth retrigger trace",
+          )
+
+          replace_once(
+              "        if live_count >= max_voices and oldest is not None:\n            oldest.dead = True\n            voices.remove(oldest)\n",
+              "        if live_count >= max_voices and oldest is not None:\n"
+              "            self._trace(\n"
+              "                \"synth_steal\",\n"
+              "                source=oldest.note,\n"
+              "                voice=oldest,\n"
+              "                owner=self._voice_owner(oldest),\n"
+              "                reason=\"polyphony_limit\",\n"
+              "                offset=offset,\n"
+              "            )\n"
+              "            oldest.dead = True\n"
+              "            voices.remove(oldest)\n",
+              "synth polyphony trace",
+          )
+
+          replace_once(
+              "        voices.append(\n            SynthVoice(\n",
+              "        voices.append(\n            SynthVoice(\n",
+              "synth append anchor",
+          )
+          synth_tail = '''                trigger_id=trigger_id,
+            )
+        )
+
+    def _release_synth(
+'''
+          synth_tail_new = '''                trigger_id=trigger_id,
+            )
+        )
+        created = voices[-1]
+        self._trace(
+            "synth_on",
+            source=note,
+            voice=created,
+            owner=self._voice_owner(created),
+            reason="live" if live_trigger else "sequence",
+            offset=offset,
+        )
+
+    def _release_synth(
+'''
+          replace_once(synth_tail, synth_tail_new, "synth on trace")
+
+          replace_once(
+              "            ):\n                voice.note_off((voice.patch_ref or self.project.synth).release)\n\n    def _schedule_arp",
+              "            ):\n"
+              "                self._trace(\n"
+              "                    \"synth_release\",\n"
+              "                    source=voice.note,\n"
+              "                    voice=voice,\n"
+              "                    owner=self._voice_owner(voice),\n"
+              "                    reason=\"note_off\",\n"
+              "                )\n"
+              "                voice.note_off((voice.patch_ref or self.project.synth).release)\n\n"
+              "    def _schedule_arp",
+              "synth release trace",
+          )
+
+          replace_once(
+              "            self._render_block(outdata[offset : offset + count], count, cue)\n            offset += count\n",
+              "            self._render_block(outdata[offset : offset + count], count, cue)\n"
+              "            self._trace_frame += count\n"
+              "            offset += count\n",
+              "trace frame clock",
+          )
+
+          replace_once(
+              "                        if pad.mode != \"one-shot\":\n                            v.release_now(v.release)\n",
+              "                        if pad.mode != \"one-shot\":\n"
+              "                            self._trace(\n"
+              "                                \"pad_release\",\n"
+              "                                source=v.pad_index,\n"
+              "                                voice=v,\n"
+              "                                owner=self._voice_owner(v),\n"
+              "                                reason=\"pad_off\",\n"
+              "                            )\n"
+              "                            v.release_now(v.release)\n",
+              "pad off trace",
+          )
+
+          replace_once(
+              "                    if v.pad_index == index and v.note == note and v.live_trigger and v.gated:\n                        v.release_now(v.release)\n",
+              "                    if v.pad_index == index and v.note == note and v.live_trigger and v.gated:\n"
+              "                        self._trace(\n"
+              "                            \"pad_release\",\n"
+              "                            source=v.pad_index,\n"
+              "                            voice=v,\n"
+              "                            owner=self._voice_owner(v),\n"
+              "                            reason=\"note_off\",\n"
+              "                        )\n"
+              "                        v.release_now(v.release)\n",
+              "sample off trace",
+          )
+
+          replace_once(
+              "            elif kind == \"samplepanic\":\n                for v in self.voices:\n                    if v.note is not None and v.live_trigger:\n                        v.release_now(max(1, int(FADE * self.sr)))\n",
+              "            elif kind == \"samplepanic\":\n"
+              "                for v in self.voices:\n"
+              "                    if v.note is not None and v.live_trigger:\n"
+              "                        self._trace(\n"
+              "                            \"pad_release\",\n"
+              "                            source=v.pad_index,\n"
+              "                            voice=v,\n"
+              "                            owner=self._voice_owner(v),\n"
+              "                            reason=\"sample_panic\",\n"
+              "                        )\n"
+              "                        v.release_now(max(1, int(FADE * self.sr)))\n",
+              "sample panic trace",
+          )
+
+          replace_once(
+              "            elif kind == \"synthpanic\":\n                self.arp_state.held.clear()\n                self._arp_samples_until = 0.0\n                for voice in self.synth_voices:\n                    voice.note_off(0.008)\n",
+              "            elif kind == \"synthpanic\":\n"
+              "                self.arp_state.held.clear()\n"
+              "                self._arp_samples_until = 0.0\n"
+              "                for voice in self.synth_voices:\n"
+              "                    if not voice.dead:\n"
+              "                        self._trace(\n"
+              "                            \"synth_release\",\n"
+              "                            source=voice.note,\n"
+              "                            voice=voice,\n"
+              "                            owner=self._voice_owner(voice),\n"
+              "                            reason=\"synth_panic\",\n"
+              "                        )\n"
+              "                    voice.note_off(0.008)\n",
+              "synth panic trace",
+          )
+
+          replace_once(
+              "            elif kind == \"panic\":\n                pending_audition = None\n                fade = int(FADE * self.sr)\n                for v in self.voices:\n                    v.release_now(fade)\n                self.arp_state.held.clear()\n                self._arp_samples_until = 0.0\n                for voice in self.synth_voices:\n                    voice.note_off(0.008)\n",
+              "            elif kind == \"panic\":\n"
+              "                pending_audition = None\n"
+              "                self._trace(\"panic\", reason=\"user\")\n"
+              "                fade = int(FADE * self.sr)\n"
+              "                for v in self.voices:\n"
+              "                    if not v.dead:\n"
+              "                        self._trace(\n"
+              "                            \"pad_release\",\n"
+              "                            source=v.pad_index,\n"
+              "                            voice=v,\n"
+              "                            owner=self._voice_owner(v),\n"
+              "                            reason=\"panic\",\n"
+              "                        )\n"
+              "                    v.release_now(fade)\n"
+              "                self.arp_state.held.clear()\n"
+              "                self._arp_samples_until = 0.0\n"
+              "                for voice in self.synth_voices:\n"
+              "                    if not voice.dead:\n"
+              "                        self._trace(\n"
+              "                            \"synth_release\",\n"
+              "                            source=voice.note,\n"
+              "                            voice=voice,\n"
+              "                            owner=self._voice_owner(voice),\n"
+              "                            reason=\"panic\",\n"
+              "                        )\n"
+              "                    voice.note_off(0.008)\n",
+              "panic trace",
+          )
+
+          replace_once(
+              "            elif kind == \"play\":\n                if cmd[1] is not None:\n                    self.beat = float(cmd[1])\n                self.playing = True\n                self._resume_audio = self.mode == \"song\"\n",
+              "            elif kind == \"play\":\n"
+              "                if cmd[1] is not None:\n"
+              "                    self.beat = float(cmd[1])\n"
+              "                self.playing = True\n"
+              "                self._resume_audio = self.mode == \"song\"\n"
+              "                self._trace(\n"
+              "                    \"transport_play\",\n"
+              "                    reason=\"from_position\" if cmd[1] is not None else \"resume\",\n"
+              "                )\n",
+              "transport play trace",
+          )
+
+          replace_once(
+              "            elif kind == \"stopt\":\n                for voice in self.synth_voices:\n",
+              "            elif kind == \"stopt\":\n"
+              "                self._trace(\"transport_stop\", reason=\"rewind\" if cmd[1] else \"stop\")\n"
+              "                for voice in self.synth_voices:\n",
+              "transport stop trace",
+          )
+
+          replace_once(
+              "            elif kind == \"seek\":\n                for voice in self.synth_voices:\n",
+              "            elif kind == \"seek\":\n"
+              "                self._trace(\"transport_seek\", reason=float(cmd[1]))\n"
+              "                for voice in self.synth_voices:\n",
+              "transport seek trace",
+          )
+
+          replace_once(
+              "                if self.loop_song:\n                    self._resume_audio = True\n                    fade = int(FADE * self.sr)\n",
+              "                if self.loop_song:\n"
+              "                    self._resume_audio = True\n"
+              "                    self._trace(\"transport_seek\", reason=\"loop_wrap\")\n"
+              "                    fade = int(FADE * self.sr)\n",
+              "loop seek trace",
+          )
+
+          path.write_text(text)
+
+          Path("tests/test_engine_audio_trace.py").write_text('''import numpy as np
+
+from mpclab.engine import Engine
+
+
+class _MemoryLibrary:
+    def __init__(self):
+        wave = np.linspace(-0.5, 0.5, 2048, dtype=np.float32)
+        self._audio = np.column_stack((wave, wave)).astype(np.float32)
+
+    def cached_audio(self, _sample_id):
+        return self._audio
+
+    def cached_reversed_audio(self, _sample_id):
+        return self._audio[::-1]
+
+
+def _engine():
+    engine = Engine(_MemoryLibrary(), sample_rate=1000, blocksize=64)
+    engine.project.pads[0].sample_id = "kick"
+    engine.set_audio_trace_enabled(True, clear=True)
+    return engine
+
+
+def test_trace_is_disabled_by_default():
+    engine = Engine(_MemoryLibrary(), sample_rate=1000, blocksize=64)
+    engine.project.pads[0].sample_id = "kick"
+    engine._spawn(engine.project.pads[0], 0, 1.0)
+    assert engine.audio_trace_snapshot() == ()
+
+
+def test_pad_trace_names_voice_and_retrigger_reason():
+    engine = _engine()
+    pad = engine.project.pads[0]
+    pad.mode = "gate"
+    engine._spawn(pad, 0, 1.0)
+    first = engine.voices[-1]
+    engine._spawn(pad, 0, 0.8, offset=7)
+
+    rows = engine.audio_trace_snapshot()
+    assert [row.kind for row in rows] == ["pad_on", "pad_steal", "pad_on"]
+    assert rows[1].voice == id(first)
+    assert rows[1].source == 0
+    assert rows[1].frame == 7
+    assert rows[1].reason == "pad_retrigger"
+
+
+def test_transport_trace_records_play_seek_stop():
+    engine = _engine()
+    engine.play(2.0)
+    engine.set_position(5.5)
+    engine.stop_transport(rewind=True)
+    engine._process_commands()
+
+    rows = engine.audio_trace_snapshot()
+    transport = [row for row in rows if row.kind.startswith("transport_")]
+    assert [row.kind for row in transport] == [
+        "transport_play",
+        "transport_seek",
+        "transport_stop",
+    ]
+    assert transport[1].reason == 5.5
+    assert transport[2].reason == "rewind"
+
+
+def test_synth_trace_records_retriggered_voice():
+    engine = _engine()
+    engine._spawn_synth(60, 1.0)
+    first = engine.synth_voices[-1]
+    engine._spawn_synth(60, 0.8, offset=9)
+
+    rows = engine.audio_trace_snapshot()
+    kinds = [row.kind for row in rows]
+    assert kinds == ["synth_on", "synth_steal", "synth_on"]
+    steal = rows[1]
+    assert steal.voice == id(first)
+    assert steal.source == 60
+    assert steal.frame == 9
+    assert steal.reason == "retrigger"
+''')
+
+          Path(".github/workflows/apply-audio-trace-patch.yml").unlink()
+          PY
+      - name: Compile patched sources
+        run: python -m compileall -q mpclab/engine.py tests/test_engine_audio_trace.py
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mpclab/engine.py tests/test_engine_audio_trace.py .github/workflows/apply-audio-trace-patch.yml
+          git commit -m "Wire audio event trace into Engine"
+          git push origin HEAD:fix/wire-audio-event-trace-20260917
