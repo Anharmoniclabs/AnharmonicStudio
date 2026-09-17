@@ -1,0 +1,43 @@
+..............F...F........F.                                            [100%]
+=================================== FAILURES ===================================
+____ test_engine_rebuilds_one_clock_domain_at_every_supported_project_rate _____
+tests/test_project_audio_expansion.py:32: in test_engine_rebuilds_one_clock_domain_at_every_supported_project_rate
+    assert engine.rack.blocksize == 128
+           ^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'MixRack' object has no attribute 'blocksize'
+______ test_float64_master_summing_path_is_exercised_by_realtime_callback ______
+tests/test_project_audio_expansion.py:116: in test_float64_master_summing_path_is_exercised_by_realtime_callback
+    engine._callback(out, 64, None, False)
+mpclab/mastering_runtime.py:24: in callback
+    result = original_callback(engine, outdata, frames, time_info, status)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+mpclab/engine.py:1223: in _callback
+    self._render_block(outdata[offset : offset + count], count, cue)
+mpclab/engine.py:1460: in _render_block
+    return engine_mixing.render_block(self, outdata, frames, monitor)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+mpclab/engine_mixing.py:76: in render_block
+    preview_bus = engine._preview_bus[:frames]
+                  ^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'Engine' object has no attribute '_preview_bus'
+_________ test_owned_instrument_plugins_load_and_remove_independently __________
+tests/test_devices_ui.py:186: in test_owned_instrument_plugins_load_and_remove_independently
+    until(lambda: not controller._loading and not controller._pending_loads)
+tests/test_devices_ui.py:37: in until
+    raise AssertionError("Device operation did not complete")
+E   AssertionError: Device operation did not complete
+----------------------------- Captured stderr call -----------------------------
+Traceback (most recent call last):
+  File "/home/runner/work/AnharmonicStudio/AnharmonicStudio/mpclab/workflow_plugin_pdc.py", line 49, in plugin_loaded
+    result = original_loaded(controller, generation, slot, bridge, saved, error)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/AnharmonicStudio/AnharmonicStudio/mpclab/ui/devices.py", line 434, in _plugin_loaded
+    instrument = self.app.project.instrument(instrument_id)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Project' object has no attribute 'instrument'. Did you mean: 'instruments'?
+=========================== short test summary info ============================
+FAILED tests/test_project_audio_expansion.py::test_engine_rebuilds_one_clock_domain_at_every_supported_project_rate - AttributeError: 'MixRack' object has no attribute 'blocksize'
+FAILED tests/test_project_audio_expansion.py::test_float64_master_summing_path_is_exercised_by_realtime_callback - AttributeError: 'Engine' object has no attribute '_preview_bus'
+FAILED tests/test_devices_ui.py::test_owned_instrument_plugins_load_and_remove_independently - AssertionError: Device operation did not complete
+3 failed, 26 passed in 12.88s
+pytest_exit=1
