@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .pro_audio_graph import MAX_BUSES, ProAudioGraph
+from .pro_audio_graph import ProAudioGraph
 
 _INSTALLED = False
 
@@ -13,9 +13,7 @@ def install_pro_audio_runtime() -> None:
         return
 
     from .engine import Engine
-    from . import workflow_routing
 
-    workflow_routing.MAX_ROUTING_BUSES = MAX_BUSES
     original_init = Engine.__init__
     original_prepare_fx = Engine.prepare_fx
     original_configure_blocksize = Engine.configure_blocksize
