@@ -10,6 +10,8 @@ from .external_instrument_rack import (
     prism_tempo_events,
 )
 
+__all__ = ("ExternalDSP", "ExternalNote", "OfflinePlugins")
+
 
 class ExternalDSP:
     """Compatibility facade over independently owned hosted instrument routes."""
