@@ -414,7 +414,9 @@ def iter_offline_blocks(
                     del active[index]
 
             while next_synth < len(synth_events) and synth_events[next_synth][0] < stop:
-                at, pitch, velocity, gate, instrument_id, channel, sequence_id = synth_events[next_synth]
+                at, pitch, velocity, gate, instrument_id, channel, sequence_id = synth_events[
+                    next_synth
+                ]
                 if instrument_id is not None or plugins is None or plugins.instrument is None:
                     engine._spawn_synth(
                         pitch,
