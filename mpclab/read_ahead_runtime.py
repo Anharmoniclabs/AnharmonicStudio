@@ -41,9 +41,7 @@ def install_read_ahead_runtime() -> None:
         old = getattr(library, "read_ahead", None)
         if old is not None:
             old.close()
-        manager = ReadAheadManager(
-            options["read_ahead_frames"], options["request_capacity"]
-        )
+        manager = ReadAheadManager(options["read_ahead_frames"], options["request_capacity"])
         library.read_ahead = manager
         for clip_id, audio in library._audio.items():
             manager.register(clip_id, audio)

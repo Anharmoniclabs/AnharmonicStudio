@@ -73,9 +73,7 @@ def cascade_response(sections, freqs: np.ndarray, sr: int = DEFAULT_SAMPLE_RATE)
     z = np.exp(-2j * np.pi * np.asarray(freqs, dtype=float) / sr)
     response = np.ones(len(z), dtype=complex)
     for b, a in sections:
-        response *= (b[0] + b[1] * z + b[2] * z * z) / (
-            a[0] + a[1] * z + a[2] * z * z
-        )
+        response *= (b[0] + b[1] * z + b[2] * z * z) / (a[0] + a[1] * z + a[2] * z * z)
     return response
 
 

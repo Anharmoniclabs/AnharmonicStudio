@@ -174,12 +174,8 @@ class FDNReverb:
             writes += injection[None, :]
             for index, line in enumerate(self.lines):
                 line.write(writes[index, :, None])
-            wet[at : at + take, 0] = (reads[0] + reads[2] - reads[1] * 0.35) * np.float32(
-                0.45
-            )
-            wet[at : at + take, 1] = (reads[1] + reads[3] - reads[0] * 0.35) * np.float32(
-                0.45
-            )
+            wet[at : at + take, 0] = (reads[0] + reads[2] - reads[1] * 0.35) * np.float32(0.45)
+            wet[at : at + take, 1] = (reads[1] + reads[3] - reads[0] * 0.35) * np.float32(0.45)
             at += take
         dry = np.float32(1.0 - self.wet)
         wet_gain = np.float32(self.wet)

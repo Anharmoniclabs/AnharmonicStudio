@@ -8,7 +8,11 @@ import numpy as np
 
 from .expansion_instruments import ExpansionInstrumentBridge
 from .plugin_host import IsolatedPlugin, PluginError
-from .plugin_latency import PluginDelayCompensator, StereoDelayCompensator, plugin_path_latency_samples
+from .plugin_latency import (
+    PluginDelayCompensator,
+    StereoDelayCompensator,
+    plugin_path_latency_samples,
+)
 
 
 class OfflineOwnedInstruments:
@@ -70,7 +74,9 @@ class OfflineOwnedInstruments:
             if instrument_id not in event_map:
                 continue
             velocity_value = max(1, min(127, round(float(velocity) * 127)))
-            event_map[instrument_id].append((int(at), [0x90 | int(channel), int(pitch), velocity_value]))
+            event_map[instrument_id].append(
+                (int(at), [0x90 | int(channel), int(pitch), velocity_value])
+            )
             event_map[instrument_id].append(
                 (int(at) + max(1, int(gate)), [0x80 | int(channel), int(pitch), 0])
             )

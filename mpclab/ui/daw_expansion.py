@@ -55,7 +55,9 @@ class DawExpansionDialog(QDialog):
         self.precision = QComboBox()
         self.precision.addItem("32-bit float realtime", "float32")
         self.precision.addItem("64-bit master summing", "float64")
-        self.precision.setCurrentIndex(max(0, self.precision.findData(state["summation_precision"])))
+        self.precision.setCurrentIndex(
+            max(0, self.precision.findData(state["summation_precision"]))
+        )
         form.addRow("Summing", self.precision)
 
         self.streaming = QCheckBox("Managed decoded-audio read-ahead")
@@ -70,7 +72,12 @@ class DawExpansionDialog(QDialog):
         form.addRow("Read-ahead window", self.read_ahead)
 
         self.profiler = QCheckBox("Collect per-track / plugin performance")
-        self.profiler.setChecked(bool(getattr(window.engine, "performance_profiler", None) and window.engine.performance_profiler.enabled))
+        self.profiler.setChecked(
+            bool(
+                getattr(window.engine, "performance_profiler", None)
+                and window.engine.performance_profiler.enabled
+            )
+        )
         form.addRow("Diagnostics", self.profiler)
 
         self.parallel = QSpinBox()
@@ -98,7 +105,9 @@ class DawExpansionDialog(QDialog):
         form.addRow(self.engine_note)
         self._sync_engine()
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Apply | QDialogButtonBox.Ok)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Cancel | QDialogButtonBox.Apply | QDialogButtonBox.Ok
+        )
         buttons.rejected.connect(self.reject)
         buttons.button(QDialogButtonBox.Apply).clicked.connect(self.apply)
         buttons.accepted.connect(self._accept)
@@ -174,12 +183,15 @@ class DawExpansionDialog(QDialog):
                     "state": engine_state,
                 }
         clean = validate_daw_expansion(state, project=project)
-        if clean == getattr(project, "daw_expansion", None) and bool(
-            window.engine.performance_profiler.enabled
-        ) == self.profiler.isChecked():
+        if (
+            clean == getattr(project, "daw_expansion", None)
+            and bool(window.engine.performance_profiler.enabled) == self.profiler.isChecked()
+        ):
             return
         window.snapshot()
-        was_active = bool(window.engine.stream is not None and getattr(window.engine.stream, "active", False))
+        was_active = bool(
+            window.engine.stream is not None and getattr(window.engine.stream, "active", False)
+        )
         if was_active:
             window.engine.stop()
         project.daw_expansion = clean

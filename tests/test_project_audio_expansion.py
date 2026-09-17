@@ -29,7 +29,8 @@ def test_engine_rebuilds_one_clock_domain_at_every_supported_project_rate(tmp_pa
             assert library.sample_rate == rate
             assert engine.project.daw_expansion["sample_rate"] == rate
             assert fx.SR == rate
-            assert engine.rack.blocksize == 128
+            assert engine.blocksize == 128
+            assert engine._tbuf.shape[1] >= 128
             assert engine.processors["master"].sample_rate == rate
             assert engine.pro_audio_graph.track_store.buffers.shape[1] >= 128
     finally:

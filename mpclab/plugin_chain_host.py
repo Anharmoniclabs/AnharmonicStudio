@@ -204,7 +204,9 @@ def plugin_chain_worker(connection, specifications, sample_rate):
                         raise PluginError(
                             f"{plugin.name} does not expose an auxiliary stereo input through this host"
                         )
-                    incoming = np.ascontiguousarray(np.vstack((current, sidechain)), dtype=np.float32)
+                    incoming = np.ascontiguousarray(
+                        np.vstack((current, sidechain)), dtype=np.float32
+                    )
                 try:
                     rendered = plugin.process(
                         incoming,

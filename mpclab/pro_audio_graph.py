@@ -64,9 +64,7 @@ class MultichannelTrackStore:
     def prepare(self, frames: int) -> None:
         if frames <= self.buffers.shape[1]:
             return
-        self.buffers = np.zeros(
-            (len(self.track_ids), frames, self.max_channels), dtype=np.float32
-        )
+        self.buffers = np.zeros((len(self.track_ids), frames, self.max_channels), dtype=np.float32)
 
     def clear(self, frames: int) -> None:
         self.prepare(frames)
@@ -104,7 +102,10 @@ class HardwarePatchbay:
             self.mapping[source] = tuple(channels)
 
     def required_outputs(self) -> int:
-        return max((channel for channels in self.mapping.values() for channel in channels), default=1) + 1
+        return (
+            max((channel for channels in self.mapping.values() for channel in channels), default=1)
+            + 1
+        )
 
     def render(self, sources: dict[str, np.ndarray], output: np.ndarray) -> None:
         output.fill(0.0)

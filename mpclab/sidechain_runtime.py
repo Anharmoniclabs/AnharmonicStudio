@@ -57,14 +57,14 @@ def install_sidechain_runtime() -> None:
             supported = set(getattr(bridge, "info", {}).get("sidechain_slots", []))
             requested = set(sidechains)
             if not requested <= supported:
-                bridge.error = (
-                    "Configured sidechain targets a plugin slot that does not expose auxiliary audio"
-                )
+                bridge.error = "Configured sidechain targets a plugin slot that does not expose auxiliary audio"
                 return
             try:
                 output = bridge.render(block, len(block), sidechains=sidechains)
             except TypeError:
-                bridge.error = "Loaded plugin bridge does not support auxiliary audio; reload the chain"
+                bridge.error = (
+                    "Loaded plugin bridge does not support auxiliary audio; reload the chain"
+                )
                 return
             if output is not None:
                 block[:] = output

@@ -431,8 +431,12 @@ class DevicesController(WindowClient, QObject):
             self.app.piano_roll.select_channel(instrument_id)
         target = ""
         if instrument_id is not None:
-            instrument = self.app.project.instrument(instrument_id)
-            target = f" · {instrument.name}"
+            instrument = next(
+                (item for item in self.app.project.instruments if item.id == instrument_id),
+                None,
+            )
+            if instrument is not None:
+                target = f" · {instrument.name}"
         self.plugin_status = (
             f"{bridge.info['name']} ready{target} · monitoring adds "
             f"{2 * bridge.blocksize / self.app.engine.sr * 1000:.1f} ms"

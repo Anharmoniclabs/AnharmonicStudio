@@ -72,7 +72,9 @@ class AudioPerformanceProfiler:
             self._metrics.setdefault(name, _Metric(self.history))
 
     def replace_track_set(self, track_ids) -> None:
-        retained = {name: metric for name, metric in self._metrics.items() if not name.startswith("track:")}
+        retained = {
+            name: metric for name, metric in self._metrics.items() if not name.startswith("track:")
+        }
         self._metrics = retained
         self.register(*(f"track:{track_id}" for track_id in track_ids))
 

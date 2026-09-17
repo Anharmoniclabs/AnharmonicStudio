@@ -93,7 +93,9 @@ class MasterProcessor:
         return 0
 
     def tail_samples(self) -> int:
-        return max(0, round(self.sample_rate * 0.5)) if getattr(self.settings, "active", False) else 0
+        return (
+            max(0, round(self.sample_rate * 0.5)) if getattr(self.settings, "active", False) else 0
+        )
 
     def save_state(self) -> dict:
         return _state(self.settings)

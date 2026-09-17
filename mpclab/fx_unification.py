@@ -78,9 +78,7 @@ def configure_fx_sample_rate(sample_rate: int) -> None:
 
     def coefficient(seconds: float, sr=None) -> float:
         clock = rate if sr is None else float(sr)
-        return float(
-            min(max(math.exp(-1.0 / max(1e-5, float(seconds) * clock)), 0.0), 0.999999)
-        )
+        return float(min(max(math.exp(-1.0 / max(1e-5, float(seconds) * clock)), 0.0), 0.999999))
 
     fx._biquad = dynamic_biquad
     fx.cascade_response = dynamic_response

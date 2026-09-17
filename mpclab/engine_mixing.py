@@ -73,7 +73,7 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
     else:
         master = engine._master[:frames]
         master.fill(0.0)
-    preview_bus = engine._preview_bus[:frames]
+    preview_bus = engine._preview[:frames]
     preview_bus.fill(0.0)
 
     # Automation uses the block start, before transport advances.

@@ -78,6 +78,10 @@ def _validate_sidechain(item: dict, project=None) -> dict:
     }
     if type(result["pre_fader"]) is not bool or type(result["enabled"]) is not bool:
         raise ValueError("sidechain enabled/pre_fader fields must be booleans")
+    if not result["source"].startswith("track:"):
+        raise ValueError("sidechain source must be a mixer track with a realtime audio tap")
+    if result["source"] == result["target"]:
+        raise ValueError("a track cannot sidechain a plugin on itself")
     if project is not None:
         track_ids = {track.id for track in project.tracks}
         valid = {"master", *(f"track:{track_id}" for track_id in track_ids)}
@@ -215,7 +219,10 @@ def _validate_engine(instrument_id: str, raw: dict) -> dict:
     else:  # fm4
         operators = state.get("operators", [])
         if not operators:
-            operators = [{"ratio": ratio, "level": level} for ratio, level in ((1, 1), (2, 0.5), (3, 0.25), (4, 0.1))]
+            operators = [
+                {"ratio": ratio, "level": level}
+                for ratio, level in ((1, 1), (2, 0.5), (3, 0.25), (4, 0.1))
+            ]
         if not isinstance(operators, list) or len(operators) != 4:
             raise ValueError("FM engine requires four operators")
         cleaned = []
@@ -225,7 +232,9 @@ def _validate_engine(instrument_id: str, raw: dict) -> dict:
             cleaned.append(
                 {
                     "ratio": _finite(operator.get("ratio", 1.0), "FM ratio", 0.01, 64.0),
-                    "fixed_hz": _finite(operator.get("fixed_hz", 0.0), "FM fixed frequency", 0.0, 24_000.0),
+                    "fixed_hz": _finite(
+                        operator.get("fixed_hz", 0.0), "FM fixed frequency", 0.0, 24_000.0
+                    ),
                     "level": _finite(operator.get("level", 1.0), "FM level", 0.0, 8.0),
                     "attack": _finite(operator.get("attack", 0.005), "FM attack", 0.0, 30.0),
                     "decay": _finite(operator.get("decay", 0.25), "FM decay", 0.0, 30.0),
@@ -293,6 +302,37 @@ def validate_daw_expansion(value, *, project=None) -> dict:
     if len({item["id"] for item in result["sidechains"]}) != len(result["sidechains"]):
         raise ValueError("sidechain IDs must be unique")
 
+    # Sidechain track dependencies are part of callback scheduling. Reject
+    # cycles at project-validation time instead of discovering them when audio
+    # starts. Bus/master targets terminate this dependency graph.
+    track_nodes = (
+        {f"track:{track.id}" for track in project.tracks}
+        if project is not None
+        else {item["source"] for item in result["sidechains"]}
+        | {item["target"] for item in result["sidechains"] if item["target"].startswith("track:")}
+    )
+    edges = {node: set() for node in track_nodes}
+    indegree = dict.fromkeys(track_nodes, 0)
+    for item in result["sidechains"]:
+        if not item["enabled"] or not item["target"].startswith("track:"):
+            continue
+        source, target = item["source"], item["target"]
+        if source in edges and target in indegree and target not in edges[source]:
+            edges[source].add(target)
+            indegree[target] += 1
+    ready = sorted(node for node, degree in indegree.items() if degree == 0)
+    visited = 0
+    while ready:
+        source = ready.pop(0)
+        visited += 1
+        for target in sorted(edges[source]):
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                ready.append(target)
+                ready.sort()
+    if visited != len(track_nodes):
+        raise ValueError("track sidechain routes must form an acyclic graph")
+
     channels = value.get("track_channels", {})
     if not isinstance(channels, dict) or len(channels) > 128:
         raise ValueError("track channel map must be bounded")
@@ -314,13 +354,17 @@ def validate_daw_expansion(value, *, project=None) -> dict:
         key = _identifier(key, "patchbay endpoint")
         if not isinstance(value_item, list) or len(value_item) > 64:
             raise ValueError("patchbay endpoint must contain bounded channel indices")
-        clean_patchbay[key] = [_integer(channel, "hardware channel", 0, 127) for channel in value_item]
+        clean_patchbay[key] = [
+            _integer(channel, "hardware channel", 0, 127) for channel in value_item
+        ]
     result["hardware_patchbay"] = clean_patchbay
 
     engines = value.get("instrument_engines", {})
     if not isinstance(engines, dict) or len(engines) > MAX_INSTRUMENT_ENGINES:
         raise ValueError("instrument engine map exceeds the safety limit")
-    known_instruments = {instrument.id for instrument in project.instruments} if project is not None else None
+    known_instruments = (
+        {instrument.id for instrument in project.instruments} if project is not None else None
+    )
     result["instrument_engines"] = {}
     for instrument_id, config in engines.items():
         instrument_id = _identifier(instrument_id, "instrument engine id")
