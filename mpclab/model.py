@@ -41,6 +41,7 @@ PAD_KEYS = ["0", ".", "/", "*", "1", "2", "3", "⏎", "4", "5", "6", "+", "7", "
 DISPLAY_ORDER = [12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3]
 
 MODES = ("one-shot", "gate", "loop")
+RETRIGGER_POLICIES = ("restart", "layer", "ignore", "crossfade")
 PROJECT_FORMAT_VERSION = 6
 MAX_INSTRUMENTS = 127  # Additional native instances; the legacy synth remains primary.
 _UNSAFE_FILENAME = re.compile(r"[^\w .()-]+", re.UNICODE)
@@ -80,6 +81,7 @@ class Pad:
     attack: float = 0.002  # seconds
     release: float = 0.03
     mode: str = "one-shot"
+    retrigger: str | None = None  # restart | layer | ignore | crossfade
     loop_crossfade: float = 0.005  # seconds shared between the loop tail/head
     reverse: bool = False
     choke: int = 0  # 0 = none, 1..8 = choke group
@@ -89,6 +91,10 @@ class Pad:
     mono: bool = False  # chromatic notes only; drum-pad retrigger rules stay unchanged
 
     def __post_init__(self):
+        if self.retrigger is None:
+            self.retrigger = "layer" if self.mode == "one-shot" else "restart"
+        if self.retrigger not in RETRIGGER_POLICIES:
+            raise ValueError("pad retrigger policy is invalid")
         if type(self.root_note) is not int or not 0 <= self.root_note <= 127:
             raise ValueError("sample root_note must be an integer from 0 to 127")
         if type(self.mono) is not bool:
@@ -999,6 +1005,8 @@ class Project:
                 )
             if pad.mode not in MODES:
                 raise ValueError("pad mode must be one-shot, gate, or loop")
+            if pad.retrigger not in RETRIGGER_POLICIES:
+                raise ValueError("pad retrigger policy is invalid")
             for field_name in ("reverse", "mono"):
                 if type(getattr(pad, field_name)) is not bool:
                     raise ValueError(f"pad {field_name} must be a boolean")

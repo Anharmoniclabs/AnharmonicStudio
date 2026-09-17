@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
 )
 
-from ..model import PADS_PER_BANK, DISPLAY_ORDER, PAD_KEYS, MODES
+from ..model import PADS_PER_BANK, DISPLAY_ORDER, PAD_KEYS, MODES, RETRIGGER_POLICIES
 from .theme import q, TRACK_COLORS
 from .waveform import draw_peaks, RANGE_MIME
 
@@ -797,6 +797,19 @@ class PadInspector(WindowClient, QScrollArea):
         mode.setCurrentText(pad.mode)
         mode.currentTextChanged.connect(lambda t: (setattr(pad, "mode", t), self.changed.emit()))
         form.addRow(self._lbl("MODE"), mode)
+
+        retrigger = QComboBox()
+        for policy in RETRIGGER_POLICIES:
+            retrigger.addItem(policy.upper(), policy)
+        retrigger.setCurrentIndex(retrigger.findData(pad.retrigger))
+        retrigger.setToolTip(
+            "What happens when this pad is triggered again while its previous voice is active. "
+            "Choke groups and CUT SOURCE remain independent and can still stop a layered voice."
+        )
+        retrigger.currentIndexChanged.connect(
+            lambda i: (setattr(pad, "retrigger", retrigger.itemData(i)), self.changed.emit())
+        )
+        form.addRow(self._lbl("RETRIGGER"), retrigger)
 
         choke = QComboBox()
         choke.addItems(["none"] + [f"group {i}" for i in range(1, 9)])
