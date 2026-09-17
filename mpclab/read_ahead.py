@@ -24,6 +24,7 @@ class ReadAheadStats:
     pending: int
     pressure: float
     warmed_frames: int
+    running: bool
 
 
 class ReadAheadManager:
@@ -36,27 +37,40 @@ class ReadAheadManager:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._thread = None
+        self._enabled = False
         self.requests = 0
         self.completed = 0
         self.dropped = 0
         self.warmed_frames = 0
 
+    @property
+    def running(self) -> bool:
+        return bool(self._enabled and self._thread is not None and self._thread.is_alive())
+
     def start(self) -> None:
+        self._enabled = True
         if self._thread is not None and self._thread.is_alive():
             return
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name="Audio read-ahead", daemon=True)
         self._thread.start()
 
-    def close(self) -> None:
+    def pause(self) -> None:
+        """Stop page warming while retaining registrations for a later resume."""
+        self._enabled = False
         self._stop.set()
         self._wake.set()
         thread, self._thread = self._thread, None
         if thread is not None and thread.is_alive():
             thread.join(timeout=1.0)
         with self._lock:
-            self._arrays.clear()
             self._requests.clear()
+        self._stop.clear()
+
+    def close(self) -> None:
+        self.pause()
+        with self._lock:
+            self._arrays.clear()
 
     def register(self, clip_id: str, audio: np.ndarray) -> None:
         if not isinstance(clip_id, str) or not clip_id:
@@ -70,13 +84,16 @@ class ReadAheadManager:
         with self._lock:
             self._arrays.pop(clip_id, None)
 
-    def request(self, clip_id: str, frame: int, *, reverse: bool = False, frames: int | None = None) -> bool:
-        """Queue a bounded page-warming request.
-
-        `request` never opens a file. The registered array is already decoded
-        heap audio or an existing memmap created by Library.audio().
-        """
-        if clip_id not in self._arrays:
+    def request(
+        self,
+        clip_id: str,
+        frame: int,
+        *,
+        reverse: bool = False,
+        frames: int | None = None,
+    ) -> bool:
+        """Queue a bounded page-warming request without opening any file."""
+        if not self._enabled or clip_id not in self._arrays:
             return False
         frame = max(0, int(frame))
         count = self.read_ahead_frames if frames is None else max(1, int(frames))
@@ -107,9 +124,6 @@ class ReadAheadManager:
             end = min(total, start + count)
         if end <= start:
             return 0
-        # One float32 stereo frame is 8 bytes. Touch roughly one frame per
-        # 4-KiB page plus the tail. `sum` forces mapped pages resident while
-        # keeping scratch bounded to a scalar reduction.
         stride = max(1, 4096 // max(1, audio.dtype.itemsize * audio.shape[1]))
         view = audio[start:end:stride]
         if len(view):
@@ -151,6 +165,7 @@ class ReadAheadManager:
             pending=len(self._requests),
             pressure=self.pressure,
             warmed_frames=self.warmed_frames,
+            running=self.running,
         )
 
     def wait_idle(self, timeout: float = 2.0) -> bool:
