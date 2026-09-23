@@ -7,7 +7,7 @@ project state stay with that coordinator. This module owns only its named domain
 from __future__ import annotations
 import time
 from pathlib import Path
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSignalBlocker
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -92,7 +92,8 @@ def _apply_project_state(window, project: Project):
     window.bpm_box.setValue(project.bpm)
     window.swing.setValue(int(project.swing))
     window.btn_cut_self.setChecked(project.self_choke)
-    window.master_slider.setValue(int(project.master * 100))
+    with QSignalBlocker(window.master_slider):
+        window.master_slider.setValue(int(project.master * 100))
     window.proj_name.setText(project.name)
     window.set_song_loop_range(project.loop_start, project.loop_end)
     window.btn_song_loop.blockSignals(True)

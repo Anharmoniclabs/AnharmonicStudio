@@ -46,6 +46,7 @@ MIGRATIONS: dict[int, Migration] = {
     3: _identity,
     4: _mixer_track_ids,
     5: _identity,  # Optional independent instruments; no legacy song is re-routed.
+    6: _identity,  # Optional per-instance plugin state; legacy instances keep their patch.
 }
 
 

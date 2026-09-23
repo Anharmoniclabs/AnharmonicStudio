@@ -234,10 +234,7 @@ class SampleWorkflow(WindowClient):
         if slot is None:
             instrument = getattr(app.piano_roll, "target_instrument", None)
             self.held_instruments[note] = instrument
-            if instrument is None:
-                app.play_synth_note(note, velocity)
-            else:
-                app.play_synth_note(note, velocity, instrument_id=instrument)
+            app.play_synth_note(note, velocity, instrument_id=instrument)
             return
         if app.project.pads[slot].empty:
             app.status.showMessage("This instrument has no sound. Load or replace it first.", 4000)
@@ -259,10 +256,7 @@ class SampleWorkflow(WindowClient):
         slot = self.held.pop(note)
         if slot is None:
             instrument = self.held_instruments.pop(note, None)
-            if instrument is None:
-                app.release_synth_note(note)
-            else:
-                app.release_synth_note(note, instrument_id=instrument)
+            app.release_synth_note(note, instrument_id=instrument)
             return
         capture = getattr(app, "track_capture", None)
         if capture is not None:

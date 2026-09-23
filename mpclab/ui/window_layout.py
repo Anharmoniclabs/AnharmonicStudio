@@ -177,8 +177,10 @@ def _build_menus(window):
         (
             "View",
             tuple(
-                (window.tabs.tabText(i) + (f"\tCtrl+{i + 1}" if i < 9 else ""),
-                 lambda index=i: window.show_tab(index))
+                (
+                    window.tabs.tabText(i) + (f"\tCtrl+{i + 1}" if i < 9 else ""),
+                    lambda index=i: window.show_tab(index),
+                )
                 for i in range(window.tabs.count())
             )
             + (
@@ -233,6 +235,7 @@ def _build_stage(window) -> QWidget:
     window.tabs.addTab(window.vocal_panel, "Autotune")
     window.piano_roll = PianoRollPanel(window)
     window.tabs.addTab(window.piano_roll, "Piano Roll")
+    window.mixer.track_selected.connect(window.synth_panel.select_track)
     window.automation_panel = AutomationPanel(window)
     window.tabs.addTab(window.automation_panel, "Automation")
     studio_placeholder = QWidget()

@@ -103,7 +103,7 @@ def _build_seq(window) -> QWidget:
     window.seq_scroll.setFrameShape(QFrame.NoFrame)
     window.step_grid = StepGrid(window)
     window.step_grid.stepEdited.connect(lambda: window._set_dirty(True))
-    window.step_grid.padAuditioned.connect(lambda gi: window.engine.trigger_pad(gi, 1.0))
+    window.step_grid.padAuditioned.connect(window.step_grid.audition_pad)
     window.step_grid.padSelected.connect(window.select_pad)
     window.step_grid.followRequested.connect(window._follow_step)
     window.seq_scroll.setWidget(window.step_grid)

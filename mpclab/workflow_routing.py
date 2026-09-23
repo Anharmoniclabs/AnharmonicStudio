@@ -319,7 +319,7 @@ def install_engine_routing_extensions() -> None:
         return
 
     from .engine import Engine
-    from .plugin_latency import PluginDelayCompensator, plugin_path_latency_samples
+    from .plugin_latency import PluginDelayCompensator
 
     original_init = Engine.__init__
     original_prepare_fx = Engine.prepare_fx
@@ -363,9 +363,13 @@ def install_engine_routing_extensions() -> None:
         return plan
 
     def prepare_plugin_latency(engine):
-        delay = plugin_path_latency_samples(engine.external.instrument, include_live_bridge=True)
-        engine.plugin_pdc.configure(delay, engine.blocksize)
-        engine.linux_audio.lock_arrays(engine.plugin_pdc.history, engine.plugin_pdc.output)
+        delay = engine.external.prepare_mix(engine.blocksize)
+        previous = engine.plugin_pdc
+        if previous.delay_samples != delay or previous.blocksize != engine.blocksize:
+            prepared = PluginDelayCompensator(previous.tracks, engine.blocksize)
+            prepared.configure(delay)
+            engine.linux_audio.lock_arrays(prepared.history, prepared.output)
+            engine.plugin_pdc = prepared
         return delay
 
     def prepare_fx(engine, project=None):

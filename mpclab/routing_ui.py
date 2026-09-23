@@ -456,7 +456,6 @@ class RoutingController:
 
     def show_latency_report(self):
         engine = self.window.engine
-        instrument = engine.external.instrument
         effect = engine.external.effect
 
         def describe(name, plugin, bridge):
@@ -473,9 +472,19 @@ class RoutingController:
             )
 
         pdc = getattr(getattr(engine, "plugin_pdc", None), "delay_samples", 0)
+        names = {item.id: item.name for item in self.window.project.instruments}
+        instruments = [
+            describe(
+                "Primary instrument" if identity is None else f"Instrument: {names[identity]}",
+                route.instrument,
+                True,
+            )
+            for identity, route in engine.external.routes()
+            if identity is None or identity in names
+        ]
         text = "\n\n".join(
             (
-                describe("Instrument", instrument, True),
+                *instruments,
                 describe("Master effect", effect, True),
                 f"Dry-track compensation: {pdc} samples / {pdc / engine.sr * 1000.0:.2f} ms",
             )

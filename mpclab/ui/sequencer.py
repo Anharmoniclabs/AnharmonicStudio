@@ -60,6 +60,13 @@ class StepGrid(WindowClient, QWidget):
         self._sample_drop = SoundDropFilter(app, self, "beats", self.drop_target)
 
     # ── layout ───────────────────────────────────────────────
+    def audition_pad(self, index: int) -> None:
+        """Preview without recording or leaving a gate/loop pad held forever."""
+        engine = self.app.engine
+        token = engine.trigger_pad_audition(index)
+        if self.app.project.pads[index].mode != "one-shot":
+            QTimer.singleShot(300, self, lambda: engine.release_pad_audition(index, token))
+
     def pattern(self):
         return self.app.project.pattern()
 

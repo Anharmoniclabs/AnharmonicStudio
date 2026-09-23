@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mpclab.model import PROJECT_FORMAT_VERSION, Project
+from mpclab.model import COMPATIBLE_PROJECT_FORMAT_VERSION, Project
 from mpclab.workflow_state import ensure_workflow, install_project_workflow_state, validate_workflow
 
 
@@ -53,7 +53,7 @@ def test_optional_workflow_metadata_round_trips_without_format_bump():
     }
 
     payload = project.to_dict()
-    assert payload["format_version"] == PROJECT_FORMAT_VERSION
+    assert payload["format_version"] == COMPATIBLE_PROJECT_FORMAT_VERSION
     assert "workflow" in payload
 
     reopened = Project.from_dict(payload)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 from .window_client import WindowClient
 
-from PySide6.QtCore import Qt, QRectF, Signal, QTimer
+from PySide6.QtCore import Qt, QRectF, Signal, QTimer, QSignalBlocker
 from PySide6.QtGui import QPainter, QLinearGradient
 from PySide6.QtWidgets import (
     QWidget,
@@ -78,6 +78,8 @@ class Strip(WindowClient, QWidget):
         self.app = app
         self.index = index
         self.master = master
+        self._history_sliders = set()
+        self._history_project = app.project
         self.setObjectName("masterStrip" if master else "strip")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setFixedSize(94 if master else 78, 352)
@@ -169,39 +171,75 @@ class Strip(WindowClient, QWidget):
         name, ok = QInputDialog.getText(
             self, "Rename track", "Track name:", text=self._track().name
         )
-        if ok and name:
+        if ok and name and name != self._track().name:
+            self.app.snapshot()
             self._track().name = name
             self.sync()
             self.changed.emit()
 
-    def _gain_changed(self, v):
+    def _snapshot_slider(self, slider, target):
+        """Capture the pre-edit state once per drag, or once per discrete step."""
+        if self._history_project is not self.app.project:
+            self._history_project = self.app.project
+            self._history_sliders.clear()
+        controller = getattr(self.app, "automation_mode_controller", None)
+        automated = controller is not None and controller.prepare_control_change(target)
+        if not slider.isSliderDown() or slider not in self._history_sliders:
+            if not automated:
+                self.app.snapshot()
+            if slider.isSliderDown():
+                self._history_sliders.add(slider)
+        if not getattr(slider, "_mixer_history_connected", False):
+            slider._mixer_history_connected = True
+            slider.sliderReleased.connect(lambda: self._history_sliders.discard(slider))
+
+    def set_master_gain(self, value, *, slider):
+        """The transport and pinned master faders share the same edit path."""
+        self._gain_changed(value, slider=slider)
+
+    def _gain_changed(self, v, *, slider=None):
         if self._syncing:
             return
+        gain = v / 100.0
+        current = self.app.project.master if self.master else self._track().gain
+        if gain == current:
+            return
+        self._snapshot_slider(
+            self.fader if slider is None else slider,
+            "master" if self.master else f"track:{self.index}:gain",
+        )
         if self.master:
-            self.app.project.master = v / 100.0
+            self.app.project.master = gain
+            with QSignalBlocker(self.fader):
+                self.fader.setValue(v)
             transport = getattr(self.app, "master_slider", None)
             if transport is not None and transport.value() != v:
                 transport.blockSignals(True)
                 transport.setValue(v)
                 transport.blockSignals(False)
         else:
-            self._track().gain = v / 100.0
+            self._track().gain = gain
         self._update_value()
         self.changed.emit()
 
     def _pan_changed(self, v):
         if self._syncing or self.master:
             return
+        if self._track().pan == v / 100.0:
+            return
+        self._snapshot_slider(self.pan, f"track:{self.index}:pan")
         self._track().pan = v / 100.0
         self.changed.emit()
 
     def _mute_changed(self, b):
-        if not self._syncing:
+        if not self._syncing and self._track().mute != b:
+            self.app.snapshot()
             self._track().mute = b
             self.changed.emit()
 
     def _solo_changed(self, b):
-        if not self._syncing:
+        if not self._syncing and self._track().solo != b:
+            self.app.snapshot()
             self._track().solo = b
             self.changed.emit()
 
@@ -211,6 +249,10 @@ class Strip(WindowClient, QWidget):
 
     def sync(self):
         self._syncing = True
+        # Automation also listens to these signals; visual refresh must never
+        # write automation or feed rounded positions back into project state.
+        gain_blocker = QSignalBlocker(self.fader)
+        pan_blocker = QSignalBlocker(self.pan)
         if self.master:
             self.fader.setValue(int(self.app.project.master * 100))
         else:
@@ -238,6 +280,8 @@ class Strip(WindowClient, QWidget):
                 else "No effects on this track yet — click to open its rack"
             )
         self._update_value()
+        gain_blocker.unblock()
+        pan_blocker.unblock()
         self._syncing = False
 
     @staticmethod
@@ -308,6 +352,7 @@ class Strip(WindowClient, QWidget):
 
 class MixerPanel(WindowClient, QWidget):
     changed = Signal()
+    track_selected = Signal(int)
 
     def __init__(self, app, parent=None):
         super().__init__(parent)
@@ -367,11 +412,13 @@ class MixerPanel(WindowClient, QWidget):
         self._timer.timeout.connect(self._meters)
         self._timer.start(50)
 
-    def select_track(self, index: int):
+    def select_track(self, index: int, *, notify: bool = True):
         self.selected = max(0, min(len(self.app.project.tracks) - 1, int(index)))
         for i, strip in enumerate(self.strips):
             strip.set_selected(i == self.selected)
         self.rack.set_track(self.selected)
+        if notify:
+            self.track_selected.emit(self.selected)
 
     def _add_track(self):
         from .track_management import add_mixer_track
@@ -411,7 +458,7 @@ class MixerPanel(WindowClient, QWidget):
             s.sync()
         self.master_strip.sync()
         unchanged_rack_index = self.rack.index == self.selected
-        self.select_track(self.selected)
+        self.select_track(self.selected, notify=False)
         if unchanged_rack_index:
             # A load/undo may replace every settings object without changing
             # the selected index. Rebind the rack's controls to this project;

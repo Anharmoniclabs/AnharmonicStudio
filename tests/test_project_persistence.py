@@ -6,7 +6,12 @@ import json
 
 import pytest
 
-from mpclab.model import PROJECT_FORMAT_VERSION, Project, safe_filename
+from mpclab.model import (
+    COMPATIBLE_PROJECT_FORMAT_VERSION,
+    PROJECT_FORMAT_VERSION,
+    Project,
+    safe_filename,
+)
 
 
 def test_project_save_is_versioned_and_round_trips(tmp_path):
@@ -16,7 +21,7 @@ def test_project_save_is_versioned_and_round_trips(tmp_path):
     source.save(path)
 
     payload = json.loads(path.read_text())
-    assert payload["format_version"] == PROJECT_FORMAT_VERSION
+    assert payload["format_version"] == COMPATIBLE_PROJECT_FORMAT_VERSION
     restored = Project.load(path)
     assert restored.name == source.name
     assert restored.bpm == source.bpm

@@ -14,6 +14,7 @@ from __future__ import annotations
 import queue
 import time
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 
@@ -175,6 +176,7 @@ class Engine:
         self._click_plain = _make_click(sample_rate, False)
         self._click_accent = _make_click(sample_rate, True)
         from .midi_performance import MidiPerformance
+
         self.midi = MidiPerformance(self)
         self._lock_realtime_working_set()
 
@@ -236,8 +238,8 @@ class Engine:
         self.monitor_dropped_frames += len(chunk) - take
         start = write % len(ring)
         first = min(take, len(ring) - start)
-        np.multiply(chunk[:first], np.float32(gain), out=ring[start:start + first])
-        np.multiply(chunk[first:take], np.float32(gain), out=ring[:take - first])
+        np.multiply(chunk[:first], np.float32(gain), out=ring[start : start + first])
+        np.multiply(chunk[first:take], np.float32(gain), out=ring[: take - first])
         self._monitor_write = write + take
 
     def read_monitor(self, frames):
@@ -251,8 +253,8 @@ class Engine:
         count = min(frames, write - read)
         start = read % len(ring)
         first = min(count, len(ring) - start)
-        out[:first] = ring[start:start + first]
-        out[first:count] = ring[:count - first]
+        out[:first] = ring[start : start + first]
+        out[first:count] = ring[: count - first]
         self._monitor_read = read + count
         if count:
             self.monitor_missing_frames += frames - count
@@ -323,9 +325,13 @@ class Engine:
     def start(self, device=_CONFIGURED_DEVICE) -> None:
         if self.stream is not None:
             return
-        prepare_patch(self.project.synth)
+        if not self.project.plugins.get("instrument") or self.project.plugins["instrument"].get(
+            "bypass"
+        ):
+            prepare_patch(self.project.synth)
         for instrument in self.project.instruments:
-            prepare_patch(instrument.patch)
+            if not instrument.plugin or instrument.plugin.get("bypass"):
+                prepare_patch(instrument.patch)
         import sounddevice as sd
 
         output_device = self.output_device if device is _CONFIGURED_DEVICE else device
@@ -347,7 +353,11 @@ class Engine:
                 voice.render(warm, self.project.synth)
         native_output = NATIVE is not None and hasattr(sd, "_StreamBase")
         stream_factory = (
-            (lambda **options: NativeOutputStream(sd, NATIVE, output_channels=self.output_channels, **options))
+            (
+                lambda **options: NativeOutputStream(
+                    sd, NATIVE, output_channels=self.output_channels, **options
+                )
+            )
             if native_output
             else sd.OutputStream
         )
@@ -359,11 +369,13 @@ class Engine:
                 raise ValueError("Select a valid stereo output pair")
             output_count = max(mapping) + 1
             scratch = np.zeros((self.blocksize, 2), np.float32)
+
             def output_callback(out, frames, timing, status):
                 self._callback(scratch[:frames], frames, timing, status)
                 out.fill(0)
                 out[:, mapping[0]] += scratch[:frames, 0]
                 out[:, mapping[1]] += scratch[:frames, 1]
+
         stream = stream_factory(
             samplerate=self.sr,
             blocksize=self.blocksize,
@@ -539,6 +551,17 @@ class Engine:
     def release_pad(self, index: int) -> None:
         self.cmds.put(("off", index))
 
+    def trigger_pad_audition(self, index: int, velocity: float = 1.0) -> str:
+        """Preview a pad without recording, returning its unique release owner."""
+        if not 0 <= index < NPADS:
+            raise ValueError("invalid pad audition destination")
+        token = uuid4().hex
+        self.cmds.put(("padaudition", index, velocity, token))
+        return token
+
+    def release_pad_audition(self, index: int, token: str) -> None:
+        self.cmds.put(("padauditionoff", index, token))
+
     def sample_note_on(self, index: int, note: int, velocity: float = 1.0) -> None:
         if not 0 <= index < NPADS or not 0 <= note <= 127:
             raise ValueError("invalid sample note destination or pitch")
@@ -551,7 +574,9 @@ class Engine:
         self.cmds.put(("samplepanic",))
 
     def synth_note_on(self, note: int, velocity: float = 1.0, *, instrument_id=None) -> None:
-        prepare_patch(self.project.instrument_patch(instrument_id))
+        external = self.external.route(instrument_id)
+        if external is None or external.instrument is None:
+            prepare_patch(self.project.instrument_patch(instrument_id))
         command = ("synthon", max(0, min(127, int(note))), velocity)
         self.cmds.put(command if instrument_id is None else (*command, instrument_id))
 
@@ -561,6 +586,9 @@ class Engine:
 
     def synth_panic(self) -> None:
         self.cmds.put(("synthpanic",))
+
+    def synth_instance_panic(self, instrument_id=None, *, live_only=False) -> None:
+        self.cmds.put(("instrumentpanic", instrument_id, live_only))
 
     def audition(
         self,
@@ -757,12 +785,11 @@ class Engine:
         midi_owner: str | None = None,
     ) -> None:
         voices = self.synth_voices if voices is None else voices
-        if (
-            instrument_id is None
-            and voices is self.synth_voices
-            and self.external.instrument is not None
-        ):
-            self.external.note_on(note, velocity, offset, gate_frames, live_trigger, channel=midi_channel)
+        external = self.external.route(instrument_id)
+        if voices is self.synth_voices and external is not None and external.instrument is not None:
+            external.note_on(
+                note, velocity, offset, gate_frames, live_trigger, channel=midi_channel
+            )
             return
         patch = self.project.instrument_patch(instrument_id)
         # Retrigger within the same performance source. Playing along must not
@@ -817,9 +844,12 @@ class Engine:
             )
         )
 
-    def _release_synth(self, note: int, instrument_id=None, midi_owner=None, midi_channel=0) -> None:
-        if instrument_id is None and self.external.instrument is not None:
-            self.external.note_off(note)
+    def _release_synth(
+        self, note: int, instrument_id=None, midi_owner=None, midi_channel=0
+    ) -> None:
+        external = self.external.route(instrument_id)
+        if external is not None and external.instrument is not None:
+            external.note_off(note, channel=midi_channel)
         for voice in self.synth_voices:
             if (
                 voice.note == note
@@ -904,9 +934,11 @@ class Engine:
         """Decode every referenced source and reverse copy off the audio thread."""
         proj = project or self.project
         proj._validate_instruments()
-        prepare_patch(proj.synth)
+        if not proj.plugins.get("instrument") or proj.plugins["instrument"].get("bypass"):
+            prepare_patch(proj.synth)
         for instrument in proj.instruments:
-            prepare_patch(instrument.patch)
+            if not instrument.plugin or instrument.plugin.get("bypass"):
+                prepare_patch(instrument.patch)
         normal: set[str] = set()
         reversed_refs: set[str] = set()
         for pad in proj.pads:
@@ -978,7 +1010,9 @@ class Engine:
         if presentation is None:
             dac = getattr(time_info, "outputBufferDacTime", None)
             current = getattr(time_info, "currentTime", None)
-            presentation = now + (dac - current if dac is not None and current is not None else self.latency_ms / 1000)
+            presentation = now + (
+                dac - current if dac is not None and current is not None else self.latency_ms / 1000
+            )
         self.audio_clock = (presentation, self.beat, self.project.bpm, self.playing)
         if self.capture_anchor_requested and self.playing:
             self.capture_anchor = self.audio_clock
@@ -986,14 +1020,15 @@ class Engine:
         midi_events = self.midi.process(frames, now, deferred=True)
         midi_index = 0
         self._process_commands()
-        monitor = self.read_monitor(frames)
         offset = 0
         while offset < frames:
             while midi_index < len(midi_events) and midi_events[midi_index][0] <= offset:
                 self.midi.apply_event(midi_events[midi_index][1])
                 midi_index += 1
             self._process_commands()
-            count = frames - offset
+            # Host callbacks may exceed the prepared DSP capacity. Keep each
+            # render (and monitor read) bounded without growing RT scratch.
+            count = min(frames - offset, self.blocksize)
             if midi_index < len(midi_events):
                 count = min(count, midi_events[midi_index][0] - offset)
             end = None
@@ -1005,7 +1040,7 @@ class Engine:
                 if end > 0:
                     until_end = (end - self.beat) * self.sr * 60.0 / proj.bpm
                     count = min(count, max(1, int(np.ceil(until_end - 1e-9))))
-            cue = None if monitor is None else monitor[offset : offset + count]
+            cue = self.read_monitor(count)
             self._render_block(outdata[offset : offset + count], count, cue)
             offset += count
             # Finish the old audio before wrapping; the rest of this host
@@ -1042,13 +1077,45 @@ class Engine:
                 self.external.panic()
                 self.midi_playback_state.clear()
             if kind == "midiexpression":
-                if self.external.instrument is not None:
-                    self.external.events.append((cmd[1], 0))
+                external = self.external.route(cmd[2] if len(cmd) > 2 else None)
+                if external is not None and external.instrument is not None:
+                    external.events.append((cmd[1], 0))
+            elif kind == "instrumentpanic":
+                identity, live_only = cmd[1:]
+                external = self.external.route(identity)
+                if external is not None:
+                    if live_only:
+                        external.release_live()
+                    else:
+                        external.panic(include_instances=False)
+                if identity is None:
+                    self.arp_state.held.clear()
+                    self._arp_samples_until = 0.0
+                for voice in self.synth_voices:
+                    if voice.instrument_id == identity and (not live_only or voice.live_trigger):
+                        voice.note_off(0.008)
             elif kind == "pad":
                 idx, vel = cmd[1], cmd[2]
                 self._spawn(proj.pads[idx], idx, vel, 0)
                 if self.recording and self.playing:
                     self._record(idx, vel)
+            elif kind == "padaudition":
+                _, idx, vel, token = cmd
+                # Live preview voices use the existing source identity field;
+                # ordinary physical hits have no token and remain independent.
+                self._spawn(proj.pads[idx], idx, vel, sequence_id=token)
+            elif kind == "padauditionoff":
+                _, idx, token = cmd
+                for v in self.voices:
+                    if (
+                        v.pad_index == idx
+                        and v.live_trigger
+                        and v.note is None
+                        and v.sequence_id == token
+                        and v.gated
+                        and not v.dead
+                    ):
+                        v.release_now(v.release)
             elif kind == "off":
                 for v in self.voices:
                     if v.pad_index == cmd[1] and v.note is None and v.live_trigger and not v.dead:

@@ -11,7 +11,14 @@ import uuid
 from dataclasses import dataclass, field, asdict, replace
 from pathlib import Path
 
-from .music import Note, MidiControl, AutomationLane, read_notes, read_automation, read_midi_controls
+from .music import (
+    Note,
+    MidiControl,
+    AutomationLane,
+    read_notes,
+    read_automation,
+    read_midi_controls,
+)
 from .plugin_registry import validate_project_plugins
 from .project_migrations import legacy_mixer_track_id, migrate_project_document
 
@@ -34,7 +41,8 @@ PAD_KEYS = ["0", ".", "/", "*", "1", "2", "3", "⏎", "4", "5", "6", "+", "7", "
 DISPLAY_ORDER = [12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3]
 
 MODES = ("one-shot", "gate", "loop")
-PROJECT_FORMAT_VERSION = 6
+PROJECT_FORMAT_VERSION = 7
+COMPATIBLE_PROJECT_FORMAT_VERSION = 6  # Desktop/browser contract without instance plugins.
 MAX_INSTRUMENTS = 127  # Additional native instances; the legacy synth remains primary.
 _UNSAFE_FILENAME = re.compile(r"[^\w .()-]+", re.UNICODE)
 
@@ -161,6 +169,7 @@ class Instrument:
     name: str = "Instrument"
     patch: SynthPatch = field(default_factory=SynthPatch)
     midi_channel: int | None = None  # None = selected/typing input only, not omni.
+    plugin: dict | None = None  # Independent external instrument; None uses patch.
 
     def validate(self):
         if (
@@ -184,6 +193,8 @@ class Instrument:
         from .instrument_state import validate_patch
 
         validate_patch(self.patch)
+        if self.plugin is not None:
+            self.plugin = validate_project_plugins({"instrument": self.plugin})["instrument"]
 
 
 @dataclass
@@ -355,7 +366,12 @@ class VocalRecordSettings:
     mixer_track: int = 3
 
     def __post_init__(self):
-        if not isinstance(self.input_channels, list) or not 1 <= len(self.input_channels) <= 64 or any(type(c) is not int or not 0 <= c < 64 for c in self.input_channels) or len(set(self.input_channels)) != len(self.input_channels):
+        if (
+            not isinstance(self.input_channels, list)
+            or not 1 <= len(self.input_channels) <= 64
+            or any(type(c) is not int or not 0 <= c < 64 for c in self.input_channels)
+            or len(set(self.input_channels)) != len(self.input_channels)
+        ):
             raise ValueError("Recording inputs must be distinct channel numbers from 1 to 64")
         if type(self.split_inputs) is not bool:
             raise ValueError("Separate-input recording must be enabled or disabled")
@@ -668,9 +684,15 @@ class Project:
         self._validate_track_references()
         self._validate_instruments()
         d = asdict(self)
-        # The schema version describes the document contract, never whether a
-        # particular optional collection happens to be empty.
-        d["format_version"] = PROJECT_FORMAT_VERSION
+        # Instance plugin state needs a newer reader: format 6 readers would
+        # silently discard it. Keep ordinary songs on the compatible contract.
+        has_instance_plugins = any(instrument.plugin is not None for instrument in self.instruments)
+        d["format_version"] = (
+            PROJECT_FORMAT_VERSION if has_instance_plugins else COMPATIBLE_PROJECT_FORMAT_VERSION
+        )
+        if not has_instance_plugins:
+            for instrument in d["instruments"]:
+                instrument.pop("plugin", None)
         # JSON object keys must be strings; keep steps readable.
         d["patterns"] = [
             {
@@ -869,7 +891,7 @@ class Project:
         proj.tracks = tracks + defaults[len(tracks) :]
         proj._validate_track_ids()
         for item in instruments_data:
-            if set(item) - {"id", "name", "patch", "midi_channel"}:
+            if set(item) - {"id", "name", "patch", "midi_channel", "plugin"}:
                 raise ValueError("unsupported instrument fields")
             patch = item.get("patch")
             if not isinstance(patch, dict) or set(patch) - set(SynthPatch.__annotations__):
@@ -879,6 +901,7 @@ class Project:
                 name=item.get("name", "Instrument"),
                 patch=SynthPatch(**patch),
                 midi_channel=item.get("midi_channel"),
+                plugin=item.get("plugin"),
             )
             instrument.validate()
             proj.instruments.append(instrument)

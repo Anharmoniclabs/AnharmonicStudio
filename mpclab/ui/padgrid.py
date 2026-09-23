@@ -639,6 +639,7 @@ class PadInspector(WindowClient, QScrollArea):
 
     def rebuild(self):
         self._building = True
+        self._output_combo = None
         self._clear()
         proj = self.app.project
         gi = self.index
@@ -737,6 +738,7 @@ class PadInspector(WindowClient, QScrollArea):
         form.addRow(self._lbl("CHOKE"), choke)
 
         out = QComboBox()
+        self._output_combo = out
         out.addItems(
             [
                 f"{i + 1} · {t.name}" + ("  ·  fx" if t.fx.active or t.fx.sends_active else "")
@@ -782,3 +784,22 @@ class PadInspector(WindowClient, QScrollArea):
         self._layout.addWidget(buttons)
         self._layout.addStretch(1)
         self._building = False
+
+    def refresh_output_labels(self):
+        """Refresh routing names/FX badges without replacing live pad editors."""
+        out = self._output_combo
+        if out is None:
+            return
+        tracks = self.app.project.tracks
+        with QSignalBlocker(out):
+            while out.count() > len(tracks):
+                out.removeItem(out.count() - 1)
+            for index, track in enumerate(tracks):
+                label = f"{index + 1} · {track.name}" + (
+                    "  ·  fx" if track.fx.active or track.fx.sends_active else ""
+                )
+                if index == out.count():
+                    out.addItem(label)
+                elif out.itemText(index) != label:
+                    out.setItemText(index, label)
+            out.setCurrentIndex(self.app.project.pads[self.index].track)

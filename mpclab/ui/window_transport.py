@@ -121,7 +121,9 @@ def release_selected_note(window, note: int):
 SELECTED_INSTRUMENT = object()
 
 
-def play_synth_note(window, note: int, velocity: float = 1.0, *, instrument_id=SELECTED_INSTRUMENT, channel=0):
+def play_synth_note(
+    window, note: int, velocity: float = 1.0, *, instrument_id=SELECTED_INSTRUMENT, channel=0
+):
     if instrument_id is SELECTED_INSTRUMENT:
         instrument_id = window.project.selected_instrument
     use_arp = instrument_id is None and window.project.arp.enabled
@@ -171,8 +173,16 @@ def release_synth_note(window, note: int, *, instrument_id=SELECTED_INSTRUMENT):
         if pattern:
             beat = start % pattern.length_beats
             duration = min(max(0.03125, window.engine.beat - start), pattern.length_beats - beat)
-            pattern.notes.append(Note(note, beat, duration, velocity, instrument=instrument_id,
-                                      channel=channels[0] if channels else 0))
+            pattern.notes.append(
+                Note(
+                    note,
+                    beat,
+                    duration,
+                    velocity,
+                    instrument=instrument_id,
+                    channel=channels[0] if channels else 0,
+                )
+            )
             window._set_dirty(True)
             window.piano_roll.canvas.refresh()
     if instrument_id is None:
@@ -182,6 +192,20 @@ def release_synth_note(window, note: int, *, instrument_id=SELECTED_INSTRUMENT):
     window.synth_panel.keyboard.set_note_active(note, False)
     if window.typing_keyboard is not None:
         window.typing_keyboard.keyboard.set_note_active(note, False)
+
+
+def release_instrument_input(window):
+    """Finish held input on the old instrument while backing sequences continue."""
+    for note in tuple(window.sample_workflow.held):
+        window.sample_workflow.note_off(note)
+    for note in list(window._recorded_notes):
+        window.release_synth_note(note)
+    window.engine.synth_instance_panic(window.project.selected_instrument, live_only=True)
+    window._held_synth_keys.clear()
+    window.synth_panel.keyboard.active.clear()
+    window.synth_panel.keyboard.update()
+    if window.typing_keyboard is not None:
+        window.typing_keyboard.panic(send=False)
 
 
 def panic_synth(window):
@@ -374,9 +398,7 @@ def _cut_self_changed(window, on: bool):
 
 
 def _master_changed(window, v):
-    window.project.master = v / 100.0
-    window.mixer.master_strip.sync()
-    window._set_dirty(True)
+    window.mixer.master_strip.set_master_gain(v, slider=window.master_slider)
 
 
 def _audio_buffer_changed(window, index: int):
@@ -416,7 +438,9 @@ def _audio_buffer_changed(window, index: int):
         return
     window._audio_start_error = None
     window.settings.setValue("audio/buffer_frames", frames)
-    if hasattr(window, "devices") and window.project.plugins:
+    if hasattr(window, "devices") and (
+        window.project.plugins or any(i.plugin for i in window.project.instruments)
+    ):
         window.devices.sync_project()
     window.status.showMessage(
         f"audio · {frames} frames · {window.engine.period_ms:.1f} ms block", 4000

@@ -18,16 +18,22 @@ def install_device_pdc_hooks() -> None:
     original_remove = DevicesController.remove_plugin
     original_sync = DevicesController.sync_project
 
-    def refresh(controller, slot: str | None = None) -> int:
+    def refresh(controller, slot: str | None = None, *, prepared=False) -> int:
         engine = controller.app.engine
         prepare = getattr(engine, "prepare_plugin_latency", None)
-        delay = prepare() if prepare is not None else 0
+        delay = (
+            getattr(getattr(engine, "plugin_pdc", None), "delay_samples", 0)
+            if prepared
+            else prepare()
+            if prepare is not None
+            else 0
+        )
         if slot is not None:
-            plugin = getattr(engine.external, slot, None)
+            plugin = controller.plugin_bridge(slot)
             if plugin is not None and not getattr(plugin, "error", ""):
                 samples = plugin_path_latency_samples(plugin, include_live_bridge=True)
                 ms = samples / engine.sr * 1000.0
-                if slot == "instrument":
+                if slot.startswith("instrument"):
                     controller.plugin_status = (
                         f"{plugin.info.get('name', 'Instrument')} ready · "
                         f"{ms:.1f} ms isolated path · PDC {delay / engine.sr * 1000.0:.1f} ms"
@@ -40,14 +46,14 @@ def install_device_pdc_hooks() -> None:
 
     def plugin_loaded(controller, generation, slot, bridge, saved, error):
         result = original_loaded(controller, generation, slot, bridge, saved, error)
-        if not error and getattr(controller.app.engine.external, slot, None) is bridge:
-            refresh(controller, slot)
+        if not error and controller.plugin_bridge(slot) is bridge:
+            refresh(controller, slot, prepared=True)
             controller.changed.emit()
         return result
 
     def remove_plugin(controller, slot):
         result = original_remove(controller, slot)
-        refresh(controller)
+        refresh(controller, prepared=True)
         return result
 
     def sync_project(controller):

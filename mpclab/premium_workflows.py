@@ -195,8 +195,12 @@ class PremiumWorkflowController(QObject):
 
     def freeze_selected_track(self):
         index = self._selected_track_index()
-        external = self.window.engine.external.instrument
-        if external is not None and self.window.project.synth.track == index:
+        project = self.window.project
+        if any(
+            route.instrument is not None and project.instrument_patch(identity).track == index
+            for identity, route in self.window.engine.external.routes()
+            if identity is None or any(item.id == identity for item in project.instruments)
+        ):
             raise ValueError(
                 "freeze the external instrument after bouncing it; live host state cannot be muted safely"
             )

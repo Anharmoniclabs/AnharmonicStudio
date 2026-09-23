@@ -50,9 +50,7 @@ class PianoCanvas(WindowClient, QWidget):
         return self.app.project.pattern()
 
     def visible_indices(self):
-        return {
-            i for i, note in enumerate(self.pattern().notes) if self.panel.matches(note)
-        }
+        return {i for i, note in enumerate(self.pattern().notes) if self.panel.matches(note)}
 
     def refresh(self):
         self.selected &= self.visible_indices()
@@ -123,7 +121,11 @@ class PianoCanvas(WindowClient, QWidget):
             duration = min(self.panel.duration.value(), self.pattern().length_beats - beat)
             self.pattern().notes.append(
                 Note(
-                    pitch, beat, duration, self.panel.velocity.value() / 100, self.panel.target_pad,
+                    pitch,
+                    beat,
+                    duration,
+                    self.panel.velocity.value() / 100,
+                    self.panel.target_pad,
                     instrument=self.panel.target_instrument,
                 )
             )
@@ -432,6 +434,10 @@ class PianoRollPanel(WindowClient, QWidget):
 
     def sync_channels(self):
         project = self.app.project
+        if self.target_pad is None:
+            # Undo/project recall restores the selected source in the model.
+            # Keep Notes input on that source while preserving sample targets.
+            self.target_instrument = project.selected_instrument
         referenced = {n.pad for p in project.patterns for n in p.notes if n.pad is not None}
         self.channel.blockSignals(True)
         self.channel.clear()
@@ -465,6 +471,8 @@ class PianoRollPanel(WindowClient, QWidget):
             self.app.typing_keyboard.sync()
 
     def select_channel(self, index):
+        from .window_transport import release_instrument_input
+
         if isinstance(index, str):
             self.app.project.instrument_patch(index)
             self.target_pad, self.target_instrument = None, index
@@ -473,11 +481,15 @@ class PianoRollPanel(WindowClient, QWidget):
         if self.target_pad is None:
             selected = self.app.project.selected_instrument
             if selected != self.target_instrument:
-                self.app.panic_synth()
+                release_instrument_input(self.app)
                 self.app.project.selected_instrument = self.target_instrument
                 self.app.synth_panel.sync()
         if hasattr(self.app.engine, "midi"):
-            self.app.engine.midi.route = (self.target_pad, self.target_instrument, self.app.pads.bank)
+            self.app.engine.midi.route = (
+                self.target_pad,
+                self.target_instrument,
+                self.app.pads.bank,
+            )
         self.canvas.selected.clear()
         if self.canvas.drag and self.canvas.drag[0] == "audition":
             self.app.release_selected_note(self.canvas.drag[1])

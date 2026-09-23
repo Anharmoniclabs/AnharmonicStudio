@@ -269,6 +269,7 @@ def iter_offline_blocks(
 
     saved_mode, engine.mode = engine.mode, mode
     plugins = None
+    instrument_plugins = {}
     chains = None
     try:
         notes, audio = engine._collect(0.0, length_beats)
@@ -288,19 +289,36 @@ def iter_offline_blocks(
                     )
                 )
         synth_events.sort(key=lambda event: event[0])
-        control_events = [(round(beat * spb * engine.sr), control)
-                          for beat, control in controls_in_range(proj, mode, 0, length_beats)]
+        control_events = [
+            (round(beat * spb * engine.sr), control)
+            for beat, control in controls_in_range(proj, mode, 0, length_beats)
+        ]
         control_index = 0
         control_state = {}
         synth_voices = []
         next_synth = 0
-        if proj.plugins:
-            plugins = OfflinePlugins(
-                proj.plugins, engine.sr, [(*event[:4], event[5]) for event in synth_events if event[4] is None]
+        specifications = {None: proj.plugins}
+        specifications.update(
+            {item.id: {"instrument": item.plugin} for item in proj.instruments if item.plugin}
+        )
+        for identity, specs in specifications.items():
+            if not specs:
+                continue
+            instance = OfflinePlugins(
+                specs,
+                engine.sr,
+                [(*event[:4], event[5]) for event in synth_events if event[4] == identity],
             )
-            if plugins.instrument is not None:
-                plugins.events.extend((at, c.message) for at, c in control_events if c.instrument is None and c.pad is None)
-                plugins.events.sort(key=lambda event: event[0])
+            instrument_plugins[identity] = instance
+            if identity is None:
+                plugins = instance
+            if instance.instrument is not None:
+                instance.events.extend(
+                    (at, c.message)
+                    for at, c in control_events
+                    if c.instrument == identity and c.pad is None
+                )
+                instance.events.sort(key=lambda event: event[0])
         voices: list[tuple[int, PadVoice]] = []
         for event in notes:
             item = engine._offline_pad_event(*event, spb)
@@ -360,10 +378,18 @@ def iter_offline_blocks(
         external = np.zeros((blocksize, 2), dtype=np.float32)
         routing_plan = compile_routing(proj)
         plugin_pdc = PluginDelayCompensator(track_count, blocksize)
-        if plugins is not None and plugins.instrument is not None:
-            plugin_pdc.configure(
-                plugin_path_latency_samples(plugins.instrument, include_live_bridge=False)
-            )
+        latencies = {
+            identity: plugin_path_latency_samples(instance.instrument, include_live_bridge=False)
+            for identity, instance in instrument_plugins.items()
+            if instance.instrument is not None
+        }
+        maximum_latency = max(latencies.values(), default=0)
+        plugin_pdc.configure(maximum_latency)
+        instrument_delays = {}
+        for identity, latency in latencies.items():
+            delay = PluginDelayCompensator(1, blocksize)
+            delay.configure(maximum_latency - latency)
+            instrument_delays[identity] = delay
         chains = OfflinePluginChains(proj, engine.sr)
         chain_delays = RoutingDelayBank(blocksize)
         chain_delays.configure(compile_chain_latency_plan(routing_plan, chains.latencies()))
@@ -402,7 +428,8 @@ def iter_offline_blocks(
 
             while next_synth < len(synth_events) and synth_events[next_synth][0] < stop:
                 at, pitch, velocity, gate, instrument_id, channel = synth_events[next_synth]
-                if instrument_id is not None or plugins is None or plugins.instrument is None:
+                external_instance = instrument_plugins.get(instrument_id)
+                if external_instance is None or external_instance.instrument is None:
                     engine._spawn_synth(
                         pitch,
                         velocity,
@@ -420,17 +447,28 @@ def iter_offline_blocks(
                 block_controls.append((max(0, at - start), control))
                 control_index += 1
             for voice in synth_voices:
-                render_expressive_voice(voice, tracks[voice.track], voice_patch(proj, voice), control_state, block_controls)
+                render_expressive_voice(
+                    voice,
+                    tracks[voice.track],
+                    voice_patch(proj, voice),
+                    control_state,
+                    block_controls,
+                )
             for _, control in block_controls:
                 remember_control(control_state, control)
             synth_voices[:] = [voice for voice in synth_voices if not voice.dead]
-            if plugins is not None and plugins.instrument is not None:
+            if plugin_pdc.delay_samples > 0:
+                plugin_pdc.process(tracks, frames)
+            for identity, instance in instrument_plugins.items():
+                if instance.instrument is None:
+                    continue
                 external_block = external[:frames]
                 external_block.fill(0.0)
-                plugins.render_instrument(external_block, start, frames)
-                if plugin_pdc.delay_samples > 0:
-                    plugin_pdc.process(tracks, frames)
-                synth_track = proj.validate_track_index(proj.synth.track, "synth output")
+                instance.render_instrument(external_block, start, frames)
+                instrument_delays[identity].process(external_block[None, :, :], frames)
+                synth_track = proj.validate_track_index(
+                    proj.instrument_patch(identity).track, "synth output"
+                )
                 np.add(tracks[synth_track], external_block, out=tracks[synth_track])
 
             automation_beats = engine._automation_beats(mode, start / (spb * engine.sr), frames)
@@ -494,8 +532,8 @@ def iter_offline_blocks(
                 progress(stop / max(1, total))
             yield block.copy()
     finally:
-        if plugins is not None:
-            plugins.close()
+        for instance in instrument_plugins.values():
+            instance.close()
         if chains is not None:
             chains.close()
         engine.mode = saved_mode

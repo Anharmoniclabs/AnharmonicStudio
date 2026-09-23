@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import threading
+from dataclasses import replace
 
 from .window_client import WindowClient, emit_if_alive
 
@@ -346,6 +347,7 @@ class SynthPanel(WindowClient, QWidget):
         self._preview_request = -1
         self._preview_generation = 0
         self._preview_note = None
+        self._empty_track = None
         self.instrumentReady.connect(self._instrument_ready)
         self._controls: list[tuple[QSlider, str, float, float, bool, QLabel, object]] = []
         self._combos: list[tuple[QComboBox, str]] = []
@@ -389,6 +391,22 @@ class SynthPanel(WindowClient, QWidget):
         hl = QHBoxLayout(head)
         hl.setContentsMargins(10, 7, 10, 7)
         hl.addWidget(self._title("SOUNDS"))
+        self.instance = QComboBox()
+        self.instance.setAccessibleName("Instrument instance")
+        self.instance.setToolTip("Choose the independent sound to play and edit")
+        self.instance.currentIndexChanged.connect(self._instance_changed)
+        hl.addWidget(self.instance)
+        self.new_instrument = QPushButton("+ SOUND")
+        self.new_instrument.setToolTip(
+            "Create an independent instrument; earlier melodies keep their sound"
+        )
+        self.new_instrument.clicked.connect(self.add_instrument)
+        hl.addWidget(self.new_instrument)
+        plugins = QPushButton("VST…")
+        self.plugin_button = plugins
+        plugins.setToolTip("Open plugins for the selected instrument")
+        plugins.clicked.connect(self._show_plugin)
+        hl.addWidget(plugins)
         self.category = QComboBox()
         self.category.addItems(
             [
@@ -682,11 +700,11 @@ class SynthPanel(WindowClient, QWidget):
         self._set_patch(attr, value, snapshot=snapshot)
 
     def _set_patch(self, attr, value, *, snapshot=True):
-        if not self._building:
+        if not self._building and self._empty_track is None:
             if value == getattr(self.app.project.selected_patch, attr):
                 return
             self._load_request += 1
-            if self.app.project.selected_patch.sample_source and snapshot:
+            if snapshot:
                 self.app.snapshot()
             setattr(self.app.project.selected_patch, attr, value)
             self.app.project.selected_patch.name = "Custom"
@@ -705,16 +723,94 @@ class SynthPanel(WindowClient, QWidget):
             self.app._set_dirty(True)
 
     def _track_changed(self, index):
-        if not self._building:
+        if not self._building and self._empty_track is None and index >= 0:
+            self.app.snapshot()
             self.app.project.selected_patch.track = index
             self.app._set_dirty(True)
+
+    def _instance_changed(self, index):
+        if not self._building and index >= 0:
+            self._empty_track = None
+            self.app.piano_roll.select_channel(self.instance.itemData(index))
+            self.sync()
+            if hasattr(self.app, "devices"):
+                self.app.devices.changed.emit()
+
+    def _show_plugin(self):
+        if self._empty_track is not None:
+            self.app.status.showMessage(
+                "Use + SOUND before loading a plugin on this empty track", 5000
+            )
+            return
+        self.app.show_devices()
+        self.app.devices.dialog.tabs.setCurrentIndex(1)
+
+    def _plugin_specification(self):
+        identity = self.app.project.selected_instrument
+        if identity is None:
+            return self.app.project.plugins.get("instrument")
+        return next(item.plugin for item in self.app.project.instruments if item.id == identity)
+
+    def select_track(self, index):
+        """Select an existing instrument routed to a mixer strip, without rerouting it."""
+        project = self.app.project
+        if project.selected_patch.track == index:
+            self._empty_track = None
+            self.sync()
+            return
+        targets = [(None, project.synth), *[(item.id, item.patch) for item in project.instruments]]
+        for identity, patch in targets:
+            if patch.track == index:
+                self._empty_track = None
+                self.app.piano_roll.select_channel(identity)
+                self.sync()
+                if hasattr(self.app, "devices"):
+                    self.app.devices.changed.emit()
+                return
+        self._empty_track = index
+        self._load_request += 1
+        self.sync()
+        self.app.status.showMessage(
+            "No instrument on this track · use + SOUND to create an independent sound", 5000
+        )
+
+    def add_instrument(self, _checked=False):
+        from ..model import MAX_INSTRUMENTS
+
+        project = self.app.project
+        if len(project.instruments) >= MAX_INSTRUMENTS:
+            self.app.status.showMessage("This project already contains 128 instruments", 5000)
+            return
+        capture = getattr(self.app, "track_capture", None)
+        if getattr(capture, "busy", False):
+            self.app.status.showMessage("Finish recording before creating another instrument", 5000)
+            return
+        used = {project.synth.track, *(item.patch.track for item in project.instruments)}
+        track = getattr(getattr(self.app, "mixer", None), "selected", 0)
+        if track in used:
+            track = next(
+                (index for index in range(len(project.tracks)) if index not in used), track
+            )
+        patch = replace(project.selected_patch, track=track)
+        self.app.snapshot()
+        instrument = project.add_instrument(f"Instrument {len(project.instruments) + 2}", patch)
+        self._empty_track = None
+        self.app.piano_roll.select_channel(instrument.id)
+        self.app._set_dirty(True)
+        self.sync()
+        if hasattr(self.app, "devices"):
+            self.app.devices.changed.emit()
+        self.app.status.showMessage(
+            f"{instrument.name} created · independent sound on {project.tracks[track].name}", 5000
+        )
+        return instrument
 
     def _arp_toggled(self, enabled):
         if self._building:
             return
         self.app.project.arp.enabled = enabled
         self.arp_on.setText("ARP ON" if enabled else "ARP OFF")
-        self.app.engine.synth_panic()
+        self.app.engine.synth_instance_panic(None)
         self.visualizer.update()
         self.app._set_dirty(True)
 
@@ -748,13 +844,17 @@ class SynthPanel(WindowClient, QWidget):
         return super().eventFilter(watched, event)
 
     def preview_sound(self):
+        if self._empty_track is not None:
+            return
         # Preview goes directly to the engine; it must not record notes.
         note = orchestra.PREVIEW_NOTES.get(self.app.project.selected_patch.name, self.base_note)
         self._preview_generation += 1
         generation = self._preview_generation
         instrument_id = self.app.project.selected_instrument
         if self._preview_note is not None:
-            self.app.engine.synth_note_off(self._preview_note, instrument_id=getattr(self, "_preview_instrument", None))
+            self.app.engine.synth_note_off(
+                self._preview_note, instrument_id=getattr(self, "_preview_instrument", None)
+            )
         self._preview_note = note
         self._preview_instrument = instrument_id
         if instrument_id is None:
@@ -819,10 +919,10 @@ class SynthPanel(WindowClient, QWidget):
         self.preset.blockSignals(False)
 
     def load_preset(self, name):
-        if self._building or name not in PATCHES:
+        if self._building or self._empty_track is not None or name not in PATCHES:
             return
         self._load_request += 1
-        if name == self.app.project.selected_patch.name:
+        if name == self.app.project.selected_patch.name and not self._plugin_specification():
             return True
         patch = PATCHES[name]
         if patch.sample_source and not orchestra.is_prepared(patch):
@@ -853,13 +953,23 @@ class SynthPanel(WindowClient, QWidget):
             self.preview_sound()
 
     def _commit_preset(self, name):
+        if self._empty_track is not None:
+            return
         self.app.snapshot()
-        self.app.engine.synth_panic()
+        if hasattr(self.app, "devices"):
+            slot = self.app.devices.instrument_slot()
+            if self.app.devices.plugin_specification(slot):
+                self.app.devices.remove_plugin(slot)
+        self.app.engine.synth_instance_panic(self.app.project.selected_instrument)
         track = self.app.project.selected_patch.track
         self.app.project.selected_patch = patch_copy(name)
         self.app.project.selected_patch.track = track
         self.sync()
-        kind = "orchestral instrument" if self.app.project.selected_patch.sample_source else "analog patch"
+        kind = (
+            "orchestral instrument"
+            if self.app.project.selected_patch.sample_source
+            else "analog patch"
+        )
         self.app.status.showMessage(f"{kind} · {name}", 3500)
 
     def set_octave(self, octave):
@@ -881,19 +991,45 @@ class SynthPanel(WindowClient, QWidget):
 
     def sync(self):
         self._building = True
+        if getattr(self, "_displayed_project", None) is not self.app.project:
+            self._empty_track = None
+        self._displayed_project = self.app.project
         if getattr(self, "_displayed_instrument", None) != self.app.project.selected_instrument:
+            self._empty_track = None
             self._load_request += 1
             self._preview_generation += 1
         self._displayed_instrument = self.app.project.selected_instrument
+        empty = self._empty_track is not None
+        self.instance.clear()
+        self.instance.addItem("Primary instrument", None)
+        for instrument in self.app.project.instruments:
+            self.instance.addItem(instrument.name, instrument.id)
+        self.instance.setCurrentIndex(
+            max(0, self.instance.findData(self.app.project.selected_instrument))
+        )
         patch = self.app.project.selected_patch
-        self.patch_name.setText(patch.name)
+        plugin = self._plugin_specification()
+        external = self.app.engine.external.route(self.app.project.selected_instrument)
+        bridge = external.instrument if external is not None else None
+        plugin_name = getattr(bridge, "info", {}).get("name", "External instrument")
+        self.patch_name.setText(
+            "Empty track · create a sound"
+            if empty
+            else (f"VST · {plugin_name}" if plugin else patch.name)
+        )
         sampled = bool(patch.sample_source)
         self.sample_controls.setVisible(sampled)
         self.oscillator_section.setVisible(not sampled)
         self.analog_filter_section.setVisible(not sampled)
         self.visualizer.setVisible(not sampled)
         self.instrument_description.setText(
-            PATCH_DESCRIPTIONS.get(patch.name, "")
+            ("Use + SOUND to give this track an independent instrument." if empty else "")
+            or (
+                "Use VST to edit this instrument. Choose a factory sound to replace only this instance."
+                if plugin
+                else ""
+            )
+            or PATCH_DESCRIPTIONS.get(patch.name, "")
             or (
                 orchestra.SOURCE_NAMES.get(patch.sample_source, "")
                 if sampled
@@ -909,7 +1045,7 @@ class SynthPanel(WindowClient, QWidget):
         )
         for index in range(self.sound_cards.count()):
             item = self.sound_cards.item(index)
-            item.setSelected(item.data(Qt.UserRole) == patch.name)
+            item.setSelected(not plugin and item.data(Qt.UserRole) == patch.name)
         preset_index = self.preset.findText(patch.name)
         if preset_index >= 0:
             self.preset.setCurrentIndex(preset_index)
@@ -917,7 +1053,9 @@ class SynthPanel(WindowClient, QWidget):
             self.preset.setEditText(patch.name)
         for slider, attr, lo, hi, log, label, formatter in self._controls:
             slider.setEnabled(
-                not (
+                not empty
+                and not plugin
+                and not (
                     sampled
                     and (attr == "lfo_pitch" or (attr == "layer_mix" and not patch.sample_layer))
                 )
@@ -926,6 +1064,7 @@ class SynthPanel(WindowClient, QWidget):
             slider.setValue(round(self._position(value, lo, hi, log) * 1000))
             label.setText(formatter(value))
         for combo, attr in self._combos:
+            combo.setEnabled(not empty and not plugin)
             index = combo.findData(getattr(patch, attr))
             combo.setCurrentIndex(max(0, index))
         self.track.clear()
@@ -941,8 +1080,19 @@ class SynthPanel(WindowClient, QWidget):
         self.arp_octaves.setCurrentIndex(max(0, min(3, arp.octaves - 1)))
         self.arp_gate.setValue(round(arp.gate * 100))
         for control in (self.arp_on, self.arp_rate, self.arp_mode, self.arp_octaves, self.arp_gate):
-            control.setEnabled(self.app.project.selected_instrument is None)
-            control.setToolTip("The live arpeggiator currently belongs to the primary instrument only")
+            control.setEnabled(not empty and self.app.project.selected_instrument is None)
+            control.setToolTip(
+                "The live arpeggiator currently belongs to the primary instrument only"
+            )
+        for control in (
+            self.sound_cards,
+            self.preset,
+            self.track,
+            self.plugin_button,
+            self.print_button,
+            self.keyboard,
+        ):
+            control.setEnabled(not empty)
         self.set_octave(self.octave)
         self.visualizer.update()
         self._building = False

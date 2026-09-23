@@ -5,10 +5,10 @@ project state stay with that coordinator. This module owns only its named domain
 """
 
 from __future__ import annotations
+from dataclasses import replace
 import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication,
     QMenu,
 )
 from ..model import (
@@ -50,19 +50,50 @@ def select_pad(window, gi: int):
 
 
 def print_synth_to_pad(window):
-    """Render the current analog patch and place it on the active pad."""
-    patch = window.project.synth
-    note = window.synth_panel.base_note
-    hold = (60.0 / window.project.bpm) * 2.0
-    window.status.showMessage(f"printing {patch.name}…")
-    QApplication.processEvents()
-    audio = render_patch(patch, note, hold, window.engine.sr)
-    window.snapshot()
-    clip = window.library.add_audio(
-        audio, f"{patch.name} C{window.synth_panel.octave}", kind="render"
+    """Render the selected native patch and place it on the active pad."""
+    if getattr(window.synth_panel, "_empty_track", None) is not None:
+        window.status.showMessage(
+            "Use + SOUND or select an existing instrument before printing", 5000
+        )
+        return
+    project = window.project
+    instrument_id = project.selected_instrument
+    instrument = next((item for item in project.instruments if item.id == instrument_id), None)
+    plugin = (
+        project.plugins.get("instrument")
+        if instrument_id is None
+        else getattr(instrument, "plugin", None)
     )
+    if plugin is not None:
+        window.status.showMessage(
+            "External instruments cannot be printed to a pad here yet. "
+            "Export the pattern to WAV, then load that sample.",
+            7000,
+        )
+        return
+    patch = replace(project.selected_patch)
     gi = window.pads.selected
-    map_sample_range(window.project.pads[gi], clip.id, 0.0, clip.duration, clip.name)
+    note = window.synth_panel.base_note
+    octave = window.synth_panel.octave
+    hold = (60.0 / project.bpm) * 2.0
+    window.status.showMessage(f"printing {patch.name}…")
+    try:
+        audio = render_patch(patch, note, hold, window.engine.sr)
+    except Exception as exc:
+        window.status.showMessage(f"Could not print sound: {exc}", 6000)
+        return
+    previous_undo, previous_redo = list(window._undo), list(window._redo)
+    was_dirty = window._dirty
+    window.snapshot()
+    try:
+        clip = window.library.add_audio(audio, f"{patch.name} C{octave}", kind="render")
+    except Exception as exc:
+        window._undo[:], window._redo[:] = previous_undo, previous_redo
+        window._set_dirty(was_dirty)
+        window._try_save_history()
+        window.status.showMessage(f"Could not save printed sound: {exc}", 6000)
+        return
+    map_sample_range(project.pads[gi], clip.id, 0.0, clip.duration, clip.name)
     window.pad_inspector.set_pad(gi)
     window.browser.refresh(select=clip.id)
     window._library_changed()
@@ -73,13 +104,22 @@ def print_synth_to_pad(window):
 
 def _pad_pressed(window, gi: int, vel: float):
     pad = window.project.pads[gi]
+    held = getattr(window, "_held_pad_recording_notes", None)
+    if held is None:
+        held = window._held_pad_recording_notes = {}
+    if gi in held:
+        window.track_capture.note_off(held.pop(gi), gi)
     if not pad.empty:
+        held[gi] = pad.root_note
         window.track_capture.note_on(pad.root_note, vel, gi)
     window.engine.trigger_pad(gi, vel)
 
 
 def _pad_released(window, gi: int):
-    window.track_capture.note_off(window.project.pads[gi].root_note, gi)
+    held = getattr(window, "_held_pad_recording_notes", {})
+    pitch = held.pop(gi, None)
+    if pitch is not None:
+        window.track_capture.note_off(pitch, gi)
     window.engine.release_pad(gi)
 
 

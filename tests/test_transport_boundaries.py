@@ -38,12 +38,11 @@ def test_loop_split_preserves_entire_microphone_cue():
     engine.project.bpm = 120
     engine.project.loop_end = 128 / 24000
     engine.mode, engine.playing, engine.loop_song = "song", True, True
-    engine._monitor_audio[0] = np.linspace(0.01, 0.1, 256)[:, None]
-    engine._monitor_lengths[0] = 256
-    engine._monitor_write = 1
+    source = np.repeat(np.linspace(0.01, 0.1, 256, dtype=np.float32)[:, None], 2, axis=1)
+    engine.queue_monitor(source)
     out = np.zeros((256, 2), np.float32)
     engine._callback(out, 256, None, False)
-    np.testing.assert_allclose(out, engine._monitor_audio[0], atol=1e-6)
+    np.testing.assert_allclose(out, source, atol=1e-6)
 
 
 def test_short_loop_slices_keep_prepared_filter_and_overlap():

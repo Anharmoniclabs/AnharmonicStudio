@@ -415,11 +415,21 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         try:
             channels = json.loads(str(self.settings.value("audio/input_channels", "[0]")))
             outputs = json.loads(str(self.settings.value("audio/output_channels", "[0, 1]")))
-            if isinstance(channels, list) and 1 <= len(channels) <= 64 and all(type(c) is int and 0 <= c < 64 for c in channels):
+            if (
+                isinstance(channels, list)
+                and 1 <= len(channels) <= 64
+                and all(type(c) is int and 0 <= c < 64 for c in channels)
+            ):
                 self.project.vocal_record.input_channels = channels
-            if isinstance(outputs, list) and len(outputs) == 2 and all(type(c) is int and 0 <= c < 64 for c in outputs):
+            if (
+                isinstance(outputs, list)
+                and len(outputs) == 2
+                and all(type(c) is int and 0 <= c < 64 for c in outputs)
+            ):
                 self.engine.output_channels = tuple(outputs)
-            self.project.vocal_record.split_inputs = str(self.settings.value("audio/split_inputs", "false")).lower() == "true"
+            self.project.vocal_record.split_inputs = (
+                str(self.settings.value("audio/split_inputs", "false")).lower() == "true"
+            )
         except (ValueError, TypeError):
             pass
         self._audio_output_key = str(self.settings.value("audio/output_device", "") or "")
@@ -563,7 +573,9 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             str(self.settings.value("audio/workflow", "build") or "build"),
         )
         rec = self.project.vocal_record
-        dialog.select_channels(rec.input_channels, self.engine.output_channels, rec.split_inputs, rec.monitor)
+        dialog.select_channels(
+            rec.input_channels, self.engine.output_channels, rec.split_inputs, rec.monitor
+        )
         dialog.accepted.connect(lambda: self._apply_audio_setup(dialog))
         dialog.finished.connect(lambda _result: self._audio_setup_closed(dialog))
         dialog.open()
@@ -630,9 +642,19 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             dialog = self._audio_setup_dialog
             frames = dialog.recommended_frames if dialog else self.engine.blocksize
             selected, _split = dialog.input_channels.currentData() if dialog else ((0,), False)
-            outputs = tuple(dialog.output_channels.currentData()) if dialog else self.engine.output_channels
-            return run_loopback_calibration(input_device, output_device, self.engine.sr,
-                                            blocksize=frames, input_channel=selected[0], output_channels=outputs)
+            outputs = (
+                tuple(dialog.output_channels.currentData())
+                if dialog
+                else self.engine.output_channels
+            )
+            return run_loopback_calibration(
+                input_device,
+                output_device,
+                self.engine.sr,
+                blocksize=frames,
+                input_channel=selected[0],
+                output_channels=outputs,
+            )
         finally:
             if was_running:
                 try:
@@ -940,7 +962,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         )
 
     def _mixer_changed(self):
-        self.pad_inspector.rebuild()
+        self.pad_inspector.refresh_output_labels()
         self._set_dirty(True)
 
     def _build_chop(self) -> QWidget:
@@ -1564,9 +1586,50 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         eng = self.engine
         render_error = getattr(eng.stream, "render_error", "")
         if render_error:
-            self.cpu_label.setText("audio render error")
-            self.cpu_label.setToolTip(f"{render_error}\nUse Retry audio to reconnect.")
-            return
+            failure = (eng.stream, render_error)
+            if getattr(self, "_handled_render_failure", None) != failure:
+                # The producer has exited, so queued transport commands can no
+                # longer stop capture or update its visible state. Finish the
+                # take through the normal recovery path before retrying audio.
+                self._handled_render_failure = failure
+                self._audio_start_error = render_error
+                recovery_errors = []
+                try:
+                    eng.stop()
+                except Exception as exc:
+                    recovery_errors.append(str(exc))
+                try:
+                    self.stop_all()
+                except Exception as exc:
+                    recovery_errors.append(str(exc))
+                try:
+                    if self.track_capture.active or self.track_capture.pending:
+                        self.track_capture.finish()
+                except Exception as exc:
+                    recovery_errors.append(str(exc))
+                try:
+                    vocal = self.vocal_panel
+                    if vocal._counting:
+                        vocal._countdown_token += 1
+                        vocal._restore_count_in_transport()
+                        vocal._finish_record_controls()
+                    elif vocal.recorder.recording:
+                        vocal.stop_recording()
+                except Exception as exc:
+                    recovery_errors.append(str(exc))
+                finally:
+                    # Count-in restoration can enqueue Play. Ensure the final
+                    # command still leaves a recovered renderer stopped.
+                    eng.stop_transport(rewind=False)
+                    eng.playing = False
+                    eng.recording = False
+                detail = f" · {'; '.join(recovery_errors)}" if recovery_errors else ""
+                self.status.showMessage(
+                    f"Audio stopped · {render_error}{detail} · Check the take, then Retry audio",
+                    10000,
+                )
+        else:
+            self._handled_render_failure = None
         self.btn_play.setChecked(eng.playing)
         self.btn_play.setIcon(self._transport_icons["pause" if eng.playing else "play"])
         recording = eng.recording or self.track_capture.active
@@ -1612,6 +1675,11 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             self.wave.set_playhead(head)
             if head is not None:
                 self.nav.update()
+
+        if render_error:
+            self.cpu_label.setText("audio render error")
+            self.cpu_label.setToolTip(f"{render_error}\nUse Retry audio to reconnect.")
+            return
 
         if self._audio_start_error and eng.stream is None:
             self.cpu_label.setText("audio offline")

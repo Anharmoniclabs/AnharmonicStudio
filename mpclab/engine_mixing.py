@@ -147,32 +147,33 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
     midi_controls = []
     if engine.playing:
         bps = proj.bpm / 60 / engine.sr
-        midi_controls = [(round((beat - start_beat) / bps), control)
-                         for beat, control in controls_in_range(proj, engine.mode, start_beat, start_beat + frames * bps)]
+        midi_controls = [
+            (round((beat - start_beat) / bps), control)
+            for beat, control in controls_in_range(
+                proj, engine.mode, start_beat, start_beat + frames * bps
+            )
+        ]
     for frame, control in midi_controls:
-        if control.instrument is None and control.pad is None:
-            engine.external.events.append((control.message, max(0, frame)))
+        external = engine.external.route(control.instrument)
+        if control.pad is None and external is not None:
+            external.events.append((control.message, max(0, frame)))
     for voice in engine.synth_voices:
-        render_expressive_voice(voice, tbuf[voice.track], voice_patch(proj, voice),
-                                engine.midi_playback_state, midi_controls)
+        render_expressive_voice(
+            voice,
+            tbuf[voice.track],
+            voice_patch(proj, voice),
+            engine.midi_playback_state,
+            midi_controls,
+        )
     for _, control in midi_controls:
         remember_control(engine.midi_playback_state, control)
     for index in range(len(engine.synth_voices) - 1, -1, -1):
         if engine.synth_voices[index].dead:
             del engine.synth_voices[index]
 
-    synth_track = proj.validate_track_index(proj.synth.track, "synth output")
-    external_bus = getattr(engine, "_external_instrument", None)
-    if external_bus is None:
-        engine.external.render_instrument(tbuf[synth_track], frames, engine.sr)
-    else:
-        external = external_bus[:frames]
-        external.fill(0.0)
-        engine.external.render_instrument(external, frames, engine.sr)
-        pdc = getattr(engine, "plugin_pdc", None)
-        if engine.external.instrument is not None and pdc is not None and pdc.delay_samples > 0:
-            pdc.process(tbuf, frames)
-        np.add(tbuf[synth_track], external, out=tbuf[synth_track])
+    engine.external.render_tracks(
+        proj, tbuf, frames, engine.sr, getattr(engine, "plugin_pdc", None)
+    )
 
     # 4 ─ inserts → track buses → arbitrary routing → sends → master
     any_solo = False

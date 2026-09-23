@@ -273,12 +273,26 @@ class AutomationModeController(QObject):
     def _transport_writing(self) -> bool:
         return bool(self.app.engine.playing and self.app.engine.mode == "song")
 
+    def prepare_control_change(self, target: str) -> bool:
+        """Ensure an automation-owned snapshot exists before a mixer mutation."""
+        if not self._transport_writing() or not self.manual_override(target):
+            return False
+        if self.mode(target) == "write":
+            # A slider can move between Play and the first timer tick. Starting
+            # the pass here keeps its snapshot ahead of the base-value edit.
+            self.tick()
+        else:
+            self._begin_pass(target, snapshot=True)
+        return True
+
     def begin_gesture(self, target: str, value: float) -> None:
         self._select_last_touched(target)
         self._manual[target] = float(value)
         self._gesture.add(target)
         if not self._transport_writing() or self.mode(target) == "read":
             return
+        if self.mode(target) == "write":
+            self.prepare_control_change(target)
         if self.mode(target) == "latch":
             self._latched.add(target)
         self._begin_pass(target, snapshot=self.mode(target) != "write")
