@@ -1,6 +1,7 @@
 """First-party plugin controls inside Studio's instrument workflow."""
 
 from dataclasses import asdict
+import colorsys
 import json
 from pathlib import Path
 
@@ -42,6 +43,143 @@ CATALOG = {
 CATALOG.update({item["name"]: item for item in PERFORMANCES})
 WAVES = {"saw": 0, "sine": 1, "triangle": 2, "square": 3}
 
+# Prism's visual identity follows the sound itself.  The signature is derived from
+# normalized parameters rather than a process-random hash or project-only metadata,
+# so factory and user presets retain the same palette after save/reopen.
+_THEME_SIGNATURE_KEYS = (
+    0,
+    1,
+    2,
+    4,
+    5,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    69,
+    70,
+    72,
+    73,
+    74,
+    75,
+)
+
+
+def _hsv_hex(hue, saturation, value):
+    red, green, blue = colorsys.hsv_to_rgb(
+        hue % 1.0, max(0.0, min(1.0, saturation)), max(0.0, min(1.0, value))
+    )
+    return f"#{round(red * 255):02x}{round(green * 255):02x}{round(blue * 255):02x}"
+
+
+def prism_theme(values):
+    """Return a deterministic, contrast-safe UI palette for a Prism sound."""
+
+    signature = 2166136261
+    for index in _THEME_SIGNATURE_KEYS:
+        value = max(0.0, min(1.0, float(values.get(str(index), 0.0))))
+        quantized = round(value * 255)
+        signature ^= ((index + 1) << 8) | quantized
+        signature = (signature * 16777619) & 0xFFFFFFFF
+
+    hue = ((signature & 0xFFFF) / 65535.0 + 0.025) % 1.0
+    texture = max(0.0, min(1.0, float(values.get("57", 0.0))))
+    space = max(0.0, min(1.0, float(values.get("56", 0.0))))
+    saturation = 0.54 + texture * 0.20
+    brightness = 0.84 + space * 0.10
+    return {
+        "id": f"{signature:08x}",
+        "accent": _hsv_hex(hue, saturation, brightness),
+        "accent_hi": _hsv_hex(hue, max(0.16, saturation * 0.28), 0.98),
+        "accent_soft": _hsv_hex(hue, max(0.30, saturation * 0.70), min(0.94, brightness + 0.06)),
+        "selection": _hsv_hex(hue, 0.36, 0.25),
+        "selection_text": _hsv_hex(hue, 0.18, 0.96),
+        "checked": _hsv_hex(hue, 0.40, 0.30),
+        "pressed": _hsv_hex(hue, 0.30, 0.33),
+        "hover_border": _hsv_hex(hue, 0.32, 0.56),
+        "input_select": _hsv_hex(hue, 0.36, 0.36),
+        "surface": _hsv_hex(hue, 0.075, 0.13),
+        "tab_surface": _hsv_hex(hue, 0.11, 0.17),
+        "display_bg": _hsv_hex(hue, 0.08, 0.095),
+        "border": _hsv_hex(hue, 0.075, 0.27),
+        "grid": _hsv_hex(hue, 0.07, 0.17),
+        "track": _hsv_hex(hue, 0.055, 0.24),
+        "knob": _hsv_hex(hue, 0.065, 0.16),
+        "scroll": _hsv_hex(hue, 0.065, 0.34),
+        "muted": _hsv_hex(hue, 0.10, 0.68),
+        "text": _hsv_hex(hue, 0.045, 0.93),
+    }
+
+
+def prism_stylesheet(theme):
+    return f"""
+    #prismSurface {{ background: {theme["surface"]}; color: {theme["text"]}; }}
+    #prismSurface QWidget {{ color: {theme["text"]}; font-size: 12px; }}
+    #prismSurface QLabel {{ background: transparent; }}
+    #prismSurface QPushButton {{
+        background: {theme["tab_surface"]}; border: 1px solid {theme["border"]};
+        border-radius: 4px; padding: 6px 10px; color: {theme["text"]};
+    }}
+    #prismSurface QPushButton:hover {{
+        background: {theme["pressed"]}; border-color: {theme["hover_border"]};
+    }}
+    #prismSurface QPushButton:pressed {{ background: {theme["pressed"]}; }}
+    #prismSurface QPushButton:checked {{
+        background: {theme["checked"]}; color: {theme["selection_text"]};
+        border-color: {theme["accent"]};
+    }}
+    #prismSurface QPushButton:focus, #prismSurface QLineEdit:focus,
+    #prismSurface QComboBox:focus {{ border: 1px solid {theme["accent"]}; }}
+    #prismSurface QLineEdit, #prismSurface QComboBox {{
+        background: {theme["display_bg"]}; border: 1px solid {theme["border"]};
+        border-radius: 4px; padding: 6px 8px; color: {theme["text"]};
+        selection-background-color: {theme["input_select"]};
+    }}
+    #prismSurface QListWidget {{
+        background: {theme["display_bg"]}; border: 1px solid {theme["border"]};
+        border-radius: 4px; outline: 0;
+    }}
+    #prismSurface QListWidget::item {{
+        padding: 6px 10px; border-bottom: 1px solid {theme["grid"]};
+    }}
+    #prismSurface QListWidget::item:selected {{
+        background: {theme["selection"]}; color: {theme["selection_text"]};
+    }}
+    #prismSurface QListWidget::item:hover {{ background: {theme["pressed"]}; }}
+    #prismSurface QTabWidget::pane {{
+        border: 1px solid {theme["border"]}; background: {theme["surface"]};
+    }}
+    #prismSurface QTabBar::tab {{
+        background: transparent; color: {theme["muted"]}; padding: 9px 16px;
+        border: none; border-bottom: 2px solid transparent;
+    }}
+    #prismSurface QTabBar::tab:selected {{
+        background: {theme["tab_surface"]}; color: {theme["accent_soft"]};
+        border-bottom-color: {theme["accent"]};
+    }}
+    #prismSurface QTabBar::tab:hover {{
+        color: {theme["text"]}; background: {theme["tab_surface"]};
+    }}
+    #prismSurface QScrollArea, #prismSurface QScrollArea > QWidget > QWidget {{
+        background: {theme["surface"]};
+    }}
+    #prismSurface QScrollBar:vertical {{ background: {theme["surface"]}; width: 7px; }}
+    #prismSurface QScrollBar::handle:vertical {{
+        background: {theme["scroll"]}; min-height: 24px; border-radius: 3px;
+    }}
+    """
+
 
 def normalized(spec, value):
     proportion = min(1, max(0, (value - spec["low"]) / (spec["high"] - spec["low"])))
@@ -62,12 +200,12 @@ def patch_parameters(patch):
     }
 
 
-def waveform_icon(shape):
+def waveform_icon(shape, color="#d9b477"):
     pixmap = QPixmap(46, 22)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
-    painter.setPen(QPen(QColor("#d9b477"), 1.5))
+    painter.setPen(QPen(QColor(color), 1.5))
     path = QPainterPath()
     for x in range(44):
         phase = (x / 22) % 1
@@ -90,9 +228,10 @@ def waveform_icon(shape):
 class PrismKnob(QDial):
     """Accessible rotary control with a human-readable value and drag gestures."""
 
-    def __init__(self, spec, parent=None):
+    def __init__(self, spec, panel=None, parent=None):
         super().__init__(parent)
         self.spec = spec
+        self.panel = panel
         self.setRange(0, 10000)
         self.setSingleStep(25)
         self.setPageStep(500)
@@ -119,23 +258,24 @@ class PrismKnob(QDial):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(QPen(QColor("#3b3b3b"), 5))
+        theme = getattr(self.panel, "theme", prism_theme({}))
+        p.setPen(QPen(QColor(theme["track"]), 5))
         r = QRectF(25, 8, 60, 60)
         p.drawArc(r, -225 * 16, -270 * 16)
-        p.setPen(QPen(QColor("#d9b477" if not self.hasFocus() else "#f4ead8"), 5))
+        p.setPen(QPen(QColor(theme["accent"] if not self.hasFocus() else theme["accent_hi"]), 5))
         p.drawArc(r, -225 * 16, int(-270 * 16 * self.value() / 10000))
-        p.setBrush(QColor("#292929"))
-        p.setPen(QPen(QColor("#53514b"), 1))
+        p.setBrush(QColor(theme["knob"]))
+        p.setPen(QPen(QColor(theme["border"]), 1))
         p.drawEllipse(r.adjusted(8, 8, -8, -8))
         a = math.radians(135 + 270 * self.value() / 10000)
-        p.setPen(QPen(QColor("#f4ead8"), 3))
+        p.setPen(QPen(QColor(theme["accent_hi"]), 3))
         p.drawLine(
             QPointF(55 + math.cos(a) * 12, 38 + math.sin(a) * 12),
             QPointF(55 + math.cos(a) * 20, 38 + math.sin(a) * 20),
         )
-        p.setPen(QColor("#eeeae2"))
+        p.setPen(QColor(theme["text"]))
         p.drawText(QRectF(0, 76, 110, 18), Qt.AlignCenter, self.text())
-        p.setPen(QColor("#aaa69e"))
+        p.setPen(QColor(theme["muted"]))
         p.drawText(QRectF(0, 95, 110, 20), Qt.AlignCenter, self.spec["label"])
 
     def mousePressEvent(self, event):
@@ -198,27 +338,28 @@ class PrismDisplay(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.fillRect(self.rect(), QColor("#18191a"))
-        p.setPen(QPen(QColor("#383936"), 1))
+        theme = self.panel.theme
+        p.fillRect(self.rect(), QColor(theme["display_bg"]))
+        p.setPen(QPen(QColor(theme["border"]), 1))
         p.drawRect(self.rect().adjusted(0, 0, -1, -1))
-        p.setPen(QColor("#2b2d2e"))
+        p.setPen(QColor(theme["grid"]))
         for x in range(16, self.width(), 32):
             p.drawLine(x, 28, x, self.height() - 16)
         for y in range(28, self.height(), 24):
             p.drawLine(16, y, self.width() - 16, y)
-        p.setPen(QColor("#aaa69e"))
+        p.setPen(QColor(theme["muted"]))
         p.drawText(
             16,
             18,
             "FILTER • drag to shape" if self.kind == "filter" else "LIVE OUTPUT • play a note",
         )
-        p.setPen(QPen(QColor("#d9b477"), 2))
+        p.setPen(QPen(QColor(theme["accent"]), 2))
         if self.kind == "filter":
             x = 16 + self.panel.values[str(12 + self.panel.edit_layer)] * (self.width() - 32)
             y = 28 + (1 - self.panel.values[str(13 + self.panel.edit_layer)]) * (self.height() - 48)
             p.drawLine(QPointF(x, 28), QPointF(x, self.height() - 16))
             p.drawLine(QPointF(16, y), QPointF(self.width() - 16, y))
-            p.setBrush(QColor("#d9b477"))
+            p.setBrush(QColor(theme["accent"]))
             p.drawEllipse(QPointF(x, y), 6, 6)
         else:
             bridge = self.panel.bridge()
@@ -288,10 +429,11 @@ class WorkstationPlot(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.fillRect(self.rect(), QColor("#18191a"))
-        p.setPen(QPen(QColor("#383936"), 1))
+        theme = self.panel.theme
+        p.fillRect(self.rect(), QColor(theme["display_bg"]))
+        p.setPen(QPen(QColor(theme["border"]), 1))
         p.drawRect(self.rect().adjusted(0, 0, -1, -1))
-        p.setPen(QColor("#aaa69e"))
+        p.setPen(QColor(theme["muted"]))
         p.drawText(
             14,
             18,
@@ -302,12 +444,12 @@ class WorkstationPlot(QWidget):
             }[self.kind],
         )
         r = QRectF(14, 26, self.width() - 28, self.height() - 40)
-        p.setPen(QColor("#2b2d2e"))
+        p.setPen(QColor(theme["grid"]))
         for i in range(1, 8):
             x = r.left() + r.width() * i / 8
             p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
         values = self.panel.values
-        p.setPen(QPen(QColor("#c7a56c"), 2))
+        p.setPen(QPen(QColor(theme["accent"]), 2))
         if self.kind == "sequence":
             for i in range(8):
                 h = values[str(61 + i)] * r.height()
@@ -318,13 +460,13 @@ class WorkstationPlot(QWidget):
                         r.width() / 8 - 6,
                         max(2, h),
                     ),
-                    QColor("#c7a56c"),
+                    QColor(theme["accent"]),
                 )
         elif self.kind == "morph":
             x, y = r.left() + values["54"] * r.width(), r.bottom() - values["57"] * r.height()
             p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
             p.drawLine(QPointF(r.left(), y), QPointF(r.right(), y))
-            p.setBrush(QColor("#e2c795"))
+            p.setBrush(QColor(theme["accent_hi"]))
             p.drawEllipse(QPointF(x, y), 6, 6)
         else:
             layer = self.panel.edit_layer
@@ -352,51 +494,9 @@ class PrismControls(WindowClient, QWidget):
         self.app = window
         self.setObjectName("prismSurface")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(
-            """
-            #prismSurface { background: #202122; color: #eeeae2; }
-            #prismSurface QWidget { color: #d8d5ce; font-size: 12px; }
-            #prismSurface QLabel { background: transparent; }
-            #prismSurface QPushButton {
-                background: #2b2c2d; border: 1px solid #444440;
-                border-radius: 4px; padding: 6px 10px; color: #d8d5ce;
-            }
-            #prismSurface QPushButton:hover { background: #363735; border-color: #81715a; }
-            #prismSurface QPushButton:pressed { background: #484238; }
-            #prismSurface QPushButton:checked {
-                background: #494032; color: #f3dfbd; border-color: #b28f58;
-            }
-            #prismSurface QPushButton:focus, #prismSurface QLineEdit:focus,
-            #prismSurface QComboBox:focus { border: 1px solid #d9b477; }
-            #prismSurface QLineEdit, #prismSurface QComboBox {
-                background: #191a1b; border: 1px solid #41423f;
-                border-radius: 4px; padding: 6px 8px; color: #ddd9d1;
-                selection-background-color: #64533a;
-            }
-            #prismSurface QListWidget {
-                background: #191a1b; border: 1px solid #363735;
-                border-radius: 4px; outline: 0;
-            }
-            #prismSurface QListWidget::item { padding: 6px 10px; border-bottom: 1px solid #272829; }
-            #prismSurface QListWidget::item:selected { background: #433b2f; color: #f0d6ab; }
-            #prismSurface QListWidget::item:hover { background: #30312f; }
-            #prismSurface QTabWidget::pane { border: 1px solid #393a37; background: #202122; }
-            #prismSurface QTabBar::tab {
-                background: transparent; color: #a5a29a; padding: 9px 16px;
-                border: none; border-bottom: 2px solid transparent;
-            }
-            #prismSurface QTabBar::tab:selected {
-                background: #2b2b28; color: #e4c28d; border-bottom-color: #d9b477;
-            }
-            #prismSurface QTabBar::tab:hover { color: #eeeae2; background: #292a2a; }
-            #prismSurface QScrollArea, #prismSurface QScrollArea > QWidget > QWidget {
-                background: #202122;
-            }
-            #prismSurface QScrollBar:vertical { background: #202122; width: 7px; }
-            #prismSurface QScrollBar::handle:vertical { background: #55544d; min-height: 24px; border-radius: 3px; }
-            """
-        )
         self.values = {str(i): normalized(s, s["default"]) for i, s in enumerate(SPECS)}
+        self.theme = prism_theme(self.values)
+        self.setStyleSheet(prism_stylesheet(self.theme))
         self.edit_layer = 0
         self.knobs = {}
         self.selectors = {}
@@ -406,11 +506,11 @@ class PrismControls(WindowClient, QWidget):
         root.setContentsMargins(20, 16, 20, 10)
         root.setSpacing(10)
         header = QHBoxLayout()
-        title = QLabel("PRISM")
-        title.setStyleSheet(
-            "font-size: 26px; font-weight: 600; letter-spacing: 4px; color: #eeeae2; padding: 0px"
+        self.title = QLabel("PRISM")
+        self.title.setStyleSheet(
+            "font-size: 26px; font-weight: 600; letter-spacing: 4px; padding: 0px"
         )
-        header.addWidget(title)
+        header.addWidget(self.title)
         header.addStretch()
         for label, callback in (
             ("Hand FX", self.show_camera),
@@ -425,7 +525,7 @@ class PrismControls(WindowClient, QWidget):
             header.addWidget(button)
         root.addLayout(header)
         self.sound_title = QLabel("Two-layer synthesizer")
-        self.sound_title.setStyleSheet("color: #aaa69e; font-size: 12px; padding: 0px 0px 8px 0px")
+        self.sound_title.setStyleSheet("font-size: 12px; padding: 0px 0px 8px 0px")
         root.addWidget(self.sound_title)
         body = QHBoxLayout()
         body.setSpacing(16)
@@ -537,7 +637,7 @@ class PrismControls(WindowClient, QWidget):
                     for v, label in enumerate(choices):
                         button = QPushButton(label)
                         if i in (0, 1, 32, 33):
-                            button.setIcon(waveform_icon(v))
+                            button.setIcon(waveform_icon(v, self.theme["accent"]))
                             button.setIconSize(QSize(46, 22))
                         button.setCheckable(True)
                         button.clicked.connect(
@@ -584,7 +684,7 @@ class PrismControls(WindowClient, QWidget):
             self.camera_dialog.close()
 
     def make_knob(self, i):
-        knob = PrismKnob(SPECS[i])
+        knob = PrismKnob(SPECS[i], self)
         knob.sliderPressed.connect(self.app.snapshot)
         knob.valueChanged.connect(lambda v, key=str(i), k=knob: self.knob_change(key, v, k))
         self.knobs[str(i)] = knob
@@ -615,7 +715,30 @@ class PrismControls(WindowClient, QWidget):
             )
             for i, s in enumerate(SPECS)
         }
+        self.apply_theme()
         self.refresh()
+
+    def apply_theme(self):
+        theme = prism_theme(self.values)
+        self.theme = theme
+        self.setStyleSheet(prism_stylesheet(theme))
+        if hasattr(self, "title"):
+            self.title.setStyleSheet(
+                "font-size: 26px; font-weight: 600; letter-spacing: 4px; "
+                f"color: {theme['accent_hi']}; padding: 0px"
+            )
+        if hasattr(self, "sound_title"):
+            self.sound_title.setStyleSheet(
+                f"color: {theme['accent_soft']}; font-size: 12px; padding: 0px 0px 8px 0px"
+            )
+        for key in ("0", "1", "32", "33"):
+            for shape, button in enumerate(self.selectors.get(key, ())):
+                button.setIcon(waveform_icon(shape, theme["accent"]))
+        for knob in self.knobs.values():
+            knob.update()
+        for widget in (self.filter, self.scope, self.morph, self.sequence, self.envelope):
+            widget.update()
+        self.update()
 
     def refresh(self):
         for key, knob in self.knobs.items():
@@ -640,6 +763,8 @@ class PrismControls(WindowClient, QWidget):
         self.values.update(values)
         self.app.project.plugins["instrument"].setdefault("parameters", {}).update(values)
         self.app._set_dirty(True)
+        if len(values) == len(SPECS):
+            self.apply_theme()
         self.refresh()
 
     def knob_change(self, key, value, knob):
@@ -707,6 +832,7 @@ class PrismControls(WindowClient, QWidget):
             values["53"] = 0.5
         self.app.snapshot()
         self.change(values)
+        self.apply_theme()
         self.sound_title.setText(f"Layer {'B' if second else 'A'} · {name}")
         self.pages.setCurrentIndex(2 if second else 1)
 
