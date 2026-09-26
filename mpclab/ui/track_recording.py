@@ -1,7 +1,8 @@
 """Track capture and its inspector, using the existing audio and note engines."""
 
-from dataclasses import replace
 from collections import deque
+from copy import deepcopy
+from dataclasses import replace
 import math
 
 import numpy as np
@@ -34,6 +35,38 @@ from ..recording import (
 )
 from ..music import Note
 from ..vocal import VocalRecorder, input_device_inventory
+from ..workflow_state import ensure_workflow, validate_workflow
+
+
+def _track_record_settings(project, row_id: str) -> dict:
+    """Return Song-row capture controls without inheriting Vocal monitor state."""
+    rec = project.vocal_record
+    recording = ensure_workflow(project).get("recording", {})
+    track_inputs = recording.get("track_inputs", {}) if isinstance(recording, dict) else {}
+    saved = track_inputs.get(row_id, {}) if isinstance(track_inputs, dict) else {}
+    if not isinstance(saved, dict):
+        saved = {}
+    return {
+        "count_in_bars": int(saved.get("count_in_bars", rec.count_in_bars)),
+        "input_gain_db": float(saved.get("input_gain_db", rec.input_gain_db)),
+        "monitor": bool(saved.get("monitor", False)),
+    }
+
+
+def _store_track_record_settings(project, row_id: str, values: dict) -> dict:
+    """Persist bounded per-row Song capture controls in workflow metadata."""
+    workflow = deepcopy(ensure_workflow(project))
+    recording = dict(workflow.get("recording", {}))
+    track_inputs = dict(recording.get("track_inputs", {}))
+    track_inputs[str(row_id)] = {
+        "count_in_bars": int(values["count_in_bars"]),
+        "input_gain_db": float(values["input_gain_db"]),
+        "monitor": bool(values["monitor"]),
+    }
+    recording["track_inputs"] = track_inputs
+    workflow["recording"] = recording
+    project.workflow = validate_workflow(workflow)
+    return project.workflow["recording"]["track_inputs"][str(row_id)]
 
 
 class TrackCapture(WindowClient, QObject):
@@ -141,7 +174,12 @@ class TrackCapture(WindowClient, QObject):
         )
         self.session.arm(self.target)
         self.project = self.app.project
-        self.settings = replace(self.project.vocal_record, monitor=False, corrected_monitor=False)
+        row_settings = _track_record_settings(self.project, row.id)
+        self.settings = replace(
+            self.project.vocal_record,
+            corrected_monitor=False,
+            **row_settings,
+        )
         self.start_beat = float(self.app.engine.beat)
         self.pending = True
         self.notes, self.held = [], {}
@@ -170,11 +208,20 @@ class TrackCapture(WindowClient, QObject):
                         )
                 self.recorder.sample_rate = app.engine.sr
                 self.recorder.blocksize = app.engine.blocksize
+                monitor_callback = (
+                    (
+                        lambda block: app.engine.queue_monitor(
+                            block, self.settings.monitor_gain
+                        )
+                    )
+                    if self.settings.monitor
+                    else None
+                )
                 self.session.start(
                     device=device,
                     gain_db=self.settings.input_gain_db,
                     input_channels=self.settings.input_channels,
-                    monitor_callback=None,
+                    monitor_callback=monitor_callback,
                 )
                 self._capture_sample_rate = self.recorder.sample_rate
             else:
@@ -484,14 +531,15 @@ class TrackInspector(WindowClient, QWidget):
         self.gain.valueChanged.connect(self.settings_changed)
         form.addRow("Input gain", self.gain)
         self.monitor = QCheckBox("Monitor input")
-        self.monitor.setToolTip("Listen to the input while recording. Use headphones.")
+        self.monitor.setToolTip("Listen to this Song input while recording. Use headphones.")
         self.monitor.toggled.connect(self.settings_changed)
         form.addRow(self.monitor)
-        self.corrected_monitor = QCheckBox("Pitch-corrected cue · V2")
+        self.corrected_monitor = QCheckBox("Pitch-corrected cue · use Vocal editor")
         self.corrected_monitor.setToolTip(
-            "Uses the Vocal pitch settings. Adds processing delay; recording stays dry."
+            "Song monitoring is currently dry. Open the Vocal editor for pitch-corrected cueing."
         )
-        self.corrected_monitor.toggled.connect(self.settings_changed)
+        self.corrected_monitor.setChecked(False)
+        self.corrected_monitor.setEnabled(False)
         form.addRow(self.corrected_monitor)
 
         self.arm = QPushButton("Arm track")
@@ -596,17 +644,18 @@ class TrackInspector(WindowClient, QWidget):
             row.record_track = self.output.currentData()
 
     def settings_changed(self):
-        rec = self.app.project.vocal_record
-        values = (
-            self.count.currentData(),
-            self.gain.value(),
-            self.monitor.isChecked(),
-            self.corrected_monitor.isChecked(),
-        )
-        if values != (rec.count_in_bars, rec.input_gain_db, rec.monitor, rec.corrected_monitor):
+        row = self.row()
+        if row is None:
+            return
+        values = {
+            "count_in_bars": int(self.count.currentData() or 0),
+            "input_gain_db": float(self.gain.value()),
+            "monitor": bool(self.monitor.isChecked()),
+        }
+        if values != _track_record_settings(self.app.project, row.id):
             self.app.snapshot()
-            rec.count_in_bars, rec.input_gain_db, rec.monitor, rec.corrected_monitor = values
-            self.app.vocal_panel.sync()
+            _store_track_record_settings(self.app.project, row.id, values)
+            self.app._set_dirty(True)
 
     def sync(self):
         capture = self.app.track_capture
@@ -614,19 +663,27 @@ class TrackInspector(WindowClient, QWidget):
         self.name.setText(row.name if row else "Select a track")
         for widget in (self.source, self.output, self.arm, self.name):
             widget.setEnabled(row is not None and not capture.busy)
-        rec = self.app.project.vocal_record
+        row_settings = (
+            _track_record_settings(self.app.project, row.id)
+            if row is not None
+            else {
+                "count_in_bars": self.app.project.vocal_record.count_in_bars,
+                "input_gain_db": self.app.project.vocal_record.input_gain_db,
+                "monitor": False,
+            }
+        )
         for widget, value in (
             (self.source, self.source.findData(row.record_source if row else "audio")),
             (self.output, row.record_track if row else 3),
-            (self.count, rec.count_in_bars),
+            (self.count, row_settings["count_in_bars"]),
         ):
             widget.blockSignals(True)
             widget.setCurrentIndex(value)
             widget.blockSignals(False)
         for widget, value in (
-            (self.gain, rec.input_gain_db),
-            (self.monitor, rec.monitor),
-            (self.corrected_monitor, rec.corrected_monitor),
+            (self.gain, row_settings["input_gain_db"]),
+            (self.monitor, row_settings["monitor"]),
+            (self.corrected_monitor, False),
             (self.arm, bool(row and capture.armed_id == row.id)),
         ):
             widget.blockSignals(True)
@@ -648,14 +705,11 @@ class TrackInspector(WindowClient, QWidget):
         self.discard.setVisible(capture.unsaved is not None or capture.recovery_pending)
         self.notes_help.setVisible(bool(row and row.record_source in ("notes", "sampler")))
         self.output.setEnabled(bool(row and row.record_source == "audio" and not capture.busy))
-        for widget in (
-            self.count,
-            self.gain,
-            self.monitor,
-            self.corrected_monitor,
-            self.input_button,
-        ):
-            widget.setEnabled(not capture.busy)
+        self.count.setEnabled(bool(row) and not capture.busy)
+        audio_editable = bool(row and row.record_source == "audio" and not capture.busy)
+        for widget in (self.gain, self.monitor, self.input_button):
+            widget.setEnabled(audio_editable)
+        self.corrected_monitor.setEnabled(False)
 
     def update_input_feedback(self):
         """Refresh live level/routing guidance without changing capture state."""
