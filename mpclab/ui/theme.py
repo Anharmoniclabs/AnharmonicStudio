@@ -408,9 +408,7 @@ def set_accent(color: str) -> str:
     HIT_COLORS.clear()
     HIT_COLORS.update(
         {
-            kind: accent.name()
-            if kind == "kick"
-            else _mix(QColor(value), accent, 0.18).name()
+            kind: accent.name() if kind == "kick" else _mix(QColor(value), accent, 0.18).name()
             for kind, value in base_hits.items()
         }
     )
