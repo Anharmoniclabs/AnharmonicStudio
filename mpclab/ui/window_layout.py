@@ -92,6 +92,8 @@ def _build(window):
     appearance = QMenu(window.appearance_button)
     appearance.addAction("Color wheel…", window.pick_accent_color)
     appearance.addAction("Light / dark theme", window.toggle_theme)
+    appearance.addSeparator()
+    appearance.addAction("Reset dark blue", window.reset_appearance)
     window.appearance_button.setMenu(appearance)
     for widget in (window.btn_theme, window.btn_color, window.btn_help):
         project_layout.removeWidget(widget)

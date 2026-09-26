@@ -9,6 +9,8 @@
   const padNumber = index => String(index + 1).padStart(2, '0');
   const noteName = pitch => ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'][pitch % 12] + (Math.floor(pitch / 12) - 1);
   const storageKey = 'anharmonic-web-studio-v2';
+  const DEFAULT_ACCENT = '#4d8dff';
+  const LEGACY_DEFAULT_ACCENT = '#c692a4';
   const projectStore = new window.AnharmonicProject.ProjectStore();
   const state = {
     selectedPad: 0, bank: 0, workspace: 'song', playing: false, step: -1, beat: 0,
@@ -18,7 +20,7 @@
     beatPage: 0, notePad: null, noteRoot: 60, noteMono: false, sampleSnap: 0, sampleView: null, sampleEdge: 'start', noteDivision: 4, noteZoom: 70, noteScroll: null, selectedNote: null,
     noOverlap: window.matchMedia('(max-width:760px), (pointer:coarse)').matches,
     heldPads: new Map(), heldSynth: new Set(), arpTimer: null, arpIndex: 0,
-    browserOpen: true, padsOpen: true, focused: false, metronome: false, theme: 'dark', accent: '#c692a4'
+    browserOpen: true, padsOpen: true, focused: false, metronome: false, theme: 'dark', accent: DEFAULT_ACCENT
   };
   const stage = $('#stage');
   function setStatus(message) { $('#status').textContent = String(message); }
@@ -1098,12 +1100,25 @@
   function applyTheme() {
     requestSongWaveforms();
     document.documentElement.dataset.theme = state.theme;
+    const mix = (first, second, amount) => {
+      const channels = color => color.slice(1).match(/../g).map(value => parseInt(value, 16));
+      const a = channels(first), b = channels(second);
+      return '#' + a.map((value, index) => Math.round(value * (1 - amount) + b[index] * amount).toString(16).padStart(2, '0')).join('');
+    };
+    const base = state.theme === 'dark'
+      ? { bg: '#101722', bg2: '#161f2c', bg3: '#1d2938', line: '#2d3b4d' }
+      : { bg: '#eef2f7', bg2: '#f6f8fb', bg3: '#e4eaf2', line: '#c1cad6' };
+    const scale = state.theme === 'dark' ? 1 : .5, shell = {};
+    for (const [key, amount] of Object.entries({ bg: .055, bg2: .075, bg3: .095, line: .14 })) {
+      shell[key] = mix(base[key], state.accent, amount * scale);
+      document.documentElement.style.setProperty('--' + key, shell[key]);
+    }
     document.documentElement.style.setProperty('--accent', state.accent);
     document.documentElement.style.setProperty('--accent2', state.accent);
     const rgb = state.accent.slice(1).match(/../g).map(value => parseInt(value, 16) / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
     document.documentElement.style.setProperty('--on-accent', rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722 > .179 ? '#17171b' : '#ffffff');
     const luminance = channels => channels.map(value => value / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [.2126,.7152,.0722][index], 0);
-    const background = state.theme === 'dark' ? [44,43,48] : [244,239,242], surface = luminance(background), raw = state.accent.slice(1).match(/../g).map(value => parseInt(value,16));
+    const background = shell.bg2.slice(1).match(/../g).map(value => parseInt(value, 16)), surface = luminance(background), raw = state.accent.slice(1).match(/../g).map(value => parseInt(value,16));
     let ink = raw;
     for (let amount = 0; amount <= 1.001; amount += .05) { ink = raw.map(value => Math.round(value * (1 - amount) + (state.theme === 'dark' ? 255 : 0) * amount)); const light = luminance(ink); if ((Math.max(light,surface) + .05) / (Math.min(light,surface) + .05) >= 4.5) break; }
     document.documentElement.style.setProperty('--accent-ink', '#' + ink.map(value => value.toString(16).padStart(2,'0')).join(''));
@@ -1210,7 +1225,7 @@
   on('#pad-mode', 'change', event => projectStore.setPad(state.selectedPad, { mode: event.target.value }));
   on('#theme-toggle', 'click', () => { state.theme = state.theme === 'dark' ? 'light' : 'dark'; applyTheme(); localStorage.setItem('anharmonic-theme', state.theme); });
   on('#appearance-toggle', 'click', () => $('#appearance-dialog').showModal());
-  on('#appearance-reset', 'click', () => { state.theme = 'dark'; state.accent = '#c692a4'; applyTheme(); localStorage.setItem('anharmonic-theme', state.theme); localStorage.setItem('anharmonic-accent', state.accent); });
+  on('#appearance-reset', 'click', () => { state.theme = 'dark'; state.accent = DEFAULT_ACCENT; applyTheme(); localStorage.setItem('anharmonic-theme', state.theme); localStorage.setItem('anharmonic-accent', state.accent); });
   on('#project-menu', 'click', event => openMenu(event.currentTarget, [['New project', 'new-project'], ['Open project', 'load-project'], ['Download project + audio', 'export-project'], ['Export WAV', 'export-wav'], ['Export desktop JSON', 'export-desktop'], ['Help & shortcuts', 'help-toggle']].map(([label, id]) => ({ label, action: () => $('#' + id).click() }))));
   function chooseHue(hue) {
     hue = (hue + 360) % 360;
@@ -1303,7 +1318,11 @@
     const noOverlap = localStorage.getItem('anharmonic-no-overlap');
     if (noOverlap !== null) state.noOverlap = noOverlap === 'true';
     state.theme = localStorage.getItem('anharmonic-theme') === 'light' ? 'light' : 'dark';
-    const accent = localStorage.getItem('anharmonic-accent'); if (/^#[0-9a-f]{6}$/i.test(accent || '')) state.accent = accent;
+    const accent = localStorage.getItem('anharmonic-accent');
+    if (/^#[0-9a-f]{6}$/i.test(accent || '')) {
+      state.accent = accent.toLowerCase() === LEGACY_DEFAULT_ACCENT ? DEFAULT_ACCENT : accent;
+      if (state.accent !== accent) localStorage.setItem('anharmonic-accent', state.accent);
+    }
     const saved = localStorage.getItem(storageKey);
     if (saved) {
       try { projectStore.load(JSON.parse(saved)); state.selectedPad = clamp(projectStore.project.selected_pad, 0, 63); state.bank = Math.floor(state.selectedPad / 16); setStatus('Saved project restored. Audio will load on your first playback or preview.'); }

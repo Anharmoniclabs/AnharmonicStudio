@@ -83,152 +83,145 @@ def label_font(point_size: float = 8.0, bold: bool = False) -> "QFont":
     return font
 
 
-# Warm grey studio surfaces with a muted blush default accent. Distinct track
-# hues carry musical structure; transport red and signal green retain their
-# established meanings. Projects may still choose their own accent.
+# Cool blue-black surfaces are the product default.  A project-selected accent
+# can tint the complete shell at runtime; transport red and signal green keep
+# their semantic meanings so recording and healthy signal states stay obvious.
+
+DEFAULT_ACCENT = "#4d8dff"
+LEGACY_DEFAULT_ACCENT = "#c692a4"
 
 LIGHT = {
-    # surfaces
-    "bg": "#e8e3e5",  # window
-    "bg2": "#f4f0f2",  # panels
-    "bg3": "#e3dcdf",  # headers, buttons
-    "line": "#c6c9cf",
-    "canvas": "#fafafb",  # waveform / timeline background
-    "input_bg": "#fafafb",
-    # Compatibility tokens for custom painters. Matching endpoints keep all
-    # control faces flat; hierarchy comes from spacing, edges and real state.
-    "surface_hi": "#e6e8eb",
-    "surface_lo": "#e6e8eb",
-    "surface_hi2": "#d9dce2",  # hover
-    "surface_lo2": "#d9dce2",
-    "edge": "#c6c9cf",
-    "sunken": "#fafafb",
-    "glow": "#a18c6c",
-    "accent_deep": "#704811",
-    # text
-    "fg": "#202228",
-    "dim": "#545965",
-    "dim2": "#6e7480",
-    # accents
-    "accent": "#91601b",  # amber darkened for contrast on light surfaces
-    "accent_hi": "#a16d24",
-    "accent2": "#704811",
-    "accent_ink": "#50370f",
+    "bg": "#eef2f7",
+    "bg2": "#f6f8fb",
+    "bg3": "#e4eaf2",
+    "line": "#c1cad6",
+    "canvas": "#fbfcfe",
+    "input_bg": "#fbfcfe",
+    "surface_hi": "#e7edf5",
+    "surface_lo": "#e7edf5",
+    "surface_hi2": "#d9e2ed",
+    "surface_lo2": "#d9e2ed",
+    "edge": "#c1cad6",
+    "sunken": "#fbfcfe",
+    "glow": "#6e91c8",
+    "accent_deep": "#234d91",
+    "fg": "#1c2530",
+    "dim": "#526172",
+    "dim2": "#6b7a8c",
+    "accent": "#2f62b8",
+    "accent_hi": "#2858a7",
+    "accent2": "#234d91",
+    "accent_ink": "#173b73",
     "rec": "#b94150",
     "ok": "#27765b",
     "on_accent": "#ffffff",
     "on_accent2": "#ffffff",
     "on_ok": "#ffffff",
     "on_rec": "#ffffff",
-    # interaction
-    "hover": "#d9dce2",
-    "hover_line": "#8d939e",
-    "press": "#c9cdd4",
-    "disabled_bg": "#e8e3e5",
-    "item_hover": "#e3e5e9",
-    "item_sel": "#e5dccb",
-    "scroll_track": "#e8e3e5",
-    "scroll_thumb": "#b6bac3",
-    "scroll_thumb_hi": "#8d939e",
-    "tip_bg": "#fafafb",
-    "prog_track": "#d4d7dd",
-    # waveform
-    "wave": "#91601b",
-    "wavedim": "#c9b28d",
-    # pads
-    "pad": "#fafafb",
-    "pad_empty": "#e6e8eb",
-    "padline": "#b8bdc6",
-    "pad_empty_line": "#cbd0d7",
-    "pad_wave": "#a58048",
+    "hover": "#d9e2ed",
+    "hover_line": "#8797aa",
+    "press": "#cbd6e3",
+    "disabled_bg": "#e8edf3",
+    "item_hover": "#e0e7ef",
+    "item_sel": "#dce7f7",
+    "scroll_track": "#e8edf3",
+    "scroll_thumb": "#adb9c8",
+    "scroll_thumb_hi": "#8797aa",
+    "tip_bg": "#fbfcfe",
+    "prog_track": "#d1d9e3",
+    "wave": "#2f62b8",
+    "wavedim": "#91abd1",
+    "pad": "#fbfcfe",
+    "pad_empty": "#e6ecf3",
+    "padline": "#b4c0ce",
+    "pad_empty_line": "#c8d1dc",
+    "pad_wave": "#5f84bc",
     "pad_lit_ink": "#ffffff",
-    "pad_lit_line": "#704811",
-    # step grid
-    "cell": "#e8eaee",
-    "cell_beat": "#d7dbe1",
-    "cell_bar": "#9299a5",
-    "cell_line": "#c8cdd5",
-    "cell_on_line": "#704811",
-    # playlist clips
-    "clip_pat": "#d9c29f",
-    "clip_pat_line": "#91601b",
-    "clip_pat_ink": "#422e13",
-    "clip_aud": "#b9c9cf",
-    "clip_aud_line": "#5c7784",
-    "clip_aud_ink": "#273a43",
-    "clip_muted": "#c8ccd4",
-    "clip_title_ink": "#202228",
-    # meters
-    "meter_mid": "#ab751f",
+    "pad_lit_line": "#234d91",
+    "cell": "#e7edf5",
+    "cell_beat": "#d5deea",
+    "cell_bar": "#8b9aad",
+    "cell_line": "#c4cfdb",
+    "cell_on_line": "#234d91",
+    "clip_pat": "#cbdaf0",
+    "clip_pat_line": "#2f62b8",
+    "clip_pat_ink": "#18345f",
+    "clip_aud": "#bed0d8",
+    "clip_aud_line": "#577b8b",
+    "clip_aud_ink": "#233b45",
+    "clip_muted": "#c7d0dc",
+    "clip_title_ink": "#1c2530",
+    "meter_mid": "#3d72c4",
 }
 
 DARK = {
-    "bg": "#201e22",
-    "bg2": "#29262b",
-    "bg3": "#343037",
-    "line": "#49434b",
-    "canvas": "#1c1a1e",
-    "input_bg": "#242126",
-    "surface_hi": "#343037",
-    "surface_lo": "#343037",
-    "surface_hi2": "#433c45",  # hover
-    "surface_lo2": "#433c45",
-    "edge": "#49434b",
-    "sunken": "#242126",
-    "glow": "#8e754f",
-    "accent_deep": "#6a512d",
-    "fg": "#e8e9ed",
-    "dim": "#b0b4be",
-    "dim2": "#858b98",
-    "accent": "#c692a4",
-    "accent_hi": "#e0b2c1",
-    "accent2": "#e0b2c1",
-    "accent_ink": "#f1d5ad",
-    "rec": "#df7c85",
-    "ok": "#73bca3",
-    "on_accent": "#191a1d",
-    "on_accent2": "#191a1d",
-    "on_ok": "#14211c",
-    "on_rec": "#251417",
-    "hover": "#433c45",
-    "hover_line": "#747b89",
-    "press": "#302b32",
-    "disabled_bg": "#29262b",
-    "item_hover": "#363037",
-    "item_sel": "#463640",
-    "scroll_track": "#201e22",
-    "scroll_thumb": "#5b515c",
-    "scroll_thumb_hi": "#727a89",
-    "tip_bg": "#343037",
-    "prog_track": "#242126",
-    "wave": "#dba8ba",
-    "wavedim": "#705b3c",
-    "pad": "#33363d",
-    "pad_empty": "#27292f",
-    "padline": "#5f6673",
-    "pad_empty_line": "#3e424b",
-    "pad_wave": "#bdaa89",
-    "pad_lit_ink": "#191a1d",
-    "pad_lit_line": "#efce9c",
-    "cell": "#292c32",
-    "cell_beat": "#383d47",
-    "cell_bar": "#666e7c",
-    "cell_line": "#464c57",
-    "cell_on_line": "#e0b2c1",
-    "clip_pat": "#655338",
-    "clip_pat_line": "#c8a66f",
-    "clip_pat_ink": "#f1dfc5",
-    "clip_aud": "#3d5965",
-    "clip_aud_line": "#7da6b8",
-    "clip_aud_ink": "#d8e8ee",
-    "clip_muted": "#343841",
-    "clip_title_ink": "#e8e9ed",
-    "meter_mid": "#c692a4",
+    "bg": "#101722",
+    "bg2": "#161f2c",
+    "bg3": "#1d2938",
+    "line": "#2d3b4d",
+    "canvas": "#0c121b",
+    "input_bg": "#121b27",
+    "surface_hi": "#1d2938",
+    "surface_lo": "#1d2938",
+    "surface_hi2": "#27374a",
+    "surface_lo2": "#27374a",
+    "edge": "#2d3b4d",
+    "sunken": "#121b27",
+    "glow": "#3c6fb7",
+    "accent_deep": "#244f96",
+    "fg": "#e9eef6",
+    "dim": "#adb9c8",
+    "dim2": "#8190a3",
+    "accent": DEFAULT_ACCENT,
+    "accent_hi": "#82adff",
+    "accent2": "#76a6ff",
+    "accent_ink": "#b9d0ff",
+    "rec": "#df6d79",
+    "ok": "#67c3a2",
+    "on_accent": "#0d1420",
+    "on_accent2": "#0d1420",
+    "on_ok": "#0c2018",
+    "on_rec": "#250f14",
+    "hover": "#27374a",
+    "hover_line": "#60748d",
+    "press": "#1b2635",
+    "disabled_bg": "#151e2a",
+    "item_hover": "#202e3e",
+    "item_sel": "#20334f",
+    "scroll_track": "#101722",
+    "scroll_thumb": "#41536a",
+    "scroll_thumb_hi": "#5e7189",
+    "tip_bg": "#1d2938",
+    "prog_track": "#121b27",
+    "wave": "#82adff",
+    "wavedim": "#29486f",
+    "pad": "#1c2837",
+    "pad_empty": "#151e29",
+    "padline": "#485c74",
+    "pad_empty_line": "#2d3a4a",
+    "pad_wave": "#6e91c8",
+    "pad_lit_ink": "#0d1420",
+    "pad_lit_line": "#9abbff",
+    "cell": "#182332",
+    "cell_beat": "#233247",
+    "cell_bar": "#52657c",
+    "cell_line": "#34475e",
+    "cell_on_line": "#82adff",
+    "clip_pat": "#253e63",
+    "clip_pat_line": "#6c9eff",
+    "clip_pat_ink": "#deebff",
+    "clip_aud": "#294955",
+    "clip_aud_line": "#72a3b7",
+    "clip_aud_ink": "#daedf5",
+    "clip_muted": "#202c3b",
+    "clip_title_ink": "#e9eef6",
+    "meter_mid": "#5e95ff",
 }
 
-# Track colors distinguish drums, bass, chords, melody and vocal lanes.
+# Track and detected-sample colors remain distinguishable, but the first/default
+# lane is blue and custom accents tint the whole family in set_accent().
 TRACK_COLORS_LIGHT = [
-    "#91601b",
+    "#2f62b8",
     "#337b70",
     "#8c782c",
     "#806293",
@@ -238,7 +231,7 @@ TRACK_COLORS_LIGHT = [
     "#656d7b",
 ]
 TRACK_COLORS_DARK = [
-    "#c692a4",
+    DEFAULT_ACCENT,
     "#64b8aa",
     "#c5b465",
     "#a487b6",
@@ -250,11 +243,8 @@ TRACK_COLORS_DARK = [
 
 PALETTES = {"light": LIGHT, "dark": DARK}
 
-# Live palette. Widgets keep a reference to these objects, so they are mutated
-# in place rather than rebound. Starts dark — black is half the scheme.
-# Detected-sample colors use the same studio family as arrangement lanes.
 HIT_COLORS_DARK = {
-    "kick": "#c692a4",
+    "kick": DEFAULT_ACCENT,
     "snare": "#64b8aa",
     "clap": "#d38999",
     "hat": "#c5b465",
@@ -262,10 +252,10 @@ HIT_COLORS_DARK = {
     "bass": "#819fab",
     "tonal": "#b4bac6",
     "loop": "#c0946d",
-    "drop": "#b3b095",
+    "drop": "#9eaabd",
 }
 HIT_COLORS_LIGHT = {
-    "kick": "#91601b",
+    "kick": "#2f62b8",
     "snare": "#337b70",
     "clap": "#a3526a",
     "hat": "#8c782c",
@@ -273,7 +263,7 @@ HIT_COLORS_LIGHT = {
     "bass": "#4e7287",
     "tonal": "#656d7b",
     "loop": "#946747",
-    "drop": "#7c795e",
+    "drop": "#6f7c8d",
 }
 
 C: dict[str, str] = dict(DARK)
@@ -285,7 +275,7 @@ current = "dark"
 def set_theme(name: str) -> str:
     """Swap the live palette. Callers must re-apply stylesheet() afterwards."""
     global current
-    current = name if name in PALETTES else "light"
+    current = name if name in PALETTES else "dark"
     C.clear()
     C.update(PALETTES[current])
     light = current == "light"
@@ -325,16 +315,54 @@ def _control_ink(background: QColor) -> str:
 
 
 def set_accent(color: str) -> str:
-    """Apply a user's hue with readable marks, fills and their matching ink.
+    """Apply a user's hue across the complete shell while preserving contrast.
 
-    The project retains the chosen color. Its display shade adapts to the
-    current theme, including black/white choices that would disappear into
-    the panel; switching themes therefore never changes saved project state.
+    The saved project color remains the source of truth.  Surface tints are
+    regenerated from the neutral light/dark palette on every call, so repeated
+    customization never compounds and theme switching remains deterministic.
     """
     chosen = QColor(color)
     if not chosen.isValid():
         return C["accent"]
+
     dark = current == "dark"
+    base = PALETTES[current]
+    surface_scale = 1.0 if dark else 0.5
+    surface_tints = {
+        "bg": 0.055,
+        "bg2": 0.075,
+        "bg3": 0.095,
+        "canvas": 0.035,
+        "input_bg": 0.055,
+        "surface_hi": 0.095,
+        "surface_lo": 0.095,
+        "surface_hi2": 0.13,
+        "surface_lo2": 0.13,
+        "edge": 0.14,
+        "sunken": 0.05,
+        "hover": 0.12,
+        "hover_line": 0.18,
+        "press": 0.08,
+        "disabled_bg": 0.055,
+        "item_hover": 0.10,
+        "scroll_track": 0.04,
+        "scroll_thumb": 0.14,
+        "scroll_thumb_hi": 0.18,
+        "tip_bg": 0.075,
+        "prog_track": 0.05,
+        "pad": 0.075,
+        "pad_empty": 0.055,
+        "padline": 0.14,
+        "pad_empty_line": 0.10,
+        "cell": 0.065,
+        "cell_beat": 0.09,
+        "cell_bar": 0.12,
+        "cell_line": 0.10,
+        "clip_muted": 0.065,
+    }
+    for key, amount in surface_tints.items():
+        C[key] = _mix(QColor(base[key]), chosen, amount * surface_scale).name()
+
     panel = QColor(C["bg2"])
     endpoint = QColor("#ffffff" if dark else "#000000")
     accent = QColor(chosen)
@@ -346,6 +374,7 @@ def set_accent(color: str) -> str:
     deep = accent.darker(145 if dark else 125)
     second = hi if dark else deep
     clip = _mix(panel, accent, 0.35 if dark else 0.28)
+    audio_clip = _mix(QColor(base["clip_aud"]), accent, 0.12 * surface_scale)
     C.update(
         accent=accent.name(),
         accent_hi=hi.name(),
@@ -356,16 +385,33 @@ def set_accent(color: str) -> str:
         item_sel=_mix(panel, accent, 0.18).name(),
         wave=hi.name(),
         wavedim=_mix(QColor(C["canvas"]), accent, 0.38).name(),
+        pad_wave=_mix(QColor(base["pad_wave"]), accent, 0.55).name(),
         clip_pat=clip.name(),
         clip_pat_line=hi.name(),
         clip_pat_ink=_control_ink(clip),
+        clip_aud=audio_clip.name(),
+        clip_aud_ink=_control_ink(audio_clip),
         cell_on_line=hi.name(),
         pad_lit_line=hi.name(),
+        meter_mid=_mix(QColor(base["meter_mid"]), accent, 0.50).name(),
         on_accent=_control_ink(accent),
         on_accent2=_control_ink(second),
         pad_lit_ink=_control_ink(accent),
     )
-    TRACK_COLORS[0] = accent.name()
+
+    base_tracks = TRACK_COLORS_DARK if dark else TRACK_COLORS_LIGHT
+    TRACK_COLORS[:] = [
+        accent.name() if index == 0 else _mix(QColor(value), accent, 0.18).name()
+        for index, value in enumerate(base_tracks)
+    ]
+    base_hits = HIT_COLORS_DARK if dark else HIT_COLORS_LIGHT
+    HIT_COLORS.clear()
+    HIT_COLORS.update(
+        {
+            kind: accent.name() if kind == "kick" else _mix(QColor(value), accent, 0.18).name()
+            for kind, value in base_hits.items()
+        }
+    )
     return chosen.name()
 
 

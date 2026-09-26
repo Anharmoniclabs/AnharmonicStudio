@@ -45,6 +45,7 @@ from ..audio_setup import (
 )
 from ..model import (
     Project,
+    DEFAULT_ACCENT_COLOR,
     PADS_PER_BANK,
     BANKS,
 )
@@ -960,6 +961,16 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.project.accent_color = dlg.selectedColor().name()
         self.apply_theme(theme.current)
         self.status.showMessage(f"interface tone → {self.project.accent_color}", 3000)
+
+    def reset_appearance(self):
+        """Return the shell to the product blue-black baseline in one action."""
+        if theme.current == "dark" and self.project.accent_color == DEFAULT_ACCENT_COLOR:
+            return
+        self.snapshot()
+        self.project.accent_color = DEFAULT_ACCENT_COLOR
+        self.apply_theme("dark")
+        self._set_dirty(True)
+        self.status.showMessage("appearance reset · dark blue", 3000)
 
     # ── centre stage ─────────────────────────────────────────
     def _build_stage(self) -> QWidget:

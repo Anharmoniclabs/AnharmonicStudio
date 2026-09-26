@@ -904,8 +904,8 @@ def main():
                 )
                 page.locator("#appearance-reset").click()
                 check(
-                    "blush_reset_persists",
-                    page.evaluate("localStorage.getItem('anharmonic-accent')") == "#c692a4",
+                    "dark_blue_reset_persists",
+                    page.evaluate("localStorage.getItem('anharmonic-accent')") == "#4d8dff",
                 )
                 page.locator("#appearance-dialog").get_by_role(
                     "button", name="Done", exact=True

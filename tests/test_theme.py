@@ -74,3 +74,31 @@ def test_theme_round_trip_preserves_live_references_and_custom_choice():
     assert theme.C == before
     assert theme.C is live_colors
     assert theme.TRACK_COLORS is live_tracks
+
+
+def test_default_project_is_dark_blue_and_legacy_default_migrates():
+    from mpclab.model import DEFAULT_ACCENT_COLOR, Project
+
+    assert DEFAULT_ACCENT_COLOR == "#4d8dff"
+    assert Project().accent_color == DEFAULT_ACCENT_COLOR
+    assert Project.from_dict({"accent_color": "#c692a4"}).accent_color == DEFAULT_ACCENT_COLOR
+    assert Project.from_dict({"accent_color": "#e65a91"}).accent_color == "#e65a91"
+
+
+def test_custom_accent_tints_shell_surfaces_without_compounding():
+    theme.set_theme("dark")
+    neutral = {key: theme.C[key] for key in ("bg", "bg2", "bg3", "line")}
+    theme.set_accent("#e65a91")
+    pink = {key: theme.C[key] for key in neutral}
+    assert pink != neutral
+
+    theme.set_theme("dark")
+    theme.set_accent("#427bff")
+    blue = {key: theme.C[key] for key in neutral}
+    assert blue != neutral
+    assert blue != pink
+
+    # Re-applying the same customization starts from the base palette, so it
+    # must be byte-for-byte stable rather than accumulating more tint.
+    theme.set_accent("#427bff")
+    assert {key: theme.C[key] for key in neutral} == blue
