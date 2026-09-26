@@ -1108,16 +1108,17 @@
     const base = state.theme === 'dark'
       ? { bg: '#101722', bg2: '#161f2c', bg3: '#1d2938', line: '#2d3b4d' }
       : { bg: '#eef2f7', bg2: '#f6f8fb', bg3: '#e4eaf2', line: '#c1cad6' };
-    const scale = state.theme === 'dark' ? 1 : .5;
+    const scale = state.theme === 'dark' ? 1 : .5, shell = {};
     for (const [key, amount] of Object.entries({ bg: .055, bg2: .075, bg3: .095, line: .14 })) {
-      document.documentElement.style.setProperty('--' + key, mix(base[key], state.accent, amount * scale));
+      shell[key] = mix(base[key], state.accent, amount * scale);
+      document.documentElement.style.setProperty('--' + key, shell[key]);
     }
     document.documentElement.style.setProperty('--accent', state.accent);
     document.documentElement.style.setProperty('--accent2', state.accent);
     const rgb = state.accent.slice(1).match(/../g).map(value => parseInt(value, 16) / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
     document.documentElement.style.setProperty('--on-accent', rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722 > .179 ? '#17171b' : '#ffffff');
     const luminance = channels => channels.map(value => value / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [.2126,.7152,.0722][index], 0);
-    const background = state.theme === 'dark' ? [44,43,48] : [244,239,242], surface = luminance(background), raw = state.accent.slice(1).match(/../g).map(value => parseInt(value,16));
+    const background = shell.bg2.slice(1).match(/../g).map(value => parseInt(value, 16)), surface = luminance(background), raw = state.accent.slice(1).match(/../g).map(value => parseInt(value,16));
     let ink = raw;
     for (let amount = 0; amount <= 1.001; amount += .05) { ink = raw.map(value => Math.round(value * (1 - amount) + (state.theme === 'dark' ? 255 : 0) * amount)); const light = luminance(ink); if ((Math.max(light,surface) + .05) / (Math.min(light,surface) + .05) >= 4.5) break; }
     document.documentElement.style.setProperty('--accent-ink', '#' + ink.map(value => value.toString(16).padStart(2,'0')).join(''));
