@@ -81,7 +81,7 @@
     canvas.height = clamp(Math.ceil(bounds.height * ratio), 1, 1024);
     const context = canvas.getContext('2d'); context.clearRect(0, 0, canvas.width, canvas.height);
     const result = envelope(buffer, options, canvas.width), amplitude = clamp(finite(options.amplitude, 1), .1, 24);
-    context.strokeStyle = options.color || '#c692a4'; context.lineWidth = 1; context.beginPath();
+    context.strokeStyle = options.color || '#4d8dff'; context.lineWidth = 1; context.beginPath();
     for (let x = 0; x < canvas.width; x++) {
       context.moveTo(x + .5, canvas.height / 2 - clamp(result.high[x] * amplitude, -1, 1) * canvas.height * .46);
       context.lineTo(x + .5, canvas.height / 2 - clamp(result.low[x] * amplitude, -1, 1) * canvas.height * .46);
