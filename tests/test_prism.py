@@ -112,6 +112,22 @@ def test_plugin_parameter_mapping_matches_native_host_contract():
     assert mapped["1"] == 1
 
 
+def test_prism_theme_is_deterministic_and_tracks_sound_state():
+    from mpclab.ui.prism_controls import SPECS, normalized, prism_stylesheet, prism_theme
+
+    values = {str(i): normalized(spec, spec["default"]) for i, spec in enumerate(SPECS)}
+    original = prism_theme(values)
+    assert original == prism_theme(values)
+    assert original["accent"] in prism_stylesheet(original)
+
+    changed = dict(values)
+    changed["12"] = 0.913
+    changed["54"] = 0.731
+    changed_theme = prism_theme(changed)
+    assert changed_theme["id"] != original["id"]
+    assert changed_theme["accent"] != original["accent"]
+
+
 def test_bundled_plugin_button_loads_current_tone_and_returns_to_builtin(window):  # noqa: F811
     from mpclab.prism import bundled_plugin
     from mpclab.ui.prism_controls import SPECS, normalized
@@ -263,6 +279,7 @@ def test_workstation_sound_file_roundtrip_includes_layers_and_motion(window, tmp
     )
     panel.preset(PERFORMANCES[-1]["name"])
     saved = dict(panel.values)
+    saved_theme = dict(panel.theme)
     target = tmp_path / "full.prism.json"
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
     panel.save_sound()
@@ -271,6 +288,8 @@ def test_workstation_sound_file_roundtrip_includes_layers_and_motion(window, tmp
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (str(target), ""))
     panel.open_sound()
     assert panel.values == pytest.approx(saved)
+    assert panel.theme == saved_theme
+    assert panel.theme["accent"] in panel.styleSheet()
     window.engine.external.instrument = None
 
 
