@@ -79,6 +79,19 @@ def pattern_events(
     # Negative event indices encode synth pitch; nonnegative indices are pads.
     # Clip ends and pattern boundaries trim gates, preventing stuck notes.
     length = pat.length_beats
+    # Beats and Notes are two editors for the same sample instrument. If a
+    # root-pitch pad note begins at the exact swung onset of a step on that
+    # pad, prefer the richer Note event instead of spawning a second voice.
+    root_note_onsets = {
+        (int(note.pad), round(float(note.start), 10))
+        for note in pat.notes
+        if (
+            note.pad is not None
+            and 0 <= int(note.pad) < len(engine.project.pads)
+            and note.pitch == engine.project.pads[int(note.pad)].root_note
+            and 0 <= note.start < length
+        )
+    }
     if length > 0 and pat.notes:
         first = max(0, int((b0 - origin) // length))
         last = max(first, int((min(b1, limit) - origin) // length))
@@ -116,13 +129,15 @@ def pattern_events(
             step = k % total
             beat += engine._swing_offset(pat, step)
             if b0 <= beat < b1 and beat < limit:
+                local_onset = step / pat.div + engine._swing_offset(pat, step)
                 for pad_idx, row in pat.steps.items():
+                    pad_idx = int(pad_idx)
                     vel = row.get(step)
-                    if vel:
+                    if vel and (pad_idx, round(local_onset, 10)) not in root_note_onsets:
                         out.append(
                             ScheduledNote(
-                                (beat, int(pad_idx), float(vel), None, sequence_id),
-                                source=EventSource(pat, pad=int(pad_idx), step=step),
+                                (beat, pad_idx, float(vel), None, sequence_id),
+                                source=EventSource(pat, pad=pad_idx, step=step),
                             )
                         )
         k += 1
