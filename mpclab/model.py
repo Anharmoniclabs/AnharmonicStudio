@@ -43,8 +43,16 @@ DISPLAY_ORDER = [12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3]
 MODES = ("one-shot", "gate", "loop")
 RETRIGGER_POLICIES = ("restart", "layer", "ignore", "crossfade")
 PROJECT_FORMAT_VERSION = 6
+DEFAULT_ACCENT_COLOR = "#4d8dff"
+LEGACY_DEFAULT_ACCENT_COLOR = "#c692a4"
 MAX_INSTRUMENTS = 127  # Additional native instances; the legacy synth remains primary.
 _UNSAFE_FILENAME = re.compile(r"[^\w .()-]+", re.UNICODE)
+
+
+def _project_accent(value) -> str:
+    """Migrate the former built-in blush default without touching custom colors."""
+    text = str(value or DEFAULT_ACCENT_COLOR)
+    return DEFAULT_ACCENT_COLOR if text.casefold() == LEGACY_DEFAULT_ACCENT_COLOR else text
 
 
 def safe_filename(name: str, fallback: str = "untitled") -> str:
@@ -656,7 +664,7 @@ class Project:
     loop_start: float = 0.0
     loop_end: float = 16.0
     loop_enabled: bool = False
-    accent_color: str = "#c692a4"
+    accent_color: str = DEFAULT_ACCENT_COLOR
     delay_fx: DelayFX = field(default_factory=DelayFX)
     reverb_fx: ReverbFX = field(default_factory=ReverbFX)
     master_fx: MasterFX = field(default_factory=MasterFX)
@@ -941,7 +949,7 @@ class Project:
             loop_start=number("loop_start", 0.0, 0, 1_000_000),
             loop_end=number("loop_end", 16.0, 0, 1_000_000),
             loop_enabled=boolean("loop_enabled"),
-            accent_color=str(d.get("accent_color", "#c692a4")),
+            accent_color=_project_accent(d.get("accent_color", DEFAULT_ACCENT_COLOR)),
             delay_fx=_from_dict(DelayFX, mapping("delay_fx")),
             reverb_fx=_from_dict(ReverbFX, mapping("reverb_fx")),
             master_fx=_from_dict(MasterFX, mapping("master_fx")),
