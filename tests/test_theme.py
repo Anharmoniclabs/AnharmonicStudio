@@ -101,4 +101,3 @@ def test_custom_accent_tints_shell_surfaces_without_compounding():
     # must be byte-for-byte stable rather than accumulating more tint.
     theme.set_accent("#427bff")
     assert {key: theme.C[key] for key in neutral} == blue
-
