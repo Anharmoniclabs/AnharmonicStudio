@@ -613,7 +613,7 @@ class PrismControls(WindowClient, QWidget):
                     for v, label in enumerate(choices):
                         button = QPushButton(label)
                         if i in (0, 1, 32, 33):
-                            button.setIcon(waveform_icon(v))
+                            button.setIcon(waveform_icon(v, self.theme["accent"]))
                             button.setIconSize(QSize(46, 22))
                         button.setCheckable(True)
                         button.clicked.connect(
@@ -696,8 +696,6 @@ class PrismControls(WindowClient, QWidget):
 
     def apply_theme(self):
         theme = prism_theme(self.values)
-        if theme == getattr(self, "theme", None) and self.styleSheet():
-            return
         self.theme = theme
         self.setStyleSheet(prism_stylesheet(theme))
         if hasattr(self, "title"):
