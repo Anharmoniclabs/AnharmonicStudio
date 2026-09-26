@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from mpclab.model import Project
-from test_track_recording import arm, mock_audio, window
+from test_track_recording import arm, mock_audio, window  # noqa: F401
 
 
 def test_song_monitor_is_track_local_persistent_and_routes_dry_cue(window, monkeypatch):
@@ -83,7 +83,7 @@ def test_track_input_workflow_rejects_non_boolean_monitor():
         }
     }
     payload = project.to_dict()
-    malformed = deepcopy(payload)
-    malformed["workflow"]["recording"]["track_inputs"][row_id]["monitor"] = "yes"
+    broken = deepcopy(payload)
+    broken["workflow"]["recording"]["track_inputs"][row_id]["monitor"] = "yes"
     with pytest.raises(ValueError, match="monitor must be a boolean"):
-        Project.from_dict(malformed)
+        Project.from_dict(broken)
