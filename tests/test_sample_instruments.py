@@ -109,6 +109,22 @@ def test_independent_samples_and_synth(audio_project):
     assert [v.note for v in engine.synth_voices] == [64]
 
 
+def test_root_note_and_step_same_onset_share_one_sample_event(audio_project):
+    library, project = audio_project
+    pattern = project.pattern()
+    pattern.steps = {0: {0: 0.8}}
+    pattern.notes = [Note(57, 0, 0.5, 0.8, 0)]
+
+    engine = make_engine(library, project)
+    events, _ = engine._collect(0, 0.25)
+    assert len(events) == 1
+    assert events[0].source.note is not None
+
+    engine.project.pattern().notes = [Note(58, 0, 0.5, 0.8, 0)]
+    events, _ = engine._collect(0, 0.25)
+    assert len(events) == 2
+
+
 @pytest.mark.parametrize("mono,remaining", [(False, 3), (True, 1)])
 def test_chords_and_mono(audio_project, mono, remaining):
     library, project = audio_project
