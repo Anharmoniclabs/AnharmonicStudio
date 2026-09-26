@@ -174,6 +174,7 @@ def _validate_recording(value) -> dict:
         "punch_end",
         "pre_roll_bars",
         "take_groups",
+        "track_inputs",
     }
     if not isinstance(value, dict) or set(value) - allowed:
         raise ValueError("recording workflow metadata contains unsupported keys")
@@ -220,6 +221,29 @@ def _validate_recording(value) -> dict:
             }
         )
 
+    raw_track_inputs = value.get("track_inputs", {})
+    if not isinstance(raw_track_inputs, dict) or len(raw_track_inputs) > 4096:
+        raise ValueError("track input settings must be a bounded object")
+    track_inputs = {}
+    for row_id, item in raw_track_inputs.items():
+        row_id = _bounded_text(row_id)
+        if not row_id or not isinstance(item, dict):
+            raise ValueError("track input settings are invalid")
+        if set(item) - {"count_in_bars", "input_gain_db", "monitor"}:
+            raise ValueError("track input settings contain unsupported keys")
+        monitor = item.get("monitor", False)
+        if type(monitor) is not bool:
+            raise ValueError("track input monitor must be a boolean")
+        track_inputs[row_id] = {
+            "count_in_bars": _bounded_int(
+                item.get("count_in_bars", 1), 0, 4, "track count-in bars"
+            ),
+            "input_gain_db": _bounded_number(
+                item.get("input_gain_db", 0.0), -24.0, 24.0, "track input gain"
+            ),
+            "monitor": monitor,
+        }
+
     result = {
         "loop_takes": loop_takes,
         "auto_take_lanes": bool(value.get("auto_take_lanes", True)),
@@ -231,6 +255,8 @@ def _validate_recording(value) -> dict:
     }
     if groups:
         result["take_groups"] = groups
+    if track_inputs:
+        result["track_inputs"] = track_inputs
     return result
 
 
