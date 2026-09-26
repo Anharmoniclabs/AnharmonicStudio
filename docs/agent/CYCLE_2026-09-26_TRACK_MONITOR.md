@@ -1,5 +1,13 @@
 # Refinement cycle — track recording monitor
 
-Verified on the current main branch: Song-track recording exposes input gain and monitor controls, but those controls currently read/write the global vocal-record settings and generic Song audio capture passes no monitor callback. This cycle targets making the Song-track monitor truthful and track-local without changing the core project format.
+Verified defect: Song-track input gain and monitor controls were tied to the global Vocal recording settings, while generic Song audio capture passed no monitoring callback. The UI could therefore indicate monitoring without creating a Song cue path.
 
-Status: implementation patch pending focused validation.
+Implemented on this refinement branch:
+
+- persist per-row Song count-in, input gain, and dry-monitor state under validated `workflow.recording.track_inputs`;
+- keep Vocal monitoring state isolated from Song-track monitoring;
+- route enabled Song dry monitoring through the existing non-blocking engine cue path;
+- disable the unsupported Song pitch-corrected cue control instead of presenting it as active;
+- add focused regression coverage for row isolation, persistence, dry cue routing, Vocal/Song separation, and malformed monitor metadata.
+
+Validation status: source diff inspected and focused validator checks passed in the refinement environment. Full repository CI and rendered GUI QA were not available in this run and are not claimed.
