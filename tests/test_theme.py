@@ -75,6 +75,7 @@ def test_theme_round_trip_preserves_live_references_and_custom_choice():
     assert theme.C is live_colors
     assert theme.TRACK_COLORS is live_tracks
 
+
 def test_default_project_is_dark_blue_and_legacy_default_migrates():
     from mpclab.model import DEFAULT_ACCENT_COLOR, Project
 
