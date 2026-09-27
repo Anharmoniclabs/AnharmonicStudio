@@ -83,8 +83,8 @@ def _sync_compact_playlist_ui(window):
     window.playlist_hint.setVisible(not focused and window.width() >= 1450)
     window.playlist_place_label.setVisible(not focused and not narrow)
     window.playlist_snap_label.setVisible(not focused and not narrow)
-    window.playlist_zoom_label.setVisible(not focused and not narrow)
-    window.zoom.setVisible(not focused and not narrow)
+    window.playlist_zoom_label.hide()
+    window.zoom.hide()
     window.place_box.setMinimumWidth(120 if focused else (140 if narrow else 190))
 
 

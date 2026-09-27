@@ -36,7 +36,7 @@ def _build_song(window) -> QWidget:
     tools.setObjectName("toolbar")
     tools.setAttribute(Qt.WA_StyledBackground, True)
     tl = QHBoxLayout(tools)
-    tl.setContentsMargins(10, 7, 10, 7)
+    tl.setContentsMargins(10, 4, 10, 4)
     tl.setSpacing(8)
 
     add_row = QPushButton("+ TRACK")
@@ -162,6 +162,8 @@ def _build_song(window) -> QWidget:
         ("Reset time and height", lambda: window.playlist.reset_zoom()),
     ):
         zoom_menu.addAction(text, callback)
+    window.zoom.hide()
+    window.playlist_zoom_label.hide()
     window.track_zoom_button.setMenu(zoom_menu)
     tl.addWidget(window.track_zoom_button)
 
@@ -216,9 +218,11 @@ def _build_song(window) -> QWidget:
         tool_layout.addWidget(button)
     tl.removeWidget(window.playlist_tool_mode_label)
     window.playlist_tool_mode_label.hide()
+    window.playlist_edit_layout = tool_layout
     tool_layout.addStretch(1)
     edge_hint = small("Edges: trim start · stretch end · Shift+end: trim")
-    tool_layout.addWidget(edge_hint)
+    tool_rack.setToolTip(edge_hint.text())
+    edge_hint.hide()
     window.playlist_tool_scroll = scrolling_bar(tool_rack)
     window.playlist_placement_layout = tl
     lay.addWidget(window.playlist_tool_scroll)

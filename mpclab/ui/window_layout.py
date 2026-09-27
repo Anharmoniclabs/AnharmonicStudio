@@ -51,7 +51,7 @@ def _build(window):
     project_bar.setObjectName("projectBar")
     project_bar.setAttribute(Qt.WA_StyledBackground, True)
     project_layout = QHBoxLayout(project_bar)
-    project_layout.setContentsMargins(14, 7, 14, 7)
+    project_layout.setContentsMargins(12, 2, 12, 2)
     project_layout.setSpacing(10)
     project_widgets = [
         window.logo,
@@ -83,6 +83,10 @@ def _build(window):
         button.hide()
     project_layout.addWidget(window.project_menu_button)
     window.proj_name.setFixedWidth(180)
+    window.record_destination_label = QLabel()
+    window.record_destination_label.setFixedWidth(330)
+    window.record_destination_label.setObjectName("recordDestination")
+    project_layout.insertWidget(2, window.record_destination_label)
     header = QWidget()
     header_layout = QHBoxLayout(header)
     header_layout.setContentsMargins(0, 0, 8, 0)

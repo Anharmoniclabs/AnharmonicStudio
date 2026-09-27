@@ -56,12 +56,17 @@ def test_production_buttons_registry_menu_and_idempotent_attachment(window, monk
     app, commands, markers = window
     assert ui.attach_timeline_markers(app, commands) is markers
     assert app.findChild(ui.TimelineMarkerStrip, "timelineMarkerStrip") is markers.strip
-    assert len([action for action in app.menuBar().actions() if action.text() == "Markers"]) == 1
+    transport = next(a.menu() for a in app.menuBar().actions() if a.text() == "Transport")
+    assert markers.menu.menuAction() in transport.actions()
+    assert markers.panel.isHidden()
     assert commands.registry.bindings["markers.add"] == "Ctrl+Alt+M"
     assert "markers.next" in {spec.id for spec in commands.registry.search("timeline")}
     app.engine.beat = 6.5
     accept_dialog(monkeypatch, name="Singer cue", color="#123456")
+    markers.marker_button.menu().popup(QPoint(0, 0))
+    QApplication.processEvents()
     QTest.mouseClick(markers.buttons["markers.cue"], Qt.LeftButton)
+    assert not markers.panel.isHidden()
     item = marker_items(app.project)[0]
     assert (item.kind, item.name, item.start_beat, item.color) == (
         "cue",
@@ -70,7 +75,7 @@ def test_production_buttons_registry_menu_and_idempotent_attachment(window, monk
         "#123456",
     )
     assert app._dirty
-    menu = next(action.menu() for action in app.menuBar().actions() if action.text() == "Markers")
+    menu = markers.menu
     accept_dialog(monkeypatch, name="Intro")
     menu.actions()[0].trigger()
     assert len(marker_items(app.project)) == 2

@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from ..timeline_markers import (
@@ -452,7 +453,9 @@ class TimelineMarkerController(WindowClient, QObject):
         layout = QVBoxLayout(self.panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
-        toolbar = QHBoxLayout()
+        popup = QWidget()
+        toolbar = QVBoxLayout(popup)
+        toolbar.setContentsMargins(6, 6, 6, 6)
         self.buttons = {}
         for command_id, label in (
             ("markers.add", "+ Marker"),
@@ -471,8 +474,20 @@ class TimelineMarkerController(WindowClient, QObject):
             )
             toolbar.addWidget(button)
             self.buttons[command_id] = button
-        toolbar.addStretch(1)
-        layout.addLayout(toolbar)
+        self.marker_button = QPushButton("Markers")
+        self.marker_button.setToolTip("Add, navigate and manage markers, cues and regions")
+        popup_menu = QMenu(self.marker_button)
+        popup_action = QWidgetAction(popup_menu)
+        popup_action.setDefaultWidget(popup)
+        popup_menu.addAction(popup_action)
+        popup_menu.addSeparator()
+        self.show_lanes_action = popup_menu.addAction("Show empty marker lanes")
+        self.show_lanes_action.setCheckable(True)
+        self.show_lanes_action.toggled.connect(lambda _checked: self.refresh(force=True))
+        for button in self.buttons.values():
+            button.clicked.connect(popup_menu.close)
+        self.marker_button.setMenu(popup_menu)
+        window.playlist_edit_layout.addWidget(self.marker_button)
         self.strip = TimelineMarkerStrip(self, self.panel)
         layout.addWidget(self.strip)
         parent_layout = window.song_scroll.parentWidget().layout()
@@ -499,6 +514,7 @@ class TimelineMarkerController(WindowClient, QObject):
         if force or key != self._state_key:
             self._state_key = key
             self.items = marker_items(project)
+            self.panel.setVisible(bool(self.items) or self.show_lanes_action.isChecked())
             if not any(item.id == self.selected_id for item in self.items):
                 self.selected_id = None
             self.strip.drag = self.strip.preview = None

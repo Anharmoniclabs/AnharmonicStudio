@@ -1733,6 +1733,9 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     # ── periodic UI refresh ──────────────────────────────────
     def _tick(self):
+        from .recording_destination import refresh_recording_destination
+
+        refresh_recording_destination(self)
         eng = self.engine
         render_error = getattr(eng.stream, "render_error", "")
         if render_error:
@@ -1850,6 +1853,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         if not hasattr(self, "pad_side"):
             return
         self.logo.setVisible(self.width() >= 1000 and not getattr(self, "_playlist_focus", False))
+        self.record_destination_label.setVisible(self.width() >= 1450)
         self.project_bar.setMinimumWidth(self.project_bar.sizeHint().width())
         self.transport_meters.setVisible(self.width() >= 1100)
         if getattr(self, "_playlist_focus", False):

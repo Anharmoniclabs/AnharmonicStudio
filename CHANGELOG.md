@@ -7,6 +7,10 @@ serves **0.1.0-rc.1** until a new, separately versioned installer set passes its
 build and delivery checks. Source availability does not mean an installed copy
 has updated itself.
 
+- Compact the branding header and Song toolbars. Group marker actions into one
+  dropdown, automatically collapse empty marker lanes, and keep one Zoom menu.
+  Show the recording destination and count-in in the header (Record tooltip on
+  smaller windows), following pattern, armed audio and Song performance routing.
 - Group the desktop header into File, Edit, View, Transport, Sound, Tools and
   Help. Recording and markers live under Transport; instruments, plugins, routing
   and device settings live under Sound. Commands search replaces the duplicate
