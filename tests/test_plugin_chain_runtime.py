@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 
 from mpclab.model import Project
@@ -214,3 +215,21 @@ def test_offline_chain_bank_loads_only_known_non_bypassed_targets():
     chain = bank.chains[target]
     bank.close()
     assert chain.closed
+
+
+@pytest.mark.parametrize("delay", [1, 3, 17])
+def test_unified_routing_delay_handles_blocks_longer_than_its_delay(delay):
+    from mpclab.fx_unification import StereoEdgeDelay
+
+    line = StereoEdgeDelay(delay, 8)
+    source = np.arange(80, dtype=np.float32).reshape(40, 2)
+    pieces = []
+    offset = 0
+    for frames in (2, 5, 3, 30):
+        pieces.append(line.process(source[offset : offset + frames]).copy())
+        offset += frames
+    expected = np.zeros_like(source)
+    expected[delay:] = source[:-delay]
+    assert np.array_equal(np.concatenate(pieces), expected)
+    line.reset()
+    assert not np.any(line.process(np.zeros((30, 2), np.float32)))

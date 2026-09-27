@@ -407,6 +407,7 @@ def test_session_lock_rejects_second_owner_and_releases(tmp_path):
 
 
 def test_record_counts_three_beats_before_starting(window, monkeypatch):
+    window.show_tab(window.TAB_SEQ)
     now = [100.0]
     monkeypatch.setattr(main_window.time, "monotonic", lambda: now[0])
     window.project.bpm = 120
@@ -431,6 +432,7 @@ def test_record_counts_three_beats_before_starting(window, monkeypatch):
 
 
 def test_record_overdubs_an_already_playing_pattern_without_restarting(window, monkeypatch):
+    window.show_tab(window.TAB_SEQ)
     window.engine.mode = "pattern"
     window.engine.playing = True
     window.engine.beat = 3.25
@@ -444,12 +446,13 @@ def test_record_overdubs_an_already_playing_pattern_without_restarting(window, m
     assert window.engine.beat == 3.25
     assert not stops
     assert window.record_count_label.isHidden()
-    assert "pattern overdub" in window.status.currentMessage()
+    assert "selected pattern" in window.status.currentMessage()
     window.btn_rec.setChecked(False)
     assert not window.engine.recording
 
 
 def test_pattern_performance_is_one_undo_step_and_stop_disarms_recording(window):
+    window.show_tab(window.TAB_SEQ)
     window.engine.mode = "pattern"
     window.engine.playing = True
     window.btn_rec.setChecked(True)
@@ -470,6 +473,7 @@ def test_pattern_performance_is_one_undo_step_and_stop_disarms_recording(window)
 
 
 def test_play_toggle_disarms_an_active_pattern_take(window, monkeypatch):
+    window.show_tab(window.TAB_SEQ)
     window.engine.mode = "pattern"
     window.engine.playing = window.engine.recording = True
     window.btn_rec.setChecked(True)
@@ -485,6 +489,7 @@ def test_play_toggle_disarms_an_active_pattern_take(window, monkeypatch):
 
 @pytest.mark.parametrize("cancel", ["record", "stop", "mode", "play"])
 def test_cancel_count_in_never_starts_recording(window, monkeypatch, cancel):
+    window.show_tab(window.TAB_SEQ)
     starts = []
     monkeypatch.setattr(window.engine, "play", lambda: starts.append(True))
     window.btn_rec.setChecked(True)

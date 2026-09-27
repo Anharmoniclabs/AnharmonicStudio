@@ -34,6 +34,8 @@ def test_vocal_track_records_dry_in_song_at_the_playhead(window, monkeypatch):  
     window.show_tab(5)
     window.add_vocal_button.click()
     row = window.track_inspector.row()
+    # Newly created rows have their own count-in; this test captures immediately.
+    window.track_capture.track_monitor[row.id] = {"count_in_bars": 0}
     assert row.name == "Vocal 1"
     assert window.studio.selected == 2
     assert window.track_capture.armed_id == row.id

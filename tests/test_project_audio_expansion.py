@@ -117,3 +117,19 @@ def test_float64_master_summing_path_is_exercised_by_realtime_callback():
     engine._callback(out, 64, None, False)
     assert np.isfinite(out).all()
     assert engine.pro_audio_graph.precision == "float64"
+
+
+def test_new_engine_allocates_effects_at_its_own_rate(tmp_path):
+    from mpclab import fx
+    from mpclab.fx_unification import configure_fx_sample_rate
+
+    previous = fx.SR
+    library = Library(tmp_path / "library", sample_rate=48_000)
+    try:
+        configure_fx_sample_rate(100)
+        engine = Engine(library, sample_rate=48_000, blocksize=512)
+        assert engine.rack.reverb.predelay.size == 12_000
+        assert engine.rack.reverb.combs[0].size == 1214 + 25 + 4
+    finally:
+        configure_fx_sample_rate(previous)
+        library.read_ahead.close()

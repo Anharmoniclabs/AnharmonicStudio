@@ -13,6 +13,20 @@ from mpclab.model import DelayFX, ReverbFX
 pytestmark = pytest.mark.skipif(NATIVE is None, reason="Build the C++ engine first")
 
 
+@pytest.fixture(autouse=True)
+def native_reference_clock():
+    # The native send ABI uses 48 kHz. Other engine tests intentionally change
+    # the Python effects clock; parity comparisons must select the same rate.
+    from mpclab.fx_unification import configure_fx_sample_rate
+
+    previous = fx.SR
+    configure_fx_sample_rate(48_000)
+    try:
+        yield
+    finally:
+        configure_fx_sample_rate(previous)
+
+
 @pytest.mark.parametrize("rate", [0.43, 1.0, 1.25, 3.17])
 @pytest.mark.parametrize("loop,crossfade", [(False, 0), (True, 0), (True, 23)])
 @pytest.mark.parametrize("quality", ["live", "offline"])

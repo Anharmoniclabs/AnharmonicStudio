@@ -29,6 +29,10 @@ has updated itself.
   silent. Queued MIDI preserves note-off and sustain-release order; actual
   process failures and render timeouts still report errors. Recovery does not
   promise dropout-free audio under arbitrary load.
+- Correct shared plugin delay compensation for blocks longer than the delay,
+  and allocate effect buffers using the new engine’s sample rate.
+- Restore visible sampler slice markers during Undo without reloading audio.
+- Keep Prism’s blue editor palette stable across presets, automation and Hand FX.
 - Improve sample-to-Notes routing, input ownership and short plugin render chunks.
 - Exclude Linux webcam metadata nodes from the Hand FX camera picker. Optional
   camera setup is documented; camera support was verified locally with ten
@@ -53,7 +57,3 @@ build scripts remain open source. Official compiled packages are paid downloads;
 CI artifacts containing binaries must be encrypted. Public GitHub releases may
 contain matching source and notices, never plaintext paid installers or plugin
 packs. Existing GPL rights are unchanged.
-
-Prism’s Studio editor now uses a stable blue palette. Presets, automation, knobs
-and Hand FX change the sound without changing the panel colors or rebuilding
-its stylesheet during performance.

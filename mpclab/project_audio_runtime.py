@@ -103,6 +103,12 @@ def install_project_audio_runtime() -> None:
             raise
 
     def engine_init(engine, *args, **kwargs):
+        from .engine import AUDIO_SAMPLE_RATE
+
+        rate = kwargs.get("sample_rate", args[1] if len(args) > 1 else AUDIO_SAMPLE_RATE)
+        # Effect buffers are allocated by the original constructor. Set their
+        # clock first, rather than inheriting another engine's previous rate.
+        configure_fx_sample_rate(rate)
         original_engine_init(engine, *args, **kwargs)
         state = default_daw_expansion()
         state["sample_rate"] = int(engine.sr) if int(engine.sr) in SAMPLE_RATES else 48_000

@@ -34,8 +34,14 @@ class StereoEdgeDelay:
         frames = len(source)
         self.ensure_blocksize(frames)
         out = self.output[:frames]
-        self.line.read(frames, self.delay, out)
-        self.line.write(source)
+        # Commit input before reading so delays shorter than a block can use
+        # that block's earlier samples. Account for the advanced write cursor.
+        # Bound each chunk to retain the old history even if block size grows.
+        capacity = self.line.size - self.delay - 1
+        for offset in range(0, frames, capacity):
+            end = min(frames, offset + capacity)
+            self.line.write(source[offset:end])
+            self.line.read(end - offset, self.delay + end - offset, out[offset:end])
         return out
 
     def reset(self) -> None:

@@ -154,6 +154,18 @@ def _apply_project_state(window, project: Project):
         window.engine.sample_panic()
         window.engine.synth_panic()
     window.project = project
+    if window.current_clip is not None:
+        markers = project.slices.get(window.current_clip, [])
+        markers_changed = window.wave.markers != markers
+        # Rebind even equal lists: subsequent cuts must edit the restored
+        # project's markers, not the previous snapshot's list.
+        window.wave.markers = markers
+        if markers_changed:
+            window.wave.selected = -1
+            window.wave.slice_kinds.clear()
+            window.wave.slice_ends.clear()
+            window.wave.update()
+            window._rebuild_chips()
     if not incremental:
         window.track_capture.armed_id = None
         window.track_inspector.row_id = None
