@@ -16,6 +16,7 @@ import time
 from .midi_devices import MidiRouter
 from .music import Note, MidiControl
 from .midi_playback import apply_expression
+from .recording_timing import beat_at_time
 
 
 @dataclass
@@ -25,6 +26,7 @@ class MidiTake:
     controls: list = field(default_factory=list)
     held: dict = field(default_factory=dict)
     error: str = ""
+    start_deadline: float | None = None
 
 
 class MidiClock:
@@ -106,14 +108,27 @@ class MidiPerformance:
             self._control,
             self._expression,
         )
-        self.router.resolve_note = lambda note, port, channel: (
-            "note",
-            (note, self.route[0], self.route[1], port, channel),
-        )
+        self.router.resolve_note = self._resolve_note
+        self.router.channel_note_on = self._routed_on
+        self.router.channel_note_off = self._routed_off
         self.router.clock = lambda port, message, timestamp: self.clock.receive(
             engine, port, message, timestamp
         )
         self.router.current_values = self._current_value
+
+    def _resolve_note(self, note, port, channel):
+        ids = tuple(i.id for i in self.engine.project.instruments if i.midi_channel == channel)
+        if ids:
+            return ("routed", tuple((note, None, i, port, channel) for i in ids))
+        return ("note", (note, self.route[0], self.route[1], port, channel))
+
+    def _routed_on(self, destinations, velocity):
+        for destination in destinations:
+            self._on(destination, velocity)
+
+    def _routed_off(self, destinations):
+        for destination in destinations:
+            self._off(destination)
 
     def submit(self, port, message, timestamp=None):
         try:
@@ -126,8 +141,8 @@ class MidiPerformance:
     def release(self, port=""):
         self.submit(port, ())
 
-    def begin_take(self, origin):
-        take = MidiTake(origin)
+    def begin_take(self, origin, *, start_deadline=None):
+        take = MidiTake(origin, start_deadline=start_deadline)
         self.commands.put_nowait(("begin", take, None))
         return take
 
@@ -210,8 +225,9 @@ class MidiPerformance:
         port, message, timestamp = event
         e = self.engine
         anchor = e.audio_clock or (self.now + e.latency_ms / 1000, e.beat, e.project.bpm, e.playing)
-        self.event_beat = max(0.0, anchor[1] + (timestamp - anchor[0]) * anchor[2] / 60)
+        self.event_beat = beat_at_time(anchor, timestamp)
         self.offset = offset
+        self.event_timestamp = timestamp
         self._capture(port, message)
         self.router.handle(port, message, timestamp)
 
@@ -228,6 +244,12 @@ class MidiPerformance:
     def _capture(self, port, message):
         e = self.engine
         take = self.take
+        if (
+            take is not None
+            and take.start_deadline is not None
+            and getattr(self, "event_timestamp", self.now) < take.start_deadline
+        ):
+            return
         if take is None and e.recording and e.playing and e.mode == "pattern":
             if self.pattern_take is None:
                 pat = e.project.pattern()
@@ -278,8 +300,18 @@ class MidiPerformance:
                     )
                     if not 0 <= local < 16:
                         return
+                    if take is self.pattern_take:
+                        # _pad_on owns the sequencer step; a second Note would
+                        # double the hit and leak percussion into Notes.
+                        return
                     pad, instrument = bank * 16 + local, None
                     pitch = e.project.pads[pad].root_note
+                else:
+                    kind, destination = self._resolve_note(pitch, port, channel)
+                    if kind == "routed":
+                        pad, instrument = None, tuple(item[2] for item in destination)
+                    else:
+                        pitch, pad, instrument, _port, _channel = destination
                 take.held[key] = (
                     self.event_beat,
                     beat,
@@ -296,18 +328,20 @@ class MidiPerformance:
         held = take.held.pop(key, None)
         if held:
             start, beat, pitch, pad, instrument, velocity, channel = held
-            take.notes.append(
-                Note(
-                    pitch,
-                    beat,
-                    min(4096, max(1 / self.engine.sr, self.event_beat - start)),
-                    velocity,
-                    pad,
-                    instrument,
-                    channel,
-                    release,
+            ids = instrument if isinstance(instrument, tuple) else (instrument,)
+            for instrument_id in ids:
+                take.notes.append(
+                    Note(
+                        pitch,
+                        beat,
+                        min(4096, max(1 / self.engine.sr, self.event_beat - start)),
+                        velocity,
+                        pad,
+                        instrument_id,
+                        channel,
+                        release,
+                    )
                 )
-            )
 
     def _on(self, destination, velocity):
         if isinstance(destination, int):
@@ -357,9 +391,12 @@ class MidiPerformance:
         self.notifications.append(("note", note, False))
 
     def _pad_on(self, pad, velocity):
-        self.engine._spawn(self.engine.project.pads[pad], pad, velocity, self.offset)
+        source = None
         if self.engine.recording and self.engine.playing and self.engine.mode == "pattern":
-            self.engine._record(pad, velocity)
+            source = self.engine._record(pad, velocity)
+        self.engine._spawn(
+            self.engine.project.pads[pad], pad, velocity, self.offset, event_source=source
+        )
 
     def _pad_off(self, pad):
         self.engine.release_pad(pad)

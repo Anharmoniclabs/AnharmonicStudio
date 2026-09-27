@@ -280,3 +280,33 @@ def test_hand_poses_select_effects_without_individual_finger_selection():
     assert mapper.pose == "fist"
     assert mapper.update(GestureFrame(0.6, ()), values) == {}
     assert not mapper.active
+
+
+@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux V4L2 capability query")
+@pytest.mark.parametrize("device_caps,expected", [(0x04200001, True), (0x04A00000, False)])
+def test_camera_selector_rejects_metadata_only_nodes(tmp_path, monkeypatch, device_caps, expected):
+    import fcntl
+    import struct
+    from mpclab.prism_camera import is_capture_device
+
+    device = tmp_path / "video"
+    device.touch()
+
+    def query(fd, request, capability):
+        assert request == 0x80685600
+        # The aggregate card capabilities include video for BOTH nodes.
+        struct.pack_into("II", capability, 84, 0x84A00001, device_caps)
+
+    monkeypatch.setattr(fcntl, "ioctl", query)
+    assert is_capture_device(device) is expected
+
+
+def test_camera_list_keeps_capture_name_and_path(tmp_path, monkeypatch):
+    from mpclab import prism_camera
+
+    for name in ("video0", "video1"):
+        folder = tmp_path / name
+        folder.mkdir()
+        (folder / "name").write_text("USB camera")
+    monkeypatch.setattr(prism_camera, "is_capture_device", lambda path: path == "/dev/video0")
+    assert prism_camera.camera_devices(tmp_path) == [("USB camera · video0", "/dev/video0")]

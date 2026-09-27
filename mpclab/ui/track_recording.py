@@ -3,6 +3,7 @@
 from dataclasses import replace
 from collections import deque
 import math
+import time
 
 import numpy as np
 
@@ -25,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..model import Clip, Pattern, Row
-from ..recording_timing import take_placement
+from ..recording_timing import take_placement, performance_beat
 from ..recording import (
     AudioCaptureSession,
     CaptureState,
@@ -34,6 +35,17 @@ from ..recording import (
 )
 from ..music import Note
 from ..vocal import VocalRecorder, input_device_inventory
+
+# Song-track count-in/gain/monitor controls are session-local per row: they must
+# not read or write the shared vocal-record settings the Vocal panel owns, or
+# arming one track bleeds its gain/monitor state into another track and into
+# the unrelated Vocal capture deck.
+TRACK_MONITOR_DEFAULTS = {
+    "count_in_bars": 1,
+    "input_gain_db": 0.0,
+    "monitor": False,
+    "corrected_monitor": False,
+}
 
 
 class TrackCapture(WindowClient, QObject):
@@ -57,6 +69,7 @@ class TrackCapture(WindowClient, QObject):
         self.notes = []
         self.midi_take = None
         self.held = {}
+        self.track_monitor: dict[str, dict] = {}
         self.peaks = deque(maxlen=4096)
         # Retain a truthful diagnostic after stopping.  A quiet take is still
         # the user's take; this is guidance, never a reason to delete it.
@@ -74,6 +87,10 @@ class TrackCapture(WindowClient, QObject):
     @property
     def state(self):
         return self.session.state if self.session is not None else CaptureState.IDLE
+
+    def row_monitor(self, row_id):
+        """Session-local count-in/gain/monitor settings for one Song track."""
+        return {**TRACK_MONITOR_DEFAULTS, **self.track_monitor.get(row_id, {})}
 
     @staticmethod
     def level_db(peak):
@@ -141,8 +158,15 @@ class TrackCapture(WindowClient, QObject):
         )
         self.session.arm(self.target)
         self.project = self.app.project
-        self.settings = replace(self.project.vocal_record, monitor=False, corrected_monitor=False)
-        self.start_beat = float(self.app.engine.beat)
+        local = self.row_monitor(row.id)
+        self.settings = replace(
+            self.project.vocal_record,
+            count_in_bars=local["count_in_bars"],
+            input_gain_db=local["input_gain_db"],
+            monitor=local["monitor"],
+            corrected_monitor=local["corrected_monitor"],
+        )
+        self.start_beat = performance_beat(self.app.engine)
         self.pending = True
         self.notes, self.held = [], {}
         self.peaks.clear()
@@ -150,7 +174,7 @@ class TrackCapture(WindowClient, QObject):
         self.changed.emit()
         return True
 
-    def start(self):
+    def start(self, *, continue_playback=False, start_deadline=None):
         if not self.pending:
             return
         self.pending = False
@@ -170,16 +194,33 @@ class TrackCapture(WindowClient, QObject):
                         )
                 self.recorder.sample_rate = app.engine.sr
                 self.recorder.blocksize = app.engine.blocksize
+                monitor_callback = (
+                    (lambda block: app.engine.queue_monitor(block, self.settings.monitor_gain))
+                    if self.settings.monitor or self.settings.corrected_monitor
+                    else None
+                )
                 self.session.start(
                     device=device,
                     gain_db=self.settings.input_gain_db,
                     input_channels=self.settings.input_channels,
-                    monitor_callback=None,
+                    monitor_callback=monitor_callback,
                 )
                 self._capture_sample_rate = self.recorder.sample_rate
+                if self.settings.corrected_monitor:
+                    from ..autotune.live import LiveMonitor
+
+                    self._live_monitor = LiveMonitor(
+                        app.project.vocal,
+                        self.recorder.sample_rate,
+                        lambda block: app.engine.queue_monitor(block, self.settings.monitor_gain),
+                    )
+                    self.recorder.monitor_callback = self._live_monitor.push
             else:
                 self.session.start()
         except Exception as exc:
+            import traceback
+
+            traceback.print_exc()
             if self.session is not None:
                 self.session.fail(bool(self.recorder.temporary_path))
             self.message = f"Input could not start · {exc}"
@@ -193,23 +234,39 @@ class TrackCapture(WindowClient, QObject):
         self.active = True
         self.previous_loop = app.engine.loop_song
         app.engine.loop_song = False
-        app.engine.set_position(self.start_beat)
+        self.start_deadline = start_deadline
+        if not continue_playback:
+            app.engine.set_position(self.start_beat)
         app.engine.capture_anchor = None
         app.engine.capture_anchor_requested = self.target.record_source == "audio"
         if self.target.record_source in ("notes", "sampler"):
-            self.midi_take = app.engine.midi.begin_take(self.start_beat)
+            self.midi_take = app.engine.midi.begin_take(
+                self.start_beat, start_deadline=start_deadline
+            )
             app.engine.arp_note_capture = (self.notes, self.start_beat)
-        app.engine.play()
+        if start_deadline is not None:
+            app.engine.record_after(start_deadline)
+        else:
+            app.engine.recording = True
+            if not continue_playback:
+                app.engine.play()
         route = f"Mixer {self.target.record_track + 1} · {app.project.tracks[self.target.record_track].name}"
         self.message = f"Recording · {self.target.name} → {route} · Stop saves the take"
         app.status.showMessage(self.message)
         self.changed.emit()
 
     def note_on(self, pitch, velocity, pad=None, *, instrument=None, channel=0):
-        if self.active and self.target.record_source in ("notes", "sampler"):
+        if (
+            self.active
+            and self.target.record_source in ("notes", "sampler")
+            and (
+                getattr(self, "start_deadline", None) is None
+                or time.monotonic() >= self.start_deadline
+            )
+        ):
             self.note_off(pitch, pad, instrument=instrument)
             key = (pitch, pad) if instrument is None else (pitch, pad, instrument)
-            self.held[key] = (self.app.engine.beat, velocity, channel)
+            self.held[key] = (performance_beat(self.app.engine), velocity, channel)
 
     def tick(self):
         if self.active and self.target.record_source == "audio":
@@ -224,7 +281,10 @@ class TrackCapture(WindowClient, QObject):
                 Note(
                     pitch,
                     max(0.0, beat - self.start_beat),
-                    max(0.03125, self.app.engine.beat - beat),
+                    max(
+                        self.app.project.bpm / (60 * self.app.engine.sr),
+                        performance_beat(self.app.engine) - beat,
+                    ),
                     velocity,
                     pad,
                     instrument=instrument,
@@ -256,7 +316,9 @@ class TrackCapture(WindowClient, QObject):
             self.note_off(key[0], key[1], instrument=key[2] if len(key) > 2 else None)
         self.active = False
         self.app.engine.loop_song = self.previous_loop
-        self.app.engine.stop_transport(rewind=False)
+        self.app.engine.recording = False
+        if self.target.record_source == "audio":
+            self.app.engine.stop_transport(rewind=False)
         try:
             audio = self.session.stop() if self.target.record_source == "audio" else None
             if self.target.record_source != "audio":
@@ -361,6 +423,13 @@ class TrackCapture(WindowClient, QObject):
                 length = max(n.start + n.duration for n in notes)
                 pattern = Pattern(name=name, bars=max(1, math.ceil(length / 4)))
                 pattern.notes = notes
+                pattern.instrument_ids = list(
+                    dict.fromkeys(n.instrument for n in notes if n.instrument is not None)
+                )
+                if app.project.selected_instrument in pattern.instrument_ids:
+                    pattern.selected_instrument = app.project.selected_instrument
+                elif pattern.instrument_ids:
+                    pattern.selected_instrument = pattern.instrument_ids[0]
                 if self.midi_take is not None:
                     pattern.midi_controls = list(self.midi_take.controls)
                 app.project.patterns.append(pattern)
@@ -596,17 +665,21 @@ class TrackInspector(WindowClient, QWidget):
             row.record_track = self.output.currentData()
 
     def settings_changed(self):
-        rec = self.app.project.vocal_record
-        values = (
-            self.count.currentData(),
-            self.gain.value(),
-            self.monitor.isChecked(),
-            self.corrected_monitor.isChecked(),
-        )
-        if values != (rec.count_in_bars, rec.input_gain_db, rec.monitor, rec.corrected_monitor):
-            self.app.snapshot()
-            rec.count_in_bars, rec.input_gain_db, rec.monitor, rec.corrected_monitor = values
-            self.app.vocal_panel.sync()
+        row = self.row()
+        if row is None:
+            return
+        capture = self.app.track_capture
+        local = capture.row_monitor(row.id)
+        values = {
+            "count_in_bars": self.count.currentData(),
+            "input_gain_db": self.gain.value(),
+            "monitor": self.monitor.isChecked(),
+            "corrected_monitor": self.corrected_monitor.isChecked(),
+        }
+        if values != local:
+            # Session-local per-track state: not part of the saved project,
+            # so it does not go through snapshot()/undo or mark the project dirty.
+            capture.track_monitor[row.id] = values
 
     def sync(self):
         capture = self.app.track_capture
@@ -614,19 +687,19 @@ class TrackInspector(WindowClient, QWidget):
         self.name.setText(row.name if row else "Select a track")
         for widget in (self.source, self.output, self.arm, self.name):
             widget.setEnabled(row is not None and not capture.busy)
-        rec = self.app.project.vocal_record
+        local = capture.row_monitor(row.id) if row else TRACK_MONITOR_DEFAULTS
         for widget, value in (
             (self.source, self.source.findData(row.record_source if row else "audio")),
             (self.output, row.record_track if row else 3),
-            (self.count, rec.count_in_bars),
+            (self.count, local["count_in_bars"]),
         ):
             widget.blockSignals(True)
             widget.setCurrentIndex(value)
             widget.blockSignals(False)
         for widget, value in (
-            (self.gain, rec.input_gain_db),
-            (self.monitor, rec.monitor),
-            (self.corrected_monitor, rec.corrected_monitor),
+            (self.gain, local["input_gain_db"]),
+            (self.monitor, local["monitor"]),
+            (self.corrected_monitor, local["corrected_monitor"]),
             (self.arm, bool(row and capture.armed_id == row.id)),
         ):
             widget.blockSignals(True)

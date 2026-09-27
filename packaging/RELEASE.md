@@ -20,7 +20,8 @@ FFmpeg/ffprobe, and Inno Setup 6 on Windows:
 ```sh
 uv sync --locked --group dev
 uv pip install -r requirements-build.txt
-uv run --no-sync python scripts/build_release.py dist/candidate --version 0.1.0-rc.1
+uv run --no-sync python scripts/build_prism.py dist/prism-candidate
+uv run --no-sync python scripts/build_release.py dist/candidate --version 0.1.0-rc.2
 ```
 
 The build includes Python, Qt, the portable C++ DSP/output core, FFmpeg/ffprobe, artwork and dependency
@@ -56,7 +57,7 @@ only encrypted installer artifacts leave the build jobs. Actual third-party plug
 tests remain opt-in and are reported as skipped when no trusted plugin is installed.
 
 Run the matrix from GitHub Actions → **encrypted release candidates** → **Run workflow**,
-or `gh workflow run release-candidates.yml --ref main`. This creates fresh native
+or `gh workflow run release-candidates.yml --ref main -f version=0.1.0-rc.2`. This creates fresh native
 environments and tests built installers; it does not replace the packages sold through
 Cloudflare. Shared-runner timing is a regression check, not measured hardware latency.
 The CI limits are p99 callback work within one 512-frame buffer, at most 5% callbacks
@@ -85,11 +86,26 @@ entries. This avoids checkout line-ending, permission, and compression-library
 differences across native runners; all four candidates must have the same source
 SHA-256. Development source snapshots can still include local working changes.
 
+## September 27 candidate scope
+
+The next candidate includes the changes in [CHANGELOG.md](../CHANGELOG.md):
+count-in and Song recording, independent pattern instruments, transport
+continuity, incremental history restoration, and Prism backlog recovery. Run the
+new keyboard, input ownership, pattern rack, Prism-instance and undo regression
+tests in addition to the existing release gates. Bundled Prism must be built
+before these integration checks can exercise a real plugin.
+
+Keep the existing `0.1.0-rc.1` catalog until all four new targets, source/notices,
+checksums and private delivery checks pass. Do not advertise the new source
+features as already included in the old paid download. Preserve old source
+releases and private artifact keys for existing buyers.
+
 ## Protecting paid artifacts in a public source repository
 
 The `encrypted release candidates` workflow builds on four native runners. It
 runs on release branches or manual dispatch and has read-only repository access.
-Only encrypted candidate archives and test-result XML may be uploaded. No job
+The standalone Prism workflow follows the same rule for its plugin packs.
+Only encrypted candidate archives and test reports may be uploaded. No job
 uploads plaintext installers or creates a public GitHub Release.
 
 `packaging/release-recipient.pem` contains only the public encryption certificate.

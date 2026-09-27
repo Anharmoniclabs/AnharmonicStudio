@@ -20,6 +20,8 @@ from ..project_io import load_history_file, load_project_file
 
 class SessionHistoryMixin:
     def snapshot(self):
+        if getattr(self, "_restoring_history", False):
+            return
         self._undo.append(self._history_state())
         del self._undo[:-40]
         self._redo.clear()
@@ -74,13 +76,14 @@ class SessionHistoryMixin:
         """Atomically persist bounded undo/redo stacks as project snapshots."""
         target = Path(path or self.history_path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(
-            {
-                "version": 2,
-                "undo": [json.loads(item) for item in self._undo[-40:]],
-                "redo": [json.loads(item) for item in self._redo[-40:]],
-            },
-            separators=(",", ":"),
+        # Entries are already serialized JSON. Avoid decoding and encoding
+        # the entire history again for every individual edit.
+        payload = (
+            '{"version":2,"undo":['
+            + ",".join(self._undo[-40:])
+            + '],"redo":['
+            + ",".join(self._redo[-40:])
+            + "]}"
         )
         fd, temporary = tempfile.mkstemp(
             prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
@@ -242,54 +245,72 @@ class SessionHistoryMixin:
         )
 
     def undo(self):
-        if self.track_capture.busy or self.vocal_panel.recorder.temporary_path is not None:
-            self.status.showMessage("Stop and save the take before Undo", 3000)
-            return
-        if not self._undo:
-            self.status.showMessage("nothing to undo", 1500)
-            return
-        target = self._undo[-1]
-        current_state = self._history_state()
-        try:
-            project, cursor, restore_library = self._decode_history_state(json.loads(target))
-            if restore_library:
-                self.library.journal.restore(cursor, self._project_asset_refs(project))
-        except (LibraryHistoryError, OSError, TypeError, ValueError) as exc:
-            self.status.showMessage(f"undo kept current state · {exc}", 5000)
-            return
-        self._redo.append(current_state)
-        del self._redo[:-40]
-        self._undo.pop()
-        self._apply_project(project)
-        self._sync_library_history_ui()
-        self._try_save_history()
-        self._set_dirty(True)
-        self.status.showMessage("undo", 1200)
+        self._restore_history_step("undo", self._undo, self._redo)
 
     def redo(self):
-        if self.track_capture.busy or self.vocal_panel.recorder.temporary_path is not None:
-            self.status.showMessage("Stop and save the take before Redo", 3000)
+        self._restore_history_step("redo", self._redo, self._undo)
+
+    def _restore_history_step(self, action, source, destination):
+        if (
+            self.track_capture.busy
+            or self.engine.recording
+            or self._record_count_deadline is not None
+            or self.vocal_panel.recorder.temporary_path is not None
+        ):
+            self.status.showMessage(f"Stop and save the take before {action.title()}", 3000)
             return
-        if not self._redo:
-            self.status.showMessage("nothing to redo", 1500)
+        if not source:
+            self.status.showMessage(f"nothing to {action}", 1500)
             return
-        target = self._redo[-1]
         current_state = self._history_state()
+        previous = self.project
+        previous_cursor = self.library.journal.cursor
+        library_changed = False
+        applying = False
         try:
-            project, cursor, restore_library = self._decode_history_state(json.loads(target))
-            if restore_library:
+            project, cursor, restore_library = self._decode_history_state(json.loads(source[-1]))
+            library_changed = restore_library and cursor != previous_cursor
+            if library_changed:
                 self.library.journal.restore(cursor, self._project_asset_refs(project))
-        except (LibraryHistoryError, OSError, TypeError, ValueError) as exc:
-            self.status.showMessage(f"redo kept current state · {exc}", 5000)
+            self._restoring_history = True
+            self._history_library_changed = library_changed
+            applying = True
+            self._apply_project(project)
+        except Exception as exc:
+            if library_changed and self.library.journal.cursor != previous_cursor:
+                try:
+                    self.library.journal.restore(
+                        previous_cursor, self._project_asset_refs(previous)
+                    )
+                except (LibraryHistoryError, OSError, ValueError) as rollback:
+                    self.status.showMessage(
+                        f"{action} failed; library recovery needed · {rollback}", 7000
+                    )
+                    return
+            if applying:
+                try:
+                    original, _, _ = self._decode_history_state(json.loads(current_state))
+                    self._apply_project(original)
+                except Exception as rollback:
+                    self.status.showMessage(
+                        f"{action} failed; history retained · restore error: {rollback}", 7000
+                    )
+                    return
+            self.status.showMessage(f"{action} kept history · {exc}", 5000)
             return
-        self._undo.append(current_state)
-        del self._undo[:-40]
-        self._redo.pop()
-        self._apply_project(project)
-        self._sync_library_history_ui()
+        finally:
+            self._restoring_history = False
+            self._history_library_changed = False
+        # Commit stacks only after the restore succeeds. UI refresh must never
+        # consume a step or invalidate Redo halfway through applying a state.
+        destination.append(current_state)
+        del destination[:-40]
+        source.pop()
+        if library_changed:
+            self._sync_library_history_ui()
         self._try_save_history()
         self._set_dirty(True)
-        self.status.showMessage("redo", 1200)
+        self.status.showMessage(action, 1200)
 
     def _sync_library_history_ui(self) -> None:
         if self.current_clip not in self.library.clips:

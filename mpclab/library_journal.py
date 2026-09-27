@@ -177,6 +177,8 @@ class LibraryJournal:
         _rollback: bool = True,
     ) -> None:
         """Move the library to *cursor*, refusing to hide referenced assets."""
+        if cursor == self.cursor:
+            return
         current = self._position(self.cursor)
         target = self._position(cursor)
         original_cursor = self.cursor

@@ -5,7 +5,6 @@ project state stay with that coordinator. This module owns only its named domain
 """
 
 from __future__ import annotations
-from ..music import Note
 import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -77,24 +76,14 @@ def _pad_pressed(window, gi: int, vel: float):
     if not pad.empty:
         window.track_capture.note_on(pad.root_note, vel, gi)
         if window.engine.recording and window.engine.playing and window.engine.mode == "pattern":
-            # Each physical pad owns its lane even when several pads have
-            # the same root note.  This is deliberately separate from
-            # TrackCapture: pattern ideas can be performed immediately,
-            # with no audio or vocal track armed.
-            window._finish_recorded_pad_note(gi)
+            # The audio engine writes the Beats step. Writing a Note here as
+            # well plays the same hit twice on the next loop.
             window._snapshot_recording_take()
-            window._recorded_pad_notes[gi] = (
-                window.project.pattern().id,
-                window.engine.beat,
-                vel,
-                pad.root_note,
-            )
     window.engine.trigger_pad(gi, vel)
 
 
 def _pad_released(window, gi: int):
     window.track_capture.note_off(window.project.pads[gi].root_note, gi)
-    window._finish_recorded_pad_note(gi)
     window.engine.release_pad(gi)
 
 
@@ -603,26 +592,3 @@ def arrange_four_bar_phrase(window):
         8000,
     )
     return clip
-
-
-def _finish_recorded_pad_note(window, gi: int):
-    """Commit one pad gesture into the pattern it began in."""
-    recorded = window._recorded_pad_notes.pop(gi, None)
-    if recorded is None:
-        return
-    pattern_id, start, velocity, pitch = recorded
-    pattern = next((p for p in window.project.patterns if p.id == pattern_id), None)
-    if pattern is None:
-        return
-    beat = start % pattern.length_beats
-    duration = min(max(0.03125, window.engine.beat - start), pattern.length_beats - beat)
-    pattern.notes.append(Note(pitch, beat, duration, velocity, gi))
-    window._set_dirty(True)
-    window.piano_roll.canvas.refresh()
-    window.step_grid.refresh()
-
-
-def _finish_recorded_pad_notes(window):
-    """Close held pads before Record/Stop changes the transport position."""
-    for gi in tuple(window._recorded_pad_notes):
-        window._finish_recorded_pad_note(gi)

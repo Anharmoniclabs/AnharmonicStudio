@@ -1,6 +1,6 @@
 """Bounded optional project state for deeper professional DAW systems.
 
-Project format 5 remains the core interchange contract.  Older builds already
+Project format 6 remains the core interchange contract.  Older builds already
 ignore unknown top-level keys, so advanced systems can evolve inside this
 validated sidecar without destabilizing the realtime dataclasses or forcing a
 format bump for every workflow tranche.

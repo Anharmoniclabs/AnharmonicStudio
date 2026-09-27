@@ -11,6 +11,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import replace
 import math
+import time
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -356,8 +357,8 @@ def install_recording_capture_extensions() -> None:
         capture._advanced_recording = session
         return True
 
-    def start(capture):
-        original_start(capture)
+    def start(capture, **kwargs):
+        original_start(capture, **kwargs)
         session = _session(capture)
         if not capture.active or not session:
             return
@@ -391,6 +392,9 @@ def install_recording_capture_extensions() -> None:
             capture.app.stop_all()
 
     def note_on(capture, pitch, velocity, pad=None, *, instrument=None, channel=0):
+        deadline = getattr(capture, "start_deadline", None)
+        if deadline is not None and time.monotonic() < deadline:
+            return
         session = _session(capture)
         if not (
             session

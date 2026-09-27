@@ -7,7 +7,9 @@ project state stay with that coordinator. This module owns only its named domain
 from __future__ import annotations
 import time
 from pathlib import Path
-from PySide6.QtCore import Qt
+from dataclasses import fields
+from collections import defaultdict, deque
+from PySide6.QtCore import Qt, QSignalBlocker
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -69,27 +71,124 @@ def _apply_project(window, project: Project):
 
 
 def _apply_project_state(window, project: Project):
+    previous = window.project
+    selected_clip = window.playlist.selected_clip
+    incremental = getattr(window, "_restoring_history", False) and [
+        t.id for t in previous.tracks
+    ] == [t.id for t in project.tracks]
+    patterns_changed = (
+        not incremental
+        or previous.patterns != project.patterns
+        or previous.current_pattern != project.current_pattern
+    )
+    pads_changed = not incremental or previous.pads != project.pads
+    mixer_changed = (
+        not incremental
+        or previous.tracks != project.tracks
+        or previous.master_fx != project.master_fx
+        or previous.master != project.master
+        or pads_changed
+    )
+    synth_changed = (
+        not incremental
+        or previous.instruments != project.instruments
+        or previous.synth != project.synth
+        or previous.arp != project.arp
+        or previous.selected_instrument != project.selected_instrument
+        or previous.instrument_plugins != project.instrument_plugins
+        or previous.plugins != project.plugins
+    )
+    vocal_changed = (
+        not incremental
+        or previous.vocal != project.vocal
+        or previous.vocal_record != project.vocal_record
+    )
+    if incremental:
+        # Editors retain references to settings. Reuse equal objects so their
+        # controls stay correctly bound without rebuilding every hidden panel.
+        for name in ("synth", "arp", "master_fx", "vocal", "vocal_record"):
+            if getattr(previous, name) == getattr(project, name):
+                setattr(project, name, getattr(previous, name))
+        project.pads = [
+            old if old == new else new for old, new in zip(previous.pads, project.pads, strict=True)
+        ]
+        old_instruments = {item.id: item for item in previous.instruments}
+        project.instruments = [
+            old_instruments[item.id] if old_instruments.get(item.id) == item else item
+            for item in project.instruments
+        ]
+        project.tracks = [
+            old if old == new else new
+            for old, new in zip(previous.tracks, project.tracks, strict=True)
+        ]
+        # Keep unchanged event objects alive so an unrelated edit does not
+        # release every sequenced voice as if all its notes had been deleted.
+        existing = {pattern.id: pattern for pattern in previous.patterns}
+        for index, pattern in enumerate(project.patterns):
+            old = existing.get(pattern.id)
+            if old is None:
+                continue
+            available = defaultdict(deque)
+            for note in old.notes:
+                available[tuple(vars(note).values())].append(note)
+            notes = []
+            for note in pattern.notes:
+                matches = available[tuple(vars(note).values())]
+                notes.append(matches.popleft() if matches else note)
+            for field in fields(pattern):
+                if field.name != "notes":
+                    setattr(old, field.name, getattr(pattern, field.name))
+            old.notes = notes
+            project.patterns[index] = old
     automation = getattr(window, "automation_mode_controller", None)
     if automation is not None:
         automation.reset_for_project()
-    window._cancel_record_count()
-    window.playlist.select_clip(None)
-    window.playlist.place_template = None
-    window._recorded_notes.clear()
-    window.sample_workflow.held.clear()
-    window.sample_workflow.recorded.clear()
-    window.engine.sample_panic()
-    window.engine.synth_panic()
+    if not incremental:
+        window._cancel_record_count()
+        window.playlist.select_clip(None)
+        window.playlist.place_template = None
+        window._recorded_notes.clear()
+        window._synth_note_owners.clear()
+        window.sample_workflow.held.clear()
+        window.sample_workflow.recorded.clear()
+        window.engine.sample_panic()
+        window.engine.synth_panic()
     window.project = project
-    window.track_capture.armed_id = None
-    window.track_inspector.row_id = None
+    if not incremental:
+        window.track_capture.armed_id = None
+        window.track_inspector.row_id = None
     window.track_inspector.sync()
     window._ensure_playlist_rows()
     window.engine.project = project
+    if incremental and selected_clip is not None:
+        replacement = next(
+            (clip for row in project.rows for clip in row.clips if clip.id == selected_clip.id),
+            None,
+        )
+        window.playlist.select_clip(replacement)
     if hasattr(window, "devices"):
-        window.devices.sync_project()
-    window.engine.reset_fx()
-    window.engine.prepare_fx(project)
+        if incremental:
+            window.devices.reconcile_project(previous)
+        else:
+            window.devices.sync_project()
+    fx_changed = (
+        not incremental
+        or previous.master_fx != project.master_fx
+        or [t.fx for t in previous.tracks] != [t.fx for t in project.tracks]
+    )
+    if fx_changed:
+        window.engine.reset_fx()
+        window.engine.prepare_fx(project)
+    blockers = [
+        QSignalBlocker(widget)
+        for widget in (
+            window.bpm_box,
+            window.swing,
+            window.btn_cut_self,
+            window.master_slider,
+            window.proj_name,
+        )
+    ]
     window.bpm_box.setValue(project.bpm)
     window.swing.setValue(int(project.swing))
     window.btn_cut_self.setChecked(project.self_choke)
@@ -100,22 +199,45 @@ def _apply_project_state(window, project: Project):
     window.btn_song_loop.setChecked(project.loop_enabled)
     window.btn_song_loop.blockSignals(False)
     window.engine.loop_song = project.loop_enabled
-    window.apply_theme(theme.current)
-    window._sync_pattern_controls()
-    window._refresh_place_box()
+    if not incremental or previous.accent_color != project.accent_color:
+        window.apply_theme(theme.current)
+    window.swing_label.setText(f"{int(project.swing)}%")
+    if patterns_changed:
+        window._sync_pattern_controls()
+        window._refresh_place_box()
     window.btn_only_loaded.blockSignals(True)
     window.btn_only_loaded.setChecked(window.step_grid.only_loaded)
     window.btn_only_loaded.blockSignals(False)
-    window.mixer.sync()
-    window.synth_panel.sync()
-    window.vocal_panel.sync()
+    if mixer_changed:
+        window.mixer.sync()
+    if (
+        window.piano_roll.target_pad is None
+        and window.piano_roll.target_instrument != project.selected_instrument
+    ):
+        window.piano_roll.select_channel(project.selected_instrument)
+    window.engine.midi.route = (
+        window.piano_roll.target_pad,
+        window.piano_roll.target_instrument,
+        window.pads.bank,
+    )
+    if synth_changed:
+        window.synth_panel.sync()
+    if vocal_changed:
+        window.vocal_panel.sync()
     window.automation_panel.sync()
-    window.pad_inspector.set_pad(window.pads.selected)
-    window.pads.update()
-    window.step_grid.refresh()
+    if pads_changed or getattr(window, "_history_library_changed", False):
+        window.pad_inspector.set_pad(window.pads.selected)
+        window.pads.update()
+        window.step_grid.refresh()
     window.playlist.refresh()
-    window.engine.preload_project_audio(project)
+    if (
+        not incremental
+        or getattr(window, "_history_library_changed", False)
+        or window._project_asset_refs(previous) != window._project_asset_refs(project)
+    ):
+        window.engine.preload_project_audio(project)
     window._playlist_selection_changed(window.playlist.selected_clip)
+    del blockers
 
 
 def new_project(window):

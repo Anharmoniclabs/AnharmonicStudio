@@ -60,3 +60,26 @@ and installation guidance. The required evidence schema is documented in
 Run catalog preparation with `--production`; the default mode prepares candidates
 and does not certify acceptance. Neither mode uploads files or changes Cloudflare.
 Never fill an unperformed check with a passing value merely to satisfy the gate.
+
+## Recording and instrument update checks (September 27)
+
+On each supported target, record the controller model, MIDI channel mapping,
+audio device, buffer size and exact source/candidate identity. Verify:
+
+- First key and first pad after count-in; chords and releases; no duplicate pad
+  note/step events. Repeat in Beats, Notes and Song.
+- Switch editor tabs during playback; verify transport position continues.
+- Record into Song while already playing; end Record and verify playback remains
+  active, then stop explicitly.
+- Insert different Native/Prism sounds in separate patterns and layer notes;
+  live input reaches only the selected instrument. Duplicate and edit independently.
+- Undo/redo notes and parameters repeatedly without rebuilding unaffected hosts
+  or losing loaded samples; saving/reopening preserves the result.
+- Exercise Prism under bounded CPU load, confirm it recovers after transient
+  backlog, and release notes/sustain. Record actual dropouts and latency rather
+  than inferring hardware performance from unit tests.
+- If optional Hand FX is provisioned, choose a video-capable camera, start and
+  stop tracking, verify hand gestures and confirm the camera releases on close.
+  The default installer does not currently bundle this optional camera setup.
+
+Local MPK and camera observations do not mark this cross-platform list complete.

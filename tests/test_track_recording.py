@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from mpclab.engine import Engine
 from mpclab.export import render_export
-from mpclab.model import Note, Project
+from mpclab.model import Project
 from mpclab.ui import main_window, theme
 from mpclab.ui.playlist import HEAD_W, ROW_H, RULER_H
 from scripts.render_studio_preview import PreviewSettings
@@ -23,6 +23,10 @@ def window(tmp_path, monkeypatch):
     app._ui_timer.stop()
     app._autosave_timer.stop()
     app.project.vocal_record.count_in_bars = 0
+    # Song count-in is now independent of the vocal deck. These capture tests
+    # start immediately; count-in behavior has separate coverage.
+    for row in app.project.rows:
+        app.track_capture.track_monitor[row.id] = {"count_in_bars": 0}
     yield app
     app.track_capture.active = False
     app.track_capture.pending = False
@@ -141,6 +145,7 @@ def test_recording_arp_stores_generated_notes_instead_of_held_chord(window, song
         window.btn_rec.click()
     else:
         window.set_mode("pattern")
+        window.show_tab(window.TAB_SEQ)
         window.btn_rec.click()
         window._record_count_deadline = 0
         window._advance_record_count()
@@ -173,7 +178,7 @@ def test_recording_arp_stores_generated_notes_instead_of_held_chord(window, song
 def test_cancelled_count_in_does_not_open_input_or_add_history(window, monkeypatch):
     _, calls = mock_audio(window, monkeypatch)
     arm(window)
-    window.project.vocal_record.count_in_bars = 1
+    window.track_inspector.count.setCurrentIndex(window.track_inspector.count.findData(1))
     window.btn_rec.click()
     assert window.track_capture.pending
     window.stop_all()
@@ -399,13 +404,90 @@ def test_recording_at_a_negotiated_input_rate_keeps_its_real_duration(window, mo
     assert len(window.library.audio(clip.ref)) == 48_000
 
 
-def test_song_record_without_an_arm_explains_destination(window):
-    window.set_mode("song")
+def test_song_record_without_an_arm_creates_a_notes_lane(window):
+    window.show_tab(window.TAB_PLAYLIST)
     window.btn_rec.click()
-    assert not window.engine.recording
-    assert not window.btn_rec.isChecked()
-    assert "Arm a Song track" in window.status.currentMessage()
-    assert not window._undo
+    assert window.engine.mode == "song"
+    assert window.btn_rec.isChecked()
+    assert window.track_capture.active
+    assert window.track_capture.target.record_source == "notes"
+    assert window._record_count_deadline is not None
+    assert not window.track_capture.recorder.recording
+    window.stop_all()
+
+
+def test_song_record_joins_playback_and_saves_without_stopping_it(window):
+    window.set_mode("song")
+    window.engine.play(8)
+    window.engine._process_commands()
+    window.btn_rec.click()
+    window.engine._process_commands()
+    assert window.engine.playing and window.engine.beat == 8
+    assert window._record_count_deadline is None
+    target = window.track_capture.target.id
+    window.play_synth_note(60, 0.7)
+    window.engine.beat = 8.5
+    window.release_synth_note(60)
+    window.show_tab(window.TAB_SYNTH)
+    assert window.track_capture.active
+    window.btn_rec.click()
+    window.engine._process_commands()
+    assert window.engine.playing and window.engine.beat == 8.5
+    row = next(row for row in window.project.rows if row.id == target)
+    clip = row.clips[0]
+    assert clip.start_beat == 8
+    pattern = next(pattern for pattern in window.project.patterns if pattern.id == clip.ref)
+    assert len(pattern.notes) == 1 and pattern.notes[0].duration == 0.5
+    window.toggle_play()
+    window.engine._process_commands()
+    assert not window.engine.playing
+
+
+@pytest.mark.parametrize("source", ["hardware", "typing", "pad"])
+def test_song_first_hit_after_count_in_is_captured_without_gui_tick(window, monkeypatch, source):
+    from mpclab.ui import window_transport
+
+    now = [100.0]
+    monkeypatch.setattr(window_transport.time, "monotonic", lambda: now[0])
+    window.show_tab(window.TAB_PLAYLIST)
+    window.engine.beat = 4
+    window.devices.router.settings["mpk"] = {"mode": "Keys + drum channel", "pad_base": 44}
+    sample = window.library.add_audio(np.ones((4800, 2), np.float32) * 0.05, "Drum")
+    window.project.pads[0].sample_id = sample.id
+    window.project.pads[0].end = sample.duration
+    window.btn_rec.click()
+    target = window.track_capture.target.id
+    window.engine._process_commands()
+    output = np.zeros((window.engine.blocksize, 2), np.float32)
+    # Count-in playing is audible but must not enter the take.
+    window.engine.midi.submit("mpk", [0x90, 55, 80], now[0])
+    window.engine.midi.submit("mpk", [0x80, 55, 0], now[0])
+    window.engine._callback(output, len(output), None, None)
+    now[0] = window._record_count_deadline
+    if source == "typing":
+        window.play_synth_note(60, 0.7)
+    else:
+        window.engine.midi.submit(
+            "mpk", [0x99 if source == "pad" else 0x90, 44 if source == "pad" else 60, 90], now[0]
+        )
+    window.engine._callback(output, len(output), None, None)
+    now[0] += 0.1
+    if source == "typing":
+        window.release_synth_note(60)
+    else:
+        window.engine.midi.submit(
+            "mpk", [0x89 if source == "pad" else 0x80, 44 if source == "pad" else 60, 0], now[0]
+        )
+    window.engine._callback(output, len(output), None, None)
+    window.stop_all()
+    row = next(row for row in window.project.rows if row.id == target)
+    assert len(row.clips) == 1
+    assert row.clips[0].start_beat == 4
+    pattern = next(p for p in window.project.patterns if p.id == row.clips[0].ref)
+    assert len(pattern.notes) == 1
+    assert pattern.notes[0].pad == (0 if source == "pad" else None)
+    assert pattern.notes[0].start == 0
+    assert not pattern.steps
 
 
 def test_track_inspector_makes_input_route_and_missing_signal_actionable(window, monkeypatch):
@@ -550,6 +632,48 @@ def test_sequence_recording_never_starts_an_armed_audio_take(window, monkeypatch
     window.btn_rec.click()
 
 
+def test_track_monitor_settings_are_local_and_do_not_leak_to_the_vocal_panel(window):
+    """Each Song track keeps its own count-in/gain/monitor; the Vocal deck is untouched."""
+    row_a = window.project.rows[0]
+    row_b = window.project.rows[1]
+    inspector = window.track_inspector
+
+    inspector.select_row(row_a)
+    inspector.gain.setValue(6.0)
+    inspector.monitor.setChecked(True)
+
+    inspector.select_row(row_b)
+    assert inspector.gain.value() == 0.0
+    assert inspector.monitor.isChecked() is False
+
+    inspector.select_row(row_a)
+    assert inspector.gain.value() == 6.0
+    assert inspector.monitor.isChecked() is True
+
+    assert window.project.vocal_record.monitor is False
+    assert window.project.vocal_record.input_gain_db == 0.0
+    assert window._dirty is False
+    assert window._undo == []
+
+
+def test_audio_capture_wires_a_monitor_callback_when_track_monitor_is_enabled(window, monkeypatch):
+    _data, calls = mock_audio(window, monkeypatch)
+    row = arm(window)
+    window.track_inspector.select_row(row)
+    window.track_inspector.monitor.setChecked(True)
+
+    window.btn_rec.click()
+    window.engine._process_commands()
+
+    device, gain_db, monitor_callback = calls[0]
+    assert monitor_callback is not None
+    queued = []
+    monkeypatch.setattr(window.engine, "queue_monitor", lambda block, gain: queued.append(gain))
+    monitor_callback(np.zeros((1, 2), np.float32))
+    assert queued == [window.project.vocal_record.monitor_gain]
+    window.stop_all()
+
+
 def test_mpc_pad_capture_writes_its_own_pattern_channel(window):
     """Numeric/MPC pads must record the pad index, not an audio lane."""
     source = window.library.add_audio(np.ones((4800, 2), np.float32) * 0.05, "Pad")
@@ -560,7 +684,28 @@ def test_mpc_pad_capture_writes_its_own_pattern_channel(window):
     window.engine.beat = 1.0
 
     window._pad_pressed(0, 0.71)
+    window.engine._process_commands()
     window.engine.beat = 1.5
     window._pad_released(0)
 
-    assert window.project.pattern().notes == [Note(pad.root_note, 1.0, 0.5, 0.71, 0)]
+    assert window.project.pattern().steps == {0: {4: 0.71}}
+    assert window.project.pattern().notes == []
+    assert len(window.engine._collect(0, 2)[0]) == 1
+
+
+def test_song_note_recording_continues_past_existing_arrangement_end(window):
+    from mpclab.model import Clip
+
+    window.project.rows[0].clips = [Clip(ref=window.project.pattern().id, length_beats=1)]
+    arm(window, source="notes")
+    window.set_mode("song")
+    window.engine.play(0.99)
+    window.engine._process_commands()
+    window.btn_rec.click()
+    output = np.zeros((window.engine.blocksize, 2), np.float32)
+    for _ in range(12):
+        window.engine._callback(output, len(output), None, False)
+    assert window.engine.playing and window.engine.recording
+    assert window.engine.beat > 1
+    window.stop_all()
+    assert not window.track_capture.active

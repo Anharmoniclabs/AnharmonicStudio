@@ -25,10 +25,31 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxext-dev libxinerama-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev
       - name: Build and test release pack
         run: python scripts/build_prism.py "${{ runner.temp }}/Prism-${{ runner.os }}-${{ runner.arch }}" --jobs 3
+      - name: Seal paid plugin pack before upload
+        shell: bash
+        run: |
+          python - <<'PYTHON'
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import sys
+          root = Path(os.environ["RUNNER_TEMP"])
+          packs = list(root.glob("Prism-*.zip"))
+          if len(packs) != 1:
+              raise SystemExit("Expected exactly one validated Prism pack")
+          pack = packs[0]
+          candidate = root / "prism-private-candidate"
+          candidate.mkdir()
+          shutil.copy2(pack, candidate / pack.name)
+          shutil.copy2(pack.with_suffix(".zip.sha256"), candidate / "SHA256SUMS")
+          subprocess.run([sys.executable, "scripts/seal_release.py", str(candidate),
+                          str(root / "Prism-pack.enc")], check=True)
+          PYTHON
       - uses: actions/upload-artifact@v4
         with:
-          name: Prism-${{ runner.os }}-${{ runner.arch }}
-          path: |
-            ${{ runner.temp }}/Prism-*.zip
-            ${{ runner.temp }}/Prism-*.zip.sha256
+          name: encrypted-Prism-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ runner.temp }}/Prism-pack.enc
           if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

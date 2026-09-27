@@ -127,6 +127,10 @@ def test_arrange_preserves_session_transport_and_round_trips_undo(window, tmp_pa
     window.project.save(path)
     assert Project.load(path).to_dict() == after
 
+    # History cannot replace a take that is still being recorded.
+    window.undo()
+    assert window.project.to_dict() == after
+    window.engine.recording = False
     window.undo()
     assert window.project.to_dict() == before
     assert window.playlist.selected_clip is None

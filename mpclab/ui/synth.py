@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import copy
 import threading
 from dataclasses import replace
 from pathlib import Path
@@ -40,7 +39,6 @@ from .theme import q
 from ..prism import (
     ARP_PRESETS,
     EFFECT_PRESETS,
-    bundled_plugin,
     mutate_patch,
     parse_sound,
     sound_document,
@@ -403,8 +401,14 @@ class SynthPanel(WindowClient, QWidget):
         self.instrument_tabs.addTab("Native instrument")
         self.instrument_tabs.addTab("Prism")
         self.instrument_tabs.currentChanged.connect(self._instrument_tab_changed)
-        outer.addWidget(self.instrument_tabs)
-        self._last_prism_spec = None
+        # Kept as a display indicator for integrations; engine choice is now
+        # explicit insertion, never a destructive editor-tab switch.
+        self.instrument_tabs.hide()
+        from .instruments import PatternInstrumentRack
+
+        self.pattern_rack = PatternInstrumentRack(self.app)
+        outer.addWidget(self.pattern_rack)
+        self._last_prism_specs = {}
         self._prism_project = self.app.project
         head = QWidget()
         self._native_head = head
@@ -931,6 +935,7 @@ class SynthPanel(WindowClient, QWidget):
         patch = PATCHES[name]
         if patch.sample_source and not orchestra.is_prepared(patch):
             request, project = self._load_request, self.app.project
+            self._loading_owner = self.app.project.selected_instrument
             self.app.status.showMessage(f"Loading orchestral recordings · {name}…")
 
             def prepare():
@@ -952,22 +957,25 @@ class SynthPanel(WindowClient, QWidget):
         if error:
             self.app.status.showMessage(f"Instrument unavailable · {error[:160]}", 7000)
             return
-        self._commit_preset(name)
-        if self._preview_request == request:
+        owner = getattr(self, "_loading_owner", self.app.project.selected_instrument)
+        if owner is not None and not any(i.id == owner for i in project.instruments):
+            return
+        self._commit_preset(name, owner=owner)
+        if self._preview_request == request and owner == project.selected_instrument:
             self.preview_sound()
 
-    def _commit_preset(self, name):
+    def _commit_preset(self, name, *, owner="selected"):
+        if owner == "selected":
+            owner = self.app.project.selected_instrument
         self.app.snapshot()
-        self.app.engine.synth_panic()
-        track = self.app.project.selected_patch.track
-        self.app.project.selected_patch = patch_copy(name)
-        self.app.project.selected_patch.track = track
-        self.sync()
-        kind = (
-            "orchestral instrument"
-            if self.app.project.selected_patch.sample_source
-            else "analog patch"
-        )
+        track = self.app.project.instrument_patch(owner).track
+        patch = patch_copy(name)
+        patch.track = track
+        self.app.project.set_instrument_patch(owner, patch)
+        self.app._set_dirty(True)
+        if owner == self.app.project.selected_instrument:
+            self.sync()
+        kind = "orchestral instrument" if patch.sample_source else "analog patch"
         self.app.status.showMessage(f"{kind} · {name}", 3500)
 
     def set_octave(self, octave):
@@ -990,7 +998,6 @@ class SynthPanel(WindowClient, QWidget):
     def sync(self):
         self._building = True
         if getattr(self, "_displayed_instrument", None) != self.app.project.selected_instrument:
-            self._load_request += 1
             self._preview_generation += 1
         self._displayed_instrument = self.app.project.selected_instrument
         patch = self.app.project.selected_patch
@@ -1062,7 +1069,6 @@ class SynthPanel(WindowClient, QWidget):
     def _apply_prism_sound(self, patch, arp=None):
         self.app.snapshot()
         self._load_request += 1
-        self.app.engine.synth_panic()
         track = self.app.project.selected_patch.track
         self.app.project.selected_patch = replace(patch, track=track)
         if arp is not None:
@@ -1145,33 +1151,21 @@ class SynthPanel(WindowClient, QWidget):
         )
 
     def _use_prism(self):
-        path = bundled_plugin()
-        if path is None:
-            self.app.status.showMessage("Prism plugin pack is not installed in this build", 5000)
-            return
-        devices = getattr(self.app, "devices", None)
-        if devices is not None:
-            from .prism_controls import patch_parameters
+        from .instruments import insert_pattern_instrument
 
-            patch = self.app.project.selected_patch
-            if patch.sample_source:
-                patch = PATCHES["Carbon Pulse"]
-            specification = (
-                copy.deepcopy(self._last_prism_spec)
-                if self._last_prism_spec
-                else {"path": str(path), "parameters": patch_parameters(patch)}
-            )
-            devices.load_plugin("instrument", specification)
-            self.app.status.showMessage("Opening Prism sound lab…", 4000)
+        if self._selected_plugin_spec():
+            self.sync_plugin_mode()
+            return
+        try:
+            insert_pattern_instrument(self.app, "prism")
+        except (ValueError, RuntimeError) as exc:
+            self.app.status.showMessage(str(exc), 5000)
 
     def _instrument_tab_changed(self, index):
-        if index == 1:
-            self._prism_controls()
-        else:
-            self._use_builtin()
+        self.sync_plugin_mode()
 
     def _prism_controls(self):
-        specification = self.app.project.plugins.get("instrument", {})
+        specification = self._selected_plugin_spec()
         if (
             not self._external_selected()
             or Path(specification.get("path", "")).name != "Anharmonic Prism.vst3"
@@ -1180,20 +1174,18 @@ class SynthPanel(WindowClient, QWidget):
         self.sync_plugin_mode()
 
     def _use_builtin(self):
-        devices = getattr(self.app, "devices", None)
-        if devices is not None and "instrument" in self.app.project.plugins:
-            spec = self.app.project.plugins["instrument"]
-            if Path(spec.get("path", "")).name == "Anharmonic Prism.vst3":
-                self._last_prism_spec = copy.deepcopy(spec)
-            devices.remove_plugin("instrument")
-            self.app.status.showMessage("Built-in instrument active", 4000)
+        if self._selected_plugin_spec():
+            from .instruments import insert_pattern_instrument
+
+            insert_pattern_instrument(self.app, "native")
 
     def sync_plugin_mode(self):
         if self._prism_project is not self.app.project:
-            self._last_prism_spec = None
+            self._last_prism_specs = {}
             self._prism_project = self.app.project
+        self.pattern_rack.refresh()
         active = self._external_selected()
-        specification = self.app.project.plugins.get("instrument", {})
+        specification = self._selected_plugin_spec()
         prism = active and Path(specification.get("path", "")).name == "Anharmonic Prism.vst3"
         self.instrument_tabs.blockSignals(True)
         self.instrument_tabs.setCurrentIndex(1 if prism else 0)
@@ -1226,7 +1218,14 @@ class SynthPanel(WindowClient, QWidget):
         self.visualizer.setVisible(not active and not patch.sample_source)
 
     def _external_selected(self):
+        external = getattr(self.app.engine, "external", None)
         return (
-            self.app.project.selected_instrument is None
-            and getattr(getattr(self.app.engine, "external", None), "instrument", None) is not None
+            external is not None
+            and external.instrument_for(self.app.project.selected_instrument) is not None
         )
+
+    def _selected_plugin_spec(self):
+        project = self.app.project
+        if project.selected_instrument is None:
+            return project.plugins.get("instrument", {})
+        return project.instrument_plugins.get(project.selected_instrument, {})

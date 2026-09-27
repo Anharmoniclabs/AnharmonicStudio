@@ -1,6 +1,5 @@
 """Prism's opt-in hand performance and gesture overdub panel."""
 
-from pathlib import Path
 import time
 
 from PySide6.QtCore import Qt, QTimer, QPointF, QRectF
@@ -21,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from .window_client import WindowClient
-from ..prism_camera import CameraSession
+from ..prism_camera import CameraSession, camera_devices
 from ..prism_motion import CONTROLS, HAND_EFFECTS, GestureFrame, GestureTake, HandFXMapper
 
 CONNECTIONS = (
@@ -193,14 +192,10 @@ class PrismCameraDialog(WindowClient, QDialog):
         row = QHBoxLayout()
         self.camera = QComboBox()
         self.camera.setAccessibleName("Camera device")
-        devices = sorted(Path("/sys/class/video4linux").glob("video*"))
+        devices = camera_devices()
         if devices:
-            for device in devices:
-                try:
-                    name = (device / "name").read_text().strip()
-                except OSError:
-                    name = device.name
-                self.camera.addItem(f"{name} · {device.name}", "/dev/" + device.name)
+            for name, device in devices:
+                self.camera.addItem(name, device)
         else:
             for index in range(4):
                 self.camera.addItem(f"Camera {index + 1}", index)

@@ -113,3 +113,14 @@ finite values, enum/range checks, unique IDs, resource budgets, and migration te
 before engine construction. Version migrations remain explicit in
 `project_migrations.py`; v4 adds stable mixer IDs and v5/v6 preserve the current
 instrument-era contract without deriving version from content.
+
+## Pattern instrument ownership (September 27 update)
+
+Patterns persist `instrument_ids` (ordered, unique existing instrument IDs) and
+`selected_instrument` (the recalled live-input selection). Existing documents
+without these fields retain their legacy original instrument/notes. Instrument
+patches remain in the project's instrument list; hosted plugin specifications
+remain keyed by owner in `instrument_plugins`. Notes retain their instrument ID
+or sample-pad destination. Duplicate pattern remaps owned instruments and notes
+to fresh IDs; Layer current notes copies events to a newly inserted instrument.
+No shared global Native/Prism toggle replaces an existing instance.

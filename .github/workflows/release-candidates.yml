@@ -72,6 +72,8 @@ jobs:
           uv pip install -r requirements-build.txt
           uv run --no-sync python scripts/build_native.py
           uv run --no-sync python scripts/build_rubberband.py
+      - name: Build bundled Prism before instrument integration checks
+        run: uv run --no-sync python scripts/build_prism.py dist/prism-${{ matrix.target }}
       - name: Native application regressions
         run: >-
           uv run --no-sync python -m pytest -q tests/test_native_dsp.py tests/test_native_core.py tests/test_native_output.py
@@ -98,7 +100,10 @@ jobs:
           tests/test_timeline_markers.py tests/test_timeline_marker_ui.py
           tests/test_audio_analysis.py tests/test_audio_analysis_ui.py
           tests/test_release_feature_controls.py
-          tests/test_paced_session.py
+          tests/test_paced_session.py tests/test_keyboard_performance.py
+          tests/test_recording_input_ownership.py tests/test_pattern_instrument_rack.py
+          tests/test_prism_instances_ui.py tests/test_undo_runtime.py tests/test_prism.py
+          tests/test_instrument_recording_route.py tests/test_deleted_event_voices.py
           --junitxml=reports/release-tests.xml
       - name: Ten minute mixed-instrument session (no physical devices)
         run: >-
@@ -110,7 +115,6 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version || '0.1.0-rc.2' }}
         shell: bash
         run: |
-          uv run --no-sync python scripts/build_prism.py dist/prism-${{ matrix.target }}
           uv run --no-sync python scripts/build_release.py dist/${{ matrix.target }} --version "$RELEASE_VERSION"
       - name: Encrypt paid candidates before upload
         run: uv run --no-sync python scripts/seal_release.py dist/${{ matrix.target }} sealed/${{ matrix.target }}.enc

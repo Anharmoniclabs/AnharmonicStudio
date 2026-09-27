@@ -267,8 +267,12 @@ def test_piano_chord_quantize_undo_and_duplicate_are_connected(window):
     assert window.project.pattern().notes[0].start == 0.25
     original = window.project.pattern()
     window.dup_pattern()
-    assert window.project.pattern().notes == original.notes
-    assert window.project.pattern().notes[0] is not original.notes[0]
+    duplicate = window.project.pattern()
+    assert [replace(note, instrument=None) for note in duplicate.notes] == original.notes
+    assert duplicate.selected_instrument is not None
+    assert all(note.instrument == duplicate.selected_instrument for note in duplicate.notes)
+    assert window.project.instrument_patch(duplicate.selected_instrument) == window.project.synth
+    assert duplicate.notes[0] is not original.notes[0]
     window.double_pattern()
     assert len(window.project.pattern().notes) == 6
 
@@ -348,6 +352,7 @@ def test_played_synth_notes_record_into_pattern(window):
     window.engine.beat = 2.25
     window.release_synth_note(60)
     assert window.project.pattern().notes == [Note(60, 1.5, 0.75, 0.7)]
+    window.engine.recording = False
     window.undo()
     assert window.project.pattern().notes == []
 

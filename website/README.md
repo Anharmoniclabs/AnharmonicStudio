@@ -4,7 +4,11 @@ A static GitHub Pages storefront with the app tour, original commercial, free so
 and a $1 USD one-time desktop download through Stripe. Applicable tax is shown at
 checkout. Supporter downloads remain disabled. Optional donations are open separately
 at https://ko-fi.com/anharmoniclabs and do not include downloads. No subscription is offered.
-The current installers are unsigned 0.1.0-rc.1 release candidates.
+The current installers are unsigned 0.1.0-rc.1 release candidates. The landing
+page’s September 27 update describes newer desktop source features, explicitly
+separate from the paid catalog and the browser studio. Update its candidate
+status only after new installer delivery is verified. Do not put desktop or
+standalone Prism binaries in the Pages tree.
 
 The visible notice before pricing and the reminder beside the standard checkout button
 explain Windows publisher warnings, Apple's lack of notarization, possible installation

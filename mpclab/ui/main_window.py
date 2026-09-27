@@ -381,9 +381,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.export_job = None
         self.project_path: Path | None = None
         self._recorded_notes = {}
-        # Pad performances are their own pattern-lane capture.  They must
-        # not depend on the optional Song-track recorder being armed.
-        self._recorded_pad_notes = {}
+        self._synth_note_owners = {}
         # A live pattern performance is one edit.  Notes may arrive from pads
         # and the synth in any order, but Undo must remove the whole take.
         self._recording_take_snapshot = False
@@ -1397,12 +1395,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
     # ── transport actions ────────────────────────────────────
     def _snapshot_recording_take(self, *args, **kwargs):
         return window_transport._snapshot_recording_take(self, *args, **kwargs)
-
-    def _finish_recorded_pad_note(self, *args, **kwargs):
-        return window_sampling._finish_recorded_pad_note(self, *args, **kwargs)
-
-    def _finish_recorded_pad_notes(self, *args, **kwargs):
-        return window_sampling._finish_recorded_pad_notes(self, *args, **kwargs)
 
     def _selected_clip_length(self, *args, **kwargs):
         return arrangement_actions._selected_clip_length(self, *args, **kwargs)

@@ -12,13 +12,16 @@
 *.ogg
 *.opus
 
-# Local development notes, agent state, evidence, and reviews
-/docs/
-!/docs/
+# Local development notes, agent state, evidence, and reviews.
+# Everything under docs/ is ignored except the committed audit, architecture,
+# and agent-cycle logs below.
+/docs/*
 !/docs/audit/
 !/docs/audit/*.md
 !/docs/architecture/
 !/docs/architecture/*.md
+!/docs/agent/
+!/docs/agent/*.md
 /automation/
 /.agents/
 /.claude/

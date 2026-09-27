@@ -152,10 +152,15 @@ def plugin_worker(connection, specification, sample_rate):
                 plugin.reset()
             if plugin.is_instrument:
                 midi = [(bytes(event), float(at)) for event, at in request.get("midi", [])]
+                # The host converts duration back to an integer sample count.
+                # Its duration argument is single precision. MIDI splits can
+                # round below a whole sample (7 frames became 6), so round up
+                # one float32 ULP before the host truncates to a sample count.
+                duration = float(np.nextafter(np.float32(frames / sample_rate), np.float32(np.inf)))
                 try:
                     rendered = plugin.process(
                         midi,
-                        duration=frames / sample_rate,
+                        duration=duration,
                         sample_rate=sample_rate,
                         num_channels=channels,
                         buffer_size=frames,
@@ -167,7 +172,7 @@ def plugin_worker(connection, specification, sample_rate):
                     channels = 1
                     rendered = plugin.process(
                         midi,
-                        duration=frames / sample_rate,
+                        duration=duration,
                         sample_rate=sample_rate,
                         num_channels=channels,
                         buffer_size=frames,
@@ -202,7 +207,9 @@ def plugin_worker(connection, specification, sample_rate):
             if output.shape == (1, frames):
                 output = np.repeat(output, 2, axis=0)
             if output.shape != (2, frames) or not np.isfinite(output).all():
-                raise PluginError("Plugin returned invalid or incomplete audio")
+                raise PluginError(
+                    f"Plugin returned invalid or incomplete audio: expected (2, {frames}), got {output.shape}"
+                )
             send_packet(connection, {"frames": frames}, output.T)
     except (EOFError, BrokenPipeError):
         pass
@@ -294,12 +301,15 @@ class LivePlugin:
         self.plugin = plugin
         self.blocksize = blocksize
         self.info = plugin.info
-        self.requests: queue.Queue = queue.Queue(maxsize=4)
-        self.results: queue.Queue = queue.Queue(maxsize=4)
+        self.requests: queue.Queue = queue.Queue(maxsize=4 * blocksize)
+        self.results: queue.Queue = queue.Queue(maxsize=4 * blocksize)
         self.error = ""
         self.misses = 0
+        self.backlog_recoveries = 0
         self._consecutive_misses = 0
         self._position = 0
+        self._received_position = 0
+        self._missing_frames = 0
         self._pending = {}
         self._parameter_lock = threading.Lock()
         self._parameter_updates = {}
@@ -344,8 +354,13 @@ class LivePlugin:
                 try:
                     self.results.put_nowait((sequence, output))
                 except queue.Full:
-                    self.error = "Plugin output queue overflowed; reload the plugin"
-                    break
+                    # Only the newest timeline can still be heard. A paused
+                    # callback must not permanently disable a healthy worker.
+                    try:
+                        self.results.get_nowait()
+                    except queue.Empty:
+                        pass
+                    self.results.put_nowait((sequence, output))
         except Exception as exc:
             self.error = str(exc) or "Plugin processing failed"
         finally:
@@ -357,22 +372,53 @@ class LivePlugin:
         if not 0 < frames <= self.blocksize:
             self.error = "Plugin buffer changed; use a fixed buffer and reload the plugin"
             return None
-        sequence = self._position
-        self._position += frames
-        try:
-            self.requests.put_nowait(
-                (sequence, None if audio is None else audio.copy(), frames, list(midi), reset)
-                + ((dict(parameters),) if parameters else ())
-            )
-        except queue.Full:
-            self.error = "Plugin could not keep up; reload it or increase the audio buffer"
-            return None
+        # MIDI can split one callback into one-frame chunks. Bound backlog by
+        # samples, not by chunk count, while keeping the queues bounded too.
         while True:
             try:
                 number, result = self.results.get_nowait()
                 self._pending[number] = result
+                self._received_position = max(self._received_position, number + len(result))
             except queue.Empty:
                 break
+        sequence = self._position
+        events = list(midi)
+        updates = dict(parameters or {})
+        if sequence + frames - self._received_position > 4 * self.blocksize:
+            # Discard stale AUDIO, but carry every MIDI transition forward in
+            # order. In particular, never lose a note-off or sustain release.
+            # The in-flight request remains owned by the worker.
+            current_reset = reset
+            carried, automation = [], {}
+            while True:
+                try:
+                    _, _, _, earlier, earlier_reset, *earlier_updates = self.requests.get_nowait()
+                except queue.Empty:
+                    break
+                if earlier_reset:
+                    carried.clear()
+                reset = reset or earlier_reset
+                carried.extend((event, 0.0) for event, _ in earlier)
+                if earlier_updates:
+                    automation.update(earlier_updates[0])
+            if current_reset:
+                carried.clear()
+            if len(carried) + len(events) > 4096:
+                self.error = "Plugin MIDI backlog exceeded its safety limit; reload the plugin"
+                return None
+            events = carried + events
+            automation.update(updates)
+            updates = automation
+            self.backlog_recoveries += 1
+        self._position += frames
+        try:
+            self.requests.put_nowait(
+                (sequence, None if audio is None else audio.copy(), frames, events, reset)
+                + ((updates,) if updates else ())
+            )
+        except queue.Full:
+            self.error = "Plugin request queue exceeded its safety limit; reload the plugin"
+            return None
         wanted = sequence - 2 * self.blocksize
         end = wanted + frames
         result = np.zeros((frames, 2), dtype=np.float32)
@@ -387,17 +433,13 @@ class LivePlugin:
         if covered < max(0, end - max(0, wanted)):
             self.misses += 1
             self._consecutive_misses += 1
-            # A brief worker stall drops only the unavailable samples. Keep
-            # advancing the timeline and forwarding MIDI (especially note-off)
-            # so a healthy plugin can catch up without replaying late audio.
-            # Persistent lag still fails closed, as do queue and worker errors.
-            if self._consecutive_misses >= 8:
-                self.error = (
-                    "Plugin repeatedly missed its audio deadline; reload it or increase the buffer"
-                )
-                return None
+            self._missing_frames += max(0, end - max(0, wanted)) - covered
+            # Missing audio is a dropout, not evidence of a dead process.
+            # The bounded backlog recovery above resumes the current timeline;
+            # IsolatedPlugin still quarantines crashes and actual DSP timeouts.
         else:
             self._consecutive_misses = 0
+            self._missing_frames = 0
         return result
 
     def close(self):

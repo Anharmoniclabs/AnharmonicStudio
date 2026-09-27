@@ -1,5 +1,6 @@
 """Regression contracts for destination routing and full-song navigation."""
 
+import pytest
 import numpy as np
 import soundfile as sf
 
@@ -9,17 +10,47 @@ from mpclab.ui.sample_workflow import valid_sample_range
 from test_arrangement_workflow import window as window
 
 
-def test_explicit_arrange_workspace_click_enters_song_mode(window):
-    window.set_mode("pattern")
-    # Programmatic navigation is allowed to preserve transport state.
-    window.studio.select(2)
-    assert window.engine.mode == "pattern"
+@pytest.mark.parametrize("mode", ["pattern", "song"])
+@pytest.mark.parametrize("recording", [False, True])
+def test_workspace_navigation_preserves_running_transport(window, mode, recording):
+    window.set_mode(mode)
+    window.engine.play(1.0)
+    window.engine._process_commands()
+    window.engine.recording = recording
+    window.btn_rec.blockSignals(True)
+    window.btn_rec.setChecked(recording)
+    window.btn_rec.blockSignals(False)
+    # Exercise both visible workspace buttons and keyboard/programmatic routes.
+    for navigate in (window.studio._workspace_clicked, window.show_tab):
+        for index in window.studio.pages:
+            before = window.engine.beat
+            navigate(index)
+            output = np.zeros((256, 2), np.float32)
+            window.engine._callback(output, 256, None, None)
+            assert window.studio.selected == index
+            assert window.engine.playing
+            assert window.engine.beat > before
+            assert window.engine.mode == mode
+            assert window.engine.recording == recording
+            assert window.btn_rec.isChecked() == recording
+    window.stop_all()
+    window.engine._process_commands()
+    assert not window.engine.playing
+    assert not window.engine.recording
 
-    window.studio.buttons[2].click()
-    assert window.studio.selected == 2
-    assert window.engine.mode == "song"
-    assert window.btn_song.isChecked() and not window.btn_pattern.isChecked()
-    assert "SONG mode" in window.status.currentMessage()
+
+def test_workspace_navigation_preserves_count_in(window):
+    window.show_tab(window.TAB_SEQ)
+    window.btn_rec.setChecked(True)
+    deadline = window._record_count_deadline
+    assert deadline is not None
+    for index in window.studio.pages:
+        window.studio._workspace_clicked(index)
+        assert window._record_count_deadline == deadline
+        assert window.btn_rec.isChecked()
+        assert window.engine.mode == "pattern"
+    window.stop_all()
+    assert window._record_count_deadline is None
 
 
 def test_sample_replacement_preserves_performance_and_routing_settings(window):

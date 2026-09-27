@@ -229,6 +229,8 @@ class Pattern:
     div: int = 4  # steps per beat
     notes: list[Note] = field(default_factory=list)
     midi_controls: list[MidiControl] = field(default_factory=list)
+    instrument_ids: list[str] = field(default_factory=list)
+    selected_instrument: str | None = None
     # pad index -> {step index: velocity}
     steps: dict[int, dict[int, float]] = field(default_factory=dict)
 
@@ -701,9 +703,13 @@ class Project:
     def instrument_patch(self, instrument_id: str | None = None) -> SynthPatch:
         if instrument_id is None:
             return self.synth
+        return self.instrument(instrument_id).patch
+
+    def instrument(self, instrument_id: str) -> Instrument:
+        """Resolve an independent instrument for UI, routing and host diagnostics."""
         for instrument in self.instruments:
             if instrument.id == instrument_id:
-                return instrument.patch
+                return instrument
         raise ValueError(f"unknown instrument: {instrument_id}")
 
     @property
@@ -754,6 +760,18 @@ class Project:
         ):
             raise ValueError("selected instrument does not exist")
         for pattern in self.patterns:
+            if (
+                not isinstance(pattern.instrument_ids, list)
+                or len(pattern.instrument_ids) > MAX_INSTRUMENTS
+                or any(not isinstance(key, str) or key not in ids for key in pattern.instrument_ids)
+                or len(set(pattern.instrument_ids)) != len(pattern.instrument_ids)
+            ):
+                raise ValueError("pattern instruments must be unique existing instrument IDs")
+            if pattern.selected_instrument is not None and (
+                not isinstance(pattern.selected_instrument, str)
+                or pattern.selected_instrument not in ids
+            ):
+                raise ValueError("pattern selected instrument does not exist")
             for note in pattern.notes:
                 if note.instrument is not None and note.instrument not in ids:
                     raise ValueError("note refers to a missing instrument")
@@ -1109,6 +1127,8 @@ class Project:
                     steps=steps,
                     notes=read_notes(p.get("notes", [])),
                     midi_controls=read_midi_controls(p.get("midi_controls", [])),
+                    instrument_ids=p.get("instrument_ids", []),
+                    selected_instrument=p.get("selected_instrument"),
                 )
             )
         proj.patterns = pats or [Pattern()]

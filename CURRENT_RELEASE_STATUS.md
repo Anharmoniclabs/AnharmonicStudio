@@ -2,7 +2,7 @@
 
 This file is the short, current-state release gate. `RELEASE_AUDIT.md` preserves historical checkpoints and evidence; it should not be read as a list of only-current defects.
 
-Updated: 2026-09-11
+Updated: 2026-09-27
 
 ## Current product state
 
@@ -11,6 +11,22 @@ Updated: 2026-09-11
 - Official distribution policy is unsigned packages with explicit installation guidance and checksums.
 - The public source remains GPL-3.0-or-later.
 - Current development contains fixes newer than the existing `0.1.0-rc.1` installer set. A new immutable candidate set must therefore be built before release qualification.
+
+## September 27 source update
+
+See [CHANGELOG.md](CHANGELOG.md) for recording, per-pattern instruments,
+transport continuity, undo/redo and Prism recovery changes. The deployed paid
+catalog still identifies `0.1.0-rc.1`; prepare a fresh `0.1.0-rc.2` candidate from
+one committed source revision rather than replacing the old artifacts.
+
+The standalone Prism build workflow now encrypts its binary pack before artifact
+upload, matching the desktop release workflow. The source remains freely
+buildable, and Pages contains no installers. Local Linux controller observations
+and the 67-test Prism/plugin group are useful evidence, not four-platform release
+qualification. Final MPK audibility after backlog recovery remains unconfirmed. Optional
+Hand FX preview and hand tracking were confirmed by the user on the local HP
+True Vision camera after installing the camera extra and selecting its video
+capture node. This is not cross-platform camera qualification.
 
 ## Software gates
 
@@ -45,7 +61,7 @@ The detailed evidence format is in `packaging/ACCEPTANCE.md`.
 
 These are not necessarily bugs; they are current product limits that must stay honestly documented until implemented and qualified:
 
-- Native plugin editor windows are not complete.
+- Prism has a dedicated editor; arbitrary third-party native plugin editor windows are not complete.
 - MIDI output/clock and full recorded MPE/expression workflow are not release-qualified.
 - CLAP, VST2 and LV2 are not native load formats in the current host.
 - Browser/native full DSP parity is not claimed.

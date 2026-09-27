@@ -205,3 +205,11 @@ were retested locally and must be included in the next immutable source bundle.
 The repair is tracked in draft pull request #21; no Cloudflare catalog or bucket
 has been promoted by this audit. Remaining manual acceptance is recorded in
 `packaging/ACCEPTANCE.md`, not pre-filled with passing results.
+
+## September 27 source update
+
+Current work includes recording/count-in ownership, Song recording, independent
+pattern instruments, transport continuity, incremental undo and Prism recovery.
+See CHANGELOG.md and CURRENT_RELEASE_STATUS.md for current behavior and open
+qualification gates. This source update does not replace the existing rc.1 paid
+installer catalog. Prism CI now encrypts standalone binary artifacts as well.

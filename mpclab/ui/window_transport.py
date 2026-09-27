@@ -14,10 +14,13 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
 )
-from ..music import Note
+from ..recording_timing import performance_beat
+from .performance_capture import captured_note, refresh_recorded_notes
 
 
 def _record_toggled(window, enabled):
+    if window._record_count_deadline is not None:
+        window.engine.cancel_count_in()
     window._record_count_timer.stop()
     window._record_count_deadline = None
     window.record_count_label.hide()
@@ -46,14 +49,27 @@ def _record_toggled(window, enabled):
                 "Recording · selected pattern · pads and notes stay independent", 3500
             )
             return
-    if enabled and capture.armed_id is None and window.engine.mode == "song":
-        window.btn_rec.blockSignals(True)
-        window.btn_rec.setChecked(False)
-        window.btn_rec.blockSignals(False)
-        window.track_controls_button.setChecked(True)
-        window.show_tab(2)
-        window.status.showMessage("Arm a Song track with its R button, then press Record", 5000)
-        return
+    if (
+        enabled
+        and not pattern_workspace
+        and capture.armed_id is None
+        and (window.studio.selected == window.TAB_PLAYLIST or window.engine.mode == "song")
+    ):
+        from ..model import Row
+
+        row = window.track_inspector.row()
+        if row is None or row.record_source not in ("notes", "sampler"):
+            window.snapshot()
+            row = Row(
+                name=f"{window.project.selected_patch.name} · Performance",
+                record_source="notes",
+                record_track=window.project.selected_patch.track,
+            )
+            window.project.rows.append(row)
+            window._set_dirty(True)
+            window.playlist.refresh()
+        capture.arm(row)
+        window.track_inspector.select_row(row)
     if not enabled and (capture.active or capture.pending):
         capture.finish()
         return
@@ -64,17 +80,30 @@ def _record_toggled(window, enabled):
             window.btn_rec.blockSignals(False)
             return
         window.show_tab(2)
+        continuing = window.engine.playing and window.engine.mode == "song"
         window.engine.recording = False
-        window.engine.stop_transport(rewind=False)
         window.engine.mode = "song"
         window.btn_pattern.setChecked(False)
         window.btn_song.setChecked(True)
+        window._refresh_transport_scope_visual()
+        if (
+            continuing
+            and capture.target.record_source in ("notes", "sampler")
+            and not getattr(capture, "_advanced_recording", None)
+        ):
+            capture.start(continue_playback=True)
+            return
+        window.engine.stop_transport(rewind=False)
         window._record_count_beat_seconds = 60.0 / max(1.0, window.project.bpm)
         count = capture.settings.count_in_bars * 4
         if count == 0:
             capture.start()
             return
         window._record_count_deadline = time.monotonic() + count * window._record_count_beat_seconds
+        window._record_count_last = count
+        if capture.target.record_source in ("notes", "sampler"):
+            capture.start(start_deadline=window._record_count_deadline)
+        window.engine.count_in_click(True)
         window.record_count_label.setText(str(count))
         window.record_count_label.show()
         window._record_count_timer.start()
@@ -85,7 +114,6 @@ def _record_toggled(window, enabled):
             window.sample_workflow.note_off(note)
         for note in list(window._recorded_notes):
             window.release_synth_note(note)
-        window._finish_recorded_pad_notes()
         window.engine.recording = False
         window._recording_take_snapshot = False
         return
@@ -103,6 +131,10 @@ def _record_toggled(window, enabled):
     window.engine.stop_transport(rewind=False)
     window._record_count_beat_seconds = 60.0 / max(1.0, window.project.bpm)
     window._record_count_deadline = time.monotonic() + 3 * window._record_count_beat_seconds
+    window._record_count_last = 3
+    window._snapshot_recording_take()
+    window.engine.record_after(window._record_count_deadline)
+    window.engine.count_in_click(True)
     window.record_count_label.setText("3")
     window.record_count_label.show()
     window.status.showMessage("Count-in · 3 · Record or Stop cancels")
@@ -117,17 +149,26 @@ def _advance_record_count(window):
         import math
 
         count = max(1, math.ceil(remaining / window._record_count_beat_seconds))
+        if count != window._record_count_last:
+            window._record_count_last = count
+            window.engine.count_in_click(False)
         window.record_count_label.setText(str(count))
         return
     window._record_count_timer.stop()
     window._record_count_deadline = None
     window.record_count_label.hide()
+    already_started = window.engine.playing and window.engine.recording
+    if not already_started and not window.engine.metronome:
+        window.engine.count_in_click(True)
     if window.track_capture.pending:
         window.track_capture.start()
         return
+    if window.track_capture.active:
+        return
     window._snapshot_recording_take()
-    window.engine.recording = True
-    window.engine.play()
+    if not already_started:
+        window.engine.recording = True
+        window.engine.play()
     window.status.showMessage("Recording", 2500)
 
 
@@ -152,6 +193,7 @@ def space_transport(window):
 def toggle_play(window):
     if window.track_capture.active:
         window.btn_rec.setChecked(False)
+        window.engine.stop_transport(rewind=False)
         return
     if window._record_count_deadline is not None:
         window._cancel_record_count()
@@ -175,11 +217,34 @@ def release_selected_note(window, note: int):
 SELECTED_INSTRUMENT = object()
 
 
+def pattern_recording_ready(window):
+    deadline = window._record_count_deadline
+    return window.engine.mode == "pattern" and (
+        (window.engine.recording and window.engine.playing)
+        or (
+            deadline is not None
+            and time.monotonic() >= deadline
+            and not window.track_capture.pending
+        )
+    )
+
+
 def play_synth_note(
     window, note: int, velocity: float = 1.0, *, instrument_id=SELECTED_INSTRUMENT, channel=0
 ):
     if instrument_id is SELECTED_INSTRUMENT:
         instrument_id = window.project.selected_instrument
+        owners = getattr(window, "_synth_note_owners", None)
+        if owners is None:
+            owners = window._synth_note_owners = {}
+        if note in owners:
+            release_synth_note(window, note, instrument_id=owners[note])
+        owners[note] = instrument_id
+    start = performance_beat(window.engine)
+    if instrument_id is None:
+        token = window.engine.synth_note_on(note, velocity)
+    else:
+        token = window.engine.synth_note_on(note, velocity, instrument_id=instrument_id)
     use_arp = instrument_id is None and window.project.arp.enabled
     key = note if instrument_id is None else (instrument_id, note)
     if not use_arp:
@@ -187,24 +252,15 @@ def play_synth_note(
             window.track_capture.note_on(note, velocity)
         else:
             window.track_capture.note_on(note, velocity, instrument=instrument_id, channel=channel)
-    if (
-        not use_arp
-        and window.engine.recording
-        and window.engine.playing
-        and window.engine.mode == "pattern"
-    ):
+    if not use_arp and pattern_recording_ready(window):
         if key not in window._recorded_notes:
             window._snapshot_recording_take()
             window._recorded_notes[key] = (
                 window.project.pattern().id,
-                window.engine.beat,
+                start,
                 velocity,
                 channel,
             )
-    if instrument_id is None:
-        token = window.engine.synth_note_on(note, velocity)
-    else:
-        token = window.engine.synth_note_on(note, velocity, instrument_id=instrument_id)
     if key in window._recorded_notes:
         window._recorded_notes[key] = (*window._recorded_notes[key][:4], token)
     window.synth_panel.keyboard.set_note_active(note, True)
@@ -216,8 +272,15 @@ def release_synth_note(window, note: int, *, instrument_id=SELECTED_INSTRUMENT):
     if isinstance(note, tuple):
         instrument_id, note = note
     elif instrument_id is SELECTED_INSTRUMENT:
-        instrument_id = window.project.selected_instrument
+        instrument_id = getattr(window, "_synth_note_owners", {}).pop(
+            note, window.project.selected_instrument
+        )
     key = note if instrument_id is None else (instrument_id, note)
+    end = performance_beat(window.engine)
+    if instrument_id is None:
+        window.engine.synth_note_off(note)
+    else:
+        window.engine.synth_note_off(note, instrument_id=instrument_id)
     if instrument_id is None:
         window.track_capture.note_off(note)
     else:
@@ -227,12 +290,12 @@ def release_synth_note(window, note: int, *, instrument_id=SELECTED_INSTRUMENT):
         pattern_id, start, velocity, *channels = recorded
         pattern = next((p for p in window.project.patterns if p.id == pattern_id), None)
         if pattern:
-            beat = start % pattern.length_beats
-            duration = min(max(0.03125, window.engine.beat - start), pattern.length_beats - beat)
-            captured = Note(
+            captured = captured_note(
+                window.engine,
+                pattern,
                 note,
-                beat,
-                duration,
+                start,
+                end,
                 velocity,
                 instrument=instrument_id,
                 channel=channels[0] if channels else 0,
@@ -241,12 +304,7 @@ def release_synth_note(window, note: int, *, instrument_id=SELECTED_INSTRUMENT):
             window.engine.bind_recorded_note(
                 pattern, captured, channels[1] if len(channels) > 1 else None
             )
-            window._set_dirty(True)
-            window.piano_roll.canvas.refresh()
-    if instrument_id is None:
-        window.engine.synth_note_off(note)
-    else:
-        window.engine.synth_note_off(note, instrument_id=instrument_id)
+            refresh_recorded_notes(window)
     window.synth_panel.keyboard.set_note_active(note, False)
     if window.typing_keyboard is not None:
         window.typing_keyboard.keyboard.set_note_active(note, False)
@@ -257,6 +315,7 @@ def panic_synth(window):
     for note in list(window._recorded_notes):
         window.release_synth_note(note)
     window.engine.synth_panic()
+    getattr(window, "_synth_note_owners", {}).clear()
     window._held_synth_keys.clear()
     window.synth_panel.keyboard.active.clear()
     window.synth_panel.keyboard.update()
@@ -276,9 +335,9 @@ def stop_all(window):
     window._cancel_record_count()
     for note in list(window._recorded_notes):
         window.release_synth_note(note)
-    window._finish_recorded_pad_notes()
     window.engine.stop_transport(rewind=True)
     window.engine.panic()
+    window._synth_note_owners.clear()
     window._held_pads.clear()
     window._held_synth_keys.clear()
     window.synth_panel.keyboard.active.clear()
@@ -301,7 +360,6 @@ def set_mode(window, mode: str):
     window._cancel_record_count()
     for note in list(window._recorded_notes):
         window.release_synth_note(note)
-    window._finish_recorded_pad_notes()
     window.engine.mode = mode
     window.btn_pattern.setChecked(mode == "pattern")
     window.btn_song.setChecked(mode == "song")

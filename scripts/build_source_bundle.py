@@ -28,6 +28,8 @@ SOURCE_DIRS = {
 }
 SOURCE_FILES = {
     "README.md",
+    "CHANGELOG.md",
+    "CURRENT_RELEASE_STATUS.md",
     "CONTRIBUTING.md",
     "BUILDING.md",
     "SUPPORT.md",

@@ -14,6 +14,42 @@ MODEL_URL = (
 )
 
 
+def is_capture_device(path):
+    """Query Linux device capabilities without starting video capture.
+
+    USB cameras commonly expose a second /dev/video node carrying only UVC
+    metadata. Its card name matches the real camera, but it cannot return images.
+    Unknown or inaccessible nodes stay visible so permission errors are explicit.
+    """
+    import fcntl
+    import struct
+
+    try:
+        with open(path, "rb", buffering=0) as device:
+            capability = bytearray(104)  # struct v4l2_capability
+            fcntl.ioctl(device.fileno(), 0x80685600, capability)  # VIDIOC_QUERYCAP
+        caps, device_caps = struct.unpack_from("II", capability, 84)
+        if caps & 0x80000000:  # V4L2_CAP_DEVICE_CAPS
+            caps = device_caps
+        return bool(caps & (0x00000001 | 0x00001000))  # capture / capture mplane
+    except OSError:
+        return True
+
+
+def camera_devices(sys_root=Path("/sys/class/video4linux")):
+    devices = []
+    for device in sorted(sys_root.glob("video*")):
+        path = "/dev/" + device.name
+        if not is_capture_device(path):
+            continue
+        try:
+            name = (device / "name").read_text().strip()
+        except OSError:
+            name = device.name
+        devices.append((f"{name} · {device.name}", path))
+    return devices
+
+
 def model_path():
     root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
     return root / "anharmonic-studio/models/hand_landmarker.task"
@@ -24,6 +60,11 @@ def camera_worker(device, model, messages, stop):
     messages.cancel_join_thread()
     camera = detector = None
     try:
+        if isinstance(device, str) and device.startswith("/dev/video"):
+            if not is_capture_device(device):
+                raise RuntimeError(
+                    "This camera entry carries metadata, not video. Choose the camera's video0 entry."
+                )
         import cv2
         import mediapipe as mp
         import numpy as np

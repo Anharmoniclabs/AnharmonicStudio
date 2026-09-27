@@ -97,6 +97,7 @@ class Engine:
         self.midi_playback_state = {}
         self.cmds: "queue.SimpleQueue[tuple]" = queue.SimpleQueue()
         self.voices: list[PadVoice] = []
+        self._live_recorded_steps: dict[tuple[int, int, int], float] = {}
         self.synth_voices: list[SynthVoice] = []
         self.synth_polyphony = 32
         self._synth_variants = {}
@@ -117,6 +118,7 @@ class Engine:
         self.beat = 0.0
         self.metronome = False
         self.recording = False
+        self._record_start_deadline = None
         self.loop_song = False
         self._resume_audio = True
 
@@ -593,6 +595,27 @@ class Engine:
 
     def release_pad(self, index: int) -> None:
         self.cmds.put(("off", index))
+
+    def count_in_click(self, accent: bool = False) -> None:
+        """Audition a pre-record click without advancing or recording the song."""
+        self.cmds.put(("countclick", bool(accent)))
+
+    def record_after(self, deadline: float) -> None:
+        self.cmds.put(("recordafter", float(deadline)))
+
+    def _start_due_recording(self, now: float) -> None:
+        if self._record_start_deadline is None or now < self._record_start_deadline:
+            return
+        self._record_start_deadline = None
+        self.recording = self.playing = True
+        self._live_recorded_steps.clear()
+        self._resume_audio = self.mode == "song"
+        if not self.metronome:
+            self._click(0, True)
+        self._trace("transport_play", reason="record_count_in")
+
+    def cancel_count_in(self) -> None:
+        self.cmds.put(("cancelcount",))
 
     def sample_note_on(self, index: int, note: int, velocity: float = 1.0):
         if not 0 <= index < NPADS or not 0 <= note <= 127:
@@ -1186,6 +1209,7 @@ class Engine:
 
         self._process_commands()
         now = time.monotonic()
+        self._start_due_recording(now)
         presentation = getattr(time_info, "output_monotonic", None)
         if presentation is None:
             dac = getattr(time_info, "outputBufferDacTime", None)
@@ -1211,7 +1235,7 @@ class Engine:
             if midi_index < len(midi_events):
                 count = min(count, midi_events[midi_index][0] - offset)
             end = None
-            if self.playing and self.mode == "song":
+            if self.playing and self.mode == "song" and (not self.recording or self.loop_song):
                 proj = self.project
                 loop_start = max(0.0, float(proj.loop_start))
                 loop_end = float(proj.loop_end)
@@ -1254,6 +1278,9 @@ class Engine:
             except queue.Empty:
                 break
             kind = cmd[0]
+            if kind in ("play", "stopt", "seek", "panic"):
+                self._live_recorded_steps.clear()
+                self._record_start_deadline = None
             if kind in ("panic", "synthpanic"):
                 self.external.panic()
                 self.midi_playback_state.clear()
@@ -1263,9 +1290,21 @@ class Engine:
             if kind == "midiexpression":
                 if self.external.instrument is not None:
                     self.external.events.append((cmd[1], 0))
+            elif kind == "countclick":
+                self._click(0, cmd[1])
+            elif kind == "recordafter":
+                self._record_start_deadline = cmd[1]
+            elif kind == "cancelcount":
+                self._record_start_deadline = None
+                self.voices[:] = [v for v in self.voices if v.pad_index != METRONOME]
             elif kind == "pad":
+                self._start_due_recording(time.monotonic())
                 idx, vel = cmd[1], cmd[2]
-                source = self._record(idx, vel) if self.recording and self.playing else None
+                source = (
+                    self._record(idx, vel)
+                    if self.recording and self.playing and self.mode == "pattern"
+                    else None
+                )
                 self._spawn(proj.pads[idx], idx, vel, 0, event_source=source)
             elif kind == "off":
                 for v in self.voices:

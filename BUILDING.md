@@ -17,6 +17,15 @@ channel. Compatibility with arbitrary operating-system, driver, and dependency
 combinations is not guaranteed. There are no artificial build restrictions or
 activation requirements.
 
+## Current source versus official packages
+
+See [CHANGELOG.md](CHANGELOG.md) for the September 27 workflow changes. Building
+`main` includes them; the existing paid `0.1.0-rc.1` packages do not. Build Prism
+with `python scripts/build_prism.py /new/output/Prism-platform --jobs 3` before
+packaging Studio or running tests that require the real bundled plugin. Keep
+compiled outputs outside Git and Pages. Neither source builds nor their tests
+require purchase credentials or the release encryption private key.
+
 ## Source and build components
 
 The same portable C++17 core in `mpclab/native/` is compiled for Windows x64,
@@ -235,3 +244,22 @@ Build the bundled GPL pitch engine with `python scripts/build_rubberband.py` (CM
 Choose **File → Connect local browser…** for the current desktop session. For a dedicated browser session, run `python -m mpclab --browser-companion --data-dir PATH`. This uses the same data-directory lock and never starts a second writer. The printed private URL uses loopback only. It does not launch or move a browser. Native audio devices and local files belong to the companion computer.
 
 The companion renders application-owned Qt surfaces. Standalone Web Audio retains its documented limitations. Native plugin custom windows, accessibility, hardware latency, and macOS/Windows behavior require platform acceptance testing; the Linux synthetic checks do not certify those.
+
+## Optional Prism Hand FX camera support
+
+For a source environment, install the locked camera extra and verify the pinned
+hand model before opening Hand FX:
+
+```sh
+uv sync --locked --group dev --extra camera
+uv run --no-sync python scripts/setup_prism_camera.py
+```
+
+Start capture explicitly in Prism → Hand FX. On Linux the selector excludes
+metadata-only UVC nodes: a webcam may expose `video0` for images and `video1` for
+metadata under the same name. Camera frames stay in the tracking process and
+preview; they are not saved or uploaded. Closing Hand FX releases the camera.
+Use `--extra camera` again when resynchronizing this environment to retain the
+optional libraries. Camera dependencies and the hand model are not included in
+the current official `0.1.0-rc.1` installers or the default candidate build.
+Platform-specific camera packaging remains a separate release gate.

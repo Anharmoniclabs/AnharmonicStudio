@@ -41,3 +41,13 @@ sample rate/buffer settings, and validation against the existing DSP behavior.
 Pull requests should explain the problem, resulting behavior, and validation. Do not
 include private payment data, keys, or plaintext official installers. The release
 workflow uploads encrypted candidates; the Pages workflow publishes only the website.
+
+## Recording and instrument regressions
+
+Changes to live input, patterns or history should run the keyboard performance,
+recording input ownership, track recording, pattern instrument rack, Prism
+instance and undo runtime tests. Build the native DSP and bundled Prism first
+when validating production sound behavior; optional plugin tests may otherwise
+skip. Use the optional camera setup in BUILDING.md for physical Hand FX checks.
+Keep user samples, controller captures, videos and compiled artifacts outside Git.
+The public source stays complete; official binary CI artifacts must be encrypted.

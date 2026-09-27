@@ -46,25 +46,6 @@ class DevicesController(WindowClient, QObject):
     scan_finished = Signal(object, str)
     plugin_finished = Signal(int, str, object, object, str)
 
-    def _channel_destination(self, note, _port, channel):
-        ids = tuple(i.id for i in self.app.project.instruments if i.midi_channel == channel)
-        if not ids and self.app.studio.selected == self.app.TAB_SYNTH:
-            # Match musical typing: Instruments owns unassigned MIDI keys.
-            # The router retains this destination until release, even if the
-            # player changes workspace or selected instrument while holding it.
-            ids = (self.app.project.selected_instrument,)
-        return ("routed", (channel, note, ids)) if ids else ("note", note)
-
-    def _channel_note_on(self, destination, velocity):
-        channel, note, ids = destination
-        for instrument_id in ids:
-            self.app.play_synth_note(note, velocity, instrument_id=instrument_id, channel=channel)
-
-    def _channel_note_off(self, destination):
-        channel, note, ids = destination
-        for instrument_id in ids:
-            self.app.release_synth_note(note, instrument_id=instrument_id)
-
     def __init__(self, window):
         super().__init__(window)
         self.app = window
@@ -87,9 +68,9 @@ class DevicesController(WindowClient, QObject):
         except (OSError, ValueError, TypeError):
             pass
         self.router = window.engine.midi.router
-        self.router.resolve_note = self._channel_destination
-        self.router.channel_note_on = self._channel_note_on
-        self.router.channel_note_off = self._channel_note_off
+        # MidiPerformance owns playback and capture on the audio worker.
+        # Replacing its callbacks with GUI recorders duplicates notes and
+        # updates Qt widgets from the wrong thread.
         window.engine.midi.source = self.service
         try:
             config = json.loads(str(window.settings.value("midi/controllers", "{}")))
@@ -182,7 +163,9 @@ class DevicesController(WindowClient, QObject):
             return
         performance = self.app.engine.midi
         performance.route = (
-            self.app.piano_roll.target_pad,
+            None
+            if self.app.studio.selected == self.app.TAB_SYNTH
+            else self.app.piano_roll.target_pad,
             getattr(self.app.piano_roll, "target_instrument", None)
             or self.app.project.selected_instrument,
             self.app.pads.bank,
@@ -426,9 +409,8 @@ class DevicesController(WindowClient, QObject):
             setattr(self.app.engine.external, slot, bridge)
         if old is not None:
             old.close()
-        if slot == "instrument":
-            self.app.panic_synth()
-            self.app.piano_roll.select_channel(instrument_id)
+        if slot == "instrument" and self.app.project.selected_instrument == instrument_id:
+            self.app.synth_panel.sync_plugin_mode()
         target = ""
         if instrument_id is not None:
             instrument = next(
@@ -460,9 +442,63 @@ class DevicesController(WindowClient, QObject):
         self.app._set_dirty(True)
         if old is not None:
             old.close()
-        self.app.engine.cmds.put(("synthpanic",))
         self.plugin_status = "Plugin removed"
         self.changed.emit()
+
+    def reconcile_project(self, previous):
+        """Restore history without closing unrelated hosts or releasing MIDI."""
+
+        def specs(project):
+            result = {(slot, None): spec for slot, spec in project.plugins.items()}
+            result.update(
+                {("instrument", key): spec for key, spec in project.instrument_plugins.items()}
+            )
+            return result
+
+        before, after = specs(previous), specs(self.app.project)
+        for slot, owner in before.keys() | after.keys():
+            old_spec, new_spec = before.get((slot, owner)), after.get((slot, owner))
+            if old_spec == new_spec:
+                continue
+            key = self._plugin_key(slot, owner)
+            bridge = (
+                self.app.engine.external.instrument_for(owner)
+                if slot == "instrument"
+                else getattr(self.app.engine.external, slot)
+            )
+            if new_spec is None or new_spec.get("bypass"):
+                self._generation += 1
+                self._slot_generation[key] = self._generation
+                self._pending_loads.pop(key, None)
+                if slot == "instrument" and owner is not None:
+                    self.app.engine.external.remove_instrument(owner)
+                else:
+                    setattr(self.app.engine.external, slot, None)
+                if bridge is not None:
+                    bridge.close()
+                continue
+            if (
+                old_spec
+                and bridge is not None
+                and not getattr(bridge, "error", "")
+                and hasattr(bridge, "set_parameters")
+                and {k: v for k, v in old_spec.items() if k != "parameters"}
+                == {k: v for k, v in new_spec.items() if k != "parameters"}
+                and old_spec.get("parameters", {}).keys() == new_spec.get("parameters", {}).keys()
+            ):
+                # Invalidate an older pending replacement before recalling values.
+                self._generation += 1
+                self._slot_generation[key] = self._generation
+                self._pending_loads.pop(key, None)
+                bridge.set_parameters(new_spec.get("parameters", {}))
+            else:
+                if bridge is None:
+                    placeholder = UnavailablePlugin("Loading plugin…")
+                    if slot == "instrument" and owner is not None:
+                        self.app.engine.external.set_instrument(owner, placeholder)
+                    else:
+                        setattr(self.app.engine.external, slot, placeholder)
+                self.load_plugin(slot, new_spec, save=False, instrument_id=owner)
 
     def sync_project(self):
         self._generation += 1
@@ -470,7 +506,6 @@ class DevicesController(WindowClient, QObject):
         self._pending_loads.clear()
         self.app.engine.midi.release()
         self.app.engine.external.close()
-        self.app.engine.cmds.put(("synthpanic",))
         for slot, spec in self.app.project.plugins.items():
             if not spec.get("bypass"):
                 setattr(self.app.engine.external, slot, UnavailablePlugin("Loading plugin…"))

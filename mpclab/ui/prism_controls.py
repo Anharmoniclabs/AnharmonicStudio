@@ -43,38 +43,6 @@ CATALOG = {
 CATALOG.update({item["name"]: item for item in PERFORMANCES})
 WAVES = {"saw": 0, "sine": 1, "triangle": 2, "square": 3}
 
-# Prism's visual identity follows the sound itself.  The signature is derived from
-# normalized parameters rather than a process-random hash or project-only metadata,
-# so factory and user presets retain the same palette after save/reopen.
-_THEME_SIGNATURE_KEYS = (
-    0,
-    1,
-    2,
-    4,
-    5,
-    12,
-    13,
-    14,
-    15,
-    16,
-    17,
-    18,
-    19,
-    20,
-    53,
-    54,
-    55,
-    56,
-    57,
-    58,
-    69,
-    70,
-    72,
-    73,
-    74,
-    75,
-)
-
 
 def _hsv_hex(hue, saturation, value):
     red, green, blue = colorsys.hsv_to_rgb(
@@ -84,22 +52,10 @@ def _hsv_hex(hue, saturation, value):
 
 
 def prism_theme(values):
-    """Return a deterministic, contrast-safe UI palette for a Prism sound."""
-
-    signature = 2166136261
-    for index in _THEME_SIGNATURE_KEYS:
-        value = max(0.0, min(1.0, float(values.get(str(index), 0.0))))
-        quantized = round(value * 255)
-        signature ^= ((index + 1) << 8) | quantized
-        signature = (signature * 16777619) & 0xFFFFFFFF
-
-    hue = ((signature & 0xFFFF) / 65535.0 + 0.025) % 1.0
-    texture = max(0.0, min(1.0, float(values.get("57", 0.0))))
-    space = max(0.0, min(1.0, float(values.get("56", 0.0))))
-    saturation = 0.54 + texture * 0.20
-    brightness = 0.84 + space * 0.10
+    """Keep the editor palette stable across presets, automation and hand FX."""
+    hue, saturation, brightness = 0.61, 0.62, 0.94
     return {
-        "id": f"{signature:08x}",
+        "id": "prism-blue",
         "accent": _hsv_hex(hue, saturation, brightness),
         "accent_hi": _hsv_hex(hue, max(0.16, saturation * 0.28), 0.98),
         "accent_soft": _hsv_hex(hue, max(0.30, saturation * 0.70), min(0.94, brightness + 0.06)),
@@ -500,7 +456,8 @@ class PrismControls(WindowClient, QWidget):
         self.edit_layer = 0
         self.knobs = {}
         self.selectors = {}
-        self._stored = None
+        self._stored_sounds = {}
+        self._sound_project = self.app.project
         self.camera_dialog = None
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 10)
@@ -704,22 +661,38 @@ class PrismControls(WindowClient, QWidget):
         super().hideEvent(event)
 
     def bridge(self):
-        return getattr(self.app.engine.external, "instrument", None)
+        return self.app.engine.external.instrument_for(self.app.project.selected_instrument)
+
+    def specification(self):
+        project = self.app.project
+        if project.selected_instrument is None:
+            return project.plugins.get("instrument", {})
+        return project.instrument_plugins.get(project.selected_instrument, {})
 
     def sync(self):
-        saved = self.app.project.plugins.get("instrument", {}).get("parameters", {})
+        if self._sound_project is not self.app.project:
+            self._stored_sounds.clear()
+            self._sound_project = self.app.project
+        saved = self.specification().get("parameters", {})
         info = getattr(self.bridge(), "info", {}).get("parameters", {})
-        self.values = {
+        values = {
             str(i): saved.get(
                 str(i), info.get(str(i), {}).get("value", normalized(s, s["default"]))
             )
             for i, s in enumerate(SPECS)
         }
+        refresh = values != self.values or not getattr(self, "_synced", False)
+        self.values = values
+        self._synced = True
         self.apply_theme()
-        self.refresh()
+        if refresh:
+            self.refresh()
 
     def apply_theme(self):
         theme = prism_theme(self.values)
+        if theme == getattr(self, "_applied_theme", None):
+            return
+        self._applied_theme = theme
         self.theme = theme
         self.setStyleSheet(prism_stylesheet(theme))
         if hasattr(self, "title"):
@@ -757,11 +730,12 @@ class PrismControls(WindowClient, QWidget):
 
     def change(self, values):
         bridge = self.bridge()
-        if bridge is None or not hasattr(bridge, "set_parameters"):
+        specification = self.specification()
+        if bridge is None or not hasattr(bridge, "set_parameters") or not specification:
             return
         bridge.set_parameters(values)
         self.values.update(values)
-        self.app.project.plugins["instrument"].setdefault("parameters", {}).update(values)
+        specification.setdefault("parameters", {}).update(values)
         self.app._set_dirty(True)
         if len(values) == len(SPECS):
             self.apply_theme()
@@ -922,14 +896,16 @@ class PrismControls(WindowClient, QWidget):
             QMessageBox.warning(self, "Open failed", str(exc))
 
     def store(self):
-        self._stored = dict(self.values)
+        self._stored_sounds[self.app.project.selected_instrument] = dict(self.values)
 
     def swap(self):
-        if self._stored is not None:
+        instrument_id = self.app.project.selected_instrument
+        stored = self._stored_sounds.get(instrument_id)
+        if stored is not None:
             self.app.snapshot()
             previous = dict(self.values)
-            self.change(self._stored)
-            self._stored = previous
+            self.change(stored)
+            self._stored_sounds[instrument_id] = previous
 
     def reset(self):
         self.app.snapshot()

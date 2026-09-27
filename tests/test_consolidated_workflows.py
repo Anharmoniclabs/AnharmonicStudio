@@ -58,15 +58,22 @@ def test_instrument_lifecycle_channel_capture_undo_and_reopen(window, tmp_path):
     assert window.project.instrument_patch(first) is not window.project.instrument_patch(second)
     window.engine.mode = "pattern"
     window.engine.playing = window.engine.recording = True
-    router = window.devices.router
+    performance = window.engine.midi
+    performance.source = None
+    window.engine.audio_clock = (10, 1, 120, True)
+
+    def input_event(message, timestamp):
+        performance.submit("keys", message, timestamp)
+        performance.process(128, timestamp)
+
     window.engine.beat = 1
-    router.handle("keys", [0x91, 60, 100])
-    router.handle("keys", [0x92, 60, 90])
+    input_event([0x91, 60, 100], 10)
+    input_event([0x92, 60, 90], 10)
     window.engine.beat = 2
     # Reassignment while held must not change the note-off destination.
     window.project.instruments[0].midi_channel = 4
-    router.handle("keys", [0x81, 60, 0])
-    router.handle("keys", [0x82, 60, 0])
+    input_event([0x81, 60, 0], 10.5)
+    input_event([0x82, 60, 0], 10.5)
     notes = window.project.pattern().notes
     assert {(n.instrument, n.channel, n.start, n.duration) for n in notes} == {
         (first, 1, 1, 1),

@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
 
 from .arrangement_tools import (
     SONG_TEMPLATES,
-    enter_song_mode,
     fit_song,
     map_full_song,
     place_sample_selection,
@@ -297,19 +296,12 @@ class StudioPanel(QWidget):
             app.prepare_vocal_recording()
 
     def _workspace_clicked(self, index):
-        """User navigation may change playback context; programmatic select() may not."""
+        """Change the visible editor without changing transport or recording."""
         self.select(index)
         app = self._app()
         if app is None:
             return
-        if index == 2:
-            enter_song_mode(app)
-            self.select(2)
-            app.status.showMessage("SONG mode · full Arrange timeline playback", 2600)
-        elif index == 1:
-            app.set_mode("pattern")
-            app.status.showMessage("BEAT · current pattern playback", 2200)
-        elif index == 5:
+        if index == 5:
             clip = app.playlist.selected_clip
             if clip is not None and clip.kind == "audio":
                 app.open_vocal_clip(clip)

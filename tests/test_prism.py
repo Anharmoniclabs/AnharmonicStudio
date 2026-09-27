@@ -112,7 +112,7 @@ def test_plugin_parameter_mapping_matches_native_host_contract():
     assert mapped["1"] == 1
 
 
-def test_prism_theme_is_deterministic_and_tracks_sound_state():
+def test_prism_theme_stays_stable_when_sound_or_hand_fx_changes():
     from mpclab.ui.prism_controls import SPECS, normalized, prism_stylesheet, prism_theme
 
     values = {str(i): normalized(spec, spec["default"]) for i, spec in enumerate(SPECS)}
@@ -124,11 +124,13 @@ def test_prism_theme_is_deterministic_and_tracks_sound_state():
     changed["12"] = 0.913
     changed["54"] = 0.731
     changed_theme = prism_theme(changed)
-    assert changed_theme["id"] != original["id"]
-    assert changed_theme["accent"] != original["accent"]
+    assert changed_theme == original
+    for key in values:
+        changed[key] = 1.0 - values[key]
+    assert prism_theme(changed) == original
 
 
-def test_bundled_plugin_button_loads_current_tone_and_returns_to_builtin(window):  # noqa: F811
+def test_bundled_plugin_insertion_keeps_native_and_prism_independent(window):  # noqa: F811
     from mpclab.prism import bundled_plugin
     from mpclab.ui.prism_controls import SPECS, normalized
 
@@ -136,21 +138,28 @@ def test_bundled_plugin_button_loads_current_tone_and_returns_to_builtin(window)
         pytest.skip("Build Prism before running the bundled-plugin integration test")
     window.project.selected_patch.cutoff = 4321
     window.synth_panel._use_prism()
+    owner = window.project.selected_instrument
     for _ in range(200):
         QApplication.processEvents()
-        if window.engine.external.instrument is not None:
+        if hasattr(window.engine.external.instrument_for(owner), "plugin"):
             break
         QTest.qWait(25)
-    assert window.engine.external.instrument is not None, window.devices.plugin_status
+    assert hasattr(window.engine.external.instrument_for(owner), "plugin"), (
+        window.devices.plugin_status
+    )
     assert not window.synth_panel._controls[0][0].isEnabled()
     before = asdict(window.project.selected_patch)
     assert window.synth_panel.load_preset("Carbon Pulse") is False
     assert asdict(window.project.selected_patch) == before
-    spec = window.project.plugins["instrument"]
-    assert spec["parameters"]["12"] == pytest.approx(normalized(SPECS[12], 4321))
+    spec = window.project.instrument_plugins[owner]
+    assert spec["parameters"]["12"] == pytest.approx(
+        normalized(SPECS[12], window.project.selected_patch.cutoff)
+    )
     window.synth_panel._use_builtin()
-    assert window.engine.external.instrument is None
-    assert "instrument" not in window.project.plugins
+    assert window.project.synth.cutoff == 4321
+    assert window.project.selected_instrument != owner
+    assert window.engine.external.instrument_for(owner) is not None
+    assert owner in window.project.instrument_plugins
     assert window.synth_panel._controls[0][0].isEnabled()
 
 
@@ -163,12 +172,13 @@ def test_graphical_editor_changes_running_plugin_without_reloading(window):  # n
         pytest.skip("Build Prism first")
     panel = window.synth_panel
     panel._use_prism()
+    owner = window.project.selected_instrument
     for _ in range(200):
         QApplication.processEvents()
-        if window.engine.external.instrument is not None:
+        if hasattr(window.engine.external.instrument_for(owner), "plugin"):
             break
         QTest.qWait(25)
-    bridge = window.engine.external.instrument
+    bridge = window.engine.external.instrument_for(owner)
     assert bridge is not None
     pid = bridge.plugin.process.pid
     editor = panel.prism_surface
@@ -181,7 +191,7 @@ def test_graphical_editor_changes_running_plugin_without_reloading(window):  # n
     knob.setValue(7000)
     knob.setSliderDown(False)
     assert len(window._undo) == history + 1
-    assert window.project.plugins["instrument"]["parameters"]["12"] == pytest.approx(0.7)
+    assert window.project.instrument_plugins[owner]["parameters"]["12"] == pytest.approx(0.7)
     import time
 
     for _ in range(100):
@@ -197,18 +207,13 @@ def test_graphical_editor_changes_running_plugin_without_reloading(window):  # n
     editor.discrete("0", 2)
     editor.swap()
     assert editor.values["0"] == 0
-    panel.instrument_tabs.setCurrentIndex(0)
-    assert window.engine.external.instrument is None
-    panel.instrument_tabs.setCurrentIndex(1)
-    for _ in range(200):
-        QApplication.processEvents()
-        if window.engine.external.instrument is not None:
-            break
-        time.sleep(0.025)
-    assert window.engine.external.instrument is not None
-    assert window.project.plugins["instrument"]["parameters"]["12"] == pytest.approx(0.7)
-    assert panel.instrument_tabs.currentIndex() == 1
     panel._use_builtin()
+    assert window.project.selected_instrument != owner
+    assert window.engine.external.instrument_for(owner) is bridge
+    window.piano_roll.select_channel(owner)
+    assert window.engine.external.instrument_for(owner) is bridge
+    assert window.project.instrument_plugins[owner]["parameters"]["12"] == pytest.approx(0.7)
+    assert panel.instrument_tabs.currentIndex() == 1
 
 
 def test_live_parameters_preserve_held_note():
@@ -316,6 +321,24 @@ def test_studio_tempo_reaches_real_prism_arpeggiator():
         finally:
             plugin.close()
     assert np.max(np.abs(outputs[0] - outputs[1])) > 0.01
+
+
+def test_prism_accepts_every_midi_split_block_length():
+    """Hardware events split callbacks at arbitrary frames, unlike GUI commands."""
+    from mpclab.prism import bundled_plugin
+    from mpclab.plugin_host import IsolatedPlugin
+
+    path = bundled_plugin()
+    if path is None:
+        pytest.skip("Build Prism first")
+    plugin = IsolatedPlugin({"path": str(path)}, 48000)
+    try:
+        for frames in range(1, 257):
+            audio = plugin.render(None, frames, [([0x90, 60, 100], 0)] if frames == 1 else [])
+            assert audio.shape == (frames, 2), frames
+            assert np.isfinite(audio).all(), frames
+    finally:
+        plugin.close()
 
 
 def test_prism_live_panic_keeps_processor_and_accepts_next_note():

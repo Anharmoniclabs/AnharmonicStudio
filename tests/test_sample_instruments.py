@@ -465,10 +465,11 @@ def test_pattern_record_captures_each_pad_to_its_own_lane_without_track_arm(wind
     window.engine.beat = 0.5
 
     window._pad_pressed(1, 0.8)
+    window.engine._process_commands()
     assert window.track_capture.armed_id is None
     assert not window.track_capture.active
     window.engine.beat = 1.25
     window._pad_released(1)
 
-    assert window.project.pattern().notes == [Note(42, 0.5, 0.75, 0.8, 1)]
-    assert not window._recorded_pad_notes
+    assert window.project.pattern().steps == {1: {2: 0.8}}
+    assert window.project.pattern().notes == []

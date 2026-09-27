@@ -22,6 +22,8 @@ def window(tmp_path, monkeypatch):
     app._ui_timer.stop()
     app._autosave_timer.stop()
     app.project.vocal_record.count_in_bars = 0
+    for row in app.project.rows:
+        app.track_capture.track_monitor[row.id] = {"count_in_bars": 0}
     yield app
     app._dirty = False
     app.close()

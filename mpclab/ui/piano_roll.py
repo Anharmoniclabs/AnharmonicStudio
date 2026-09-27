@@ -903,9 +903,11 @@ class PianoRollPanel(WindowClient, QWidget):
         else:
             self.target_pad, self.target_instrument = index, None
         if self.target_pad is None:
+            self.app.project.pattern().selected_instrument = self.target_instrument
             selected = self.app.project.selected_instrument
             if selected != self.target_instrument:
-                self.app.panic_synth()
+                # Input owners retain their key-down destination until release.
+                # Selecting another sound must not cut a held chord or its take.
                 self.app.project.selected_instrument = self.target_instrument
                 self.app.synth_panel.sync()
         if hasattr(self.app.engine, "midi"):

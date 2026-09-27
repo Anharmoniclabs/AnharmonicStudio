@@ -1,6 +1,7 @@
 """Deleting an event stops its current sound, including a just-recorded one-shot."""
 
 import numpy as np
+import pytest
 from mpclab.engine import Engine
 from mpclab.music import Note
 from mpclab.event_source import EventSource
@@ -57,6 +58,7 @@ def test_deleting_recorded_pad_step_stops_original_live_one_shot():
     engine.trigger_pad(0)
     render(engine)
     original = next(v for v in engine.voices if v.live_trigger)
+    assert len(engine.voices) == 1
     assert original.event_source.pad == 0
     engine.recording = False
     engine.trigger_pad(1)
@@ -67,6 +69,48 @@ def test_deleting_recorded_pad_step_stops_original_live_one_shot():
     assert original.dead
     assert not unrelated.dead
     assert all(v.pad_index != 0 for v in engine.voices)
+
+
+@pytest.mark.parametrize("start, scheduled", [(0, 0), (0.24, 0.25), (3.99, 4), (0.26, 0.25)])
+@pytest.mark.parametrize("midi", [False, True])
+def test_recorded_pad_sounds_once_then_plays_on_next_loop(start, scheduled, midi):
+    engine = engine_with_sample()
+    engine.project.pattern().bars = 1
+    engine.playing = engine.recording = True
+    engine.beat = start
+    if midi:
+        engine.midi._pad_on(0, 0.8)
+    else:
+        engine.trigger_pad(0, 0.8)
+    render(engine)
+    assert len(engine.voices) == 1
+    assert engine.voices[0].event_source.pad == 0
+    # Cross a future quantized step without auditioning it a second time.
+    while engine.beat <= scheduled + 0.05:
+        render(engine)
+    assert len(engine.voices) == 1
+    engine.recording = False
+    engine.voices.clear()
+    engine.beat = scheduled + 4
+    render(engine)
+    assert len(engine.voices) == 1
+    assert not engine.voices[0].live_trigger
+
+
+def test_restart_does_not_suppress_a_previously_recorded_step():
+    engine = engine_with_sample()
+    engine.playing = engine.recording = True
+    engine.beat = 0.24
+    engine.trigger_pad(0)
+    engine._process_commands()
+    engine.stop_transport(True)
+    engine._process_commands()
+    engine.voices.clear()
+    engine.recording = False
+    engine.play(0.25)
+    render(engine)
+    assert len(engine.voices) == 1
+    assert not engine.voices[0].live_trigger
 
 
 def test_recorded_sample_token_binds_original_voice_not_newer_performance():

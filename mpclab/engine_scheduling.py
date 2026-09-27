@@ -189,7 +189,12 @@ def record(engine: Engine, pad_index: int, velocity: float) -> EventSource:
     pat = engine.project.pattern()
     length = pat.length_beats
     local = engine.beat % length if length else 0.0
-    step = int(round(local * pat.div)) % pat.total_steps
+    rounded = int(round(local * pat.div))
+    step = rounded % pat.total_steps
     pat.set(pad_index, step, round(velocity, 3))
+    # The live hit already sounds this pass. Quantization can place its stored
+    # step at the block start, later this pass, or just across the loop boundary.
+    occurrence = engine.beat - local + rounded / pat.div + swing_offset(engine, pat, step)
+    engine._live_recorded_steps[(id(pat), pad_index, step)] = occurrence
     engine.pattern_dirty = True
     return EventSource(pat, pad=pad_index, step=step)

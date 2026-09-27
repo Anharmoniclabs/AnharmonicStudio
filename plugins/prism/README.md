@@ -46,9 +46,12 @@ commercial sample libraries are not included.
 
 ## Studio and piano roll
 
-Open **Instruments → Launch Prism** or select the Prism tab. Native instrument
-retains the built-in library. Switching back to Prism remembers its tone within
-the current project session. Live knob gestures update the existing VST3 instance
+In **Instruments**, choose **Prism** and **Insert instrument** for the current
+pattern. Native and Prism occupy separate instances; choosing one does not
+replace the other. The pattern remembers its selected instrument. Live keys play
+that selection only. Enable **Layer current notes** before insertion to copy the
+selected instrument's notes into the new sound for stacked playback. Duplicating
+a pattern creates independent instrument copies. Live knob gestures update the existing VST3 instance
 without reloading; each Studio drag is one undo step. Save/Open `.prism.json`
 exchanges the full Prism sound with the separate plugin.
 
@@ -65,6 +68,15 @@ Shift+arrows move a beat/octave; Ctrl+wheel zoom. Click the ruler to place the
 paste cursor; Home/End move it to the start/last note end. Ctrl+Z and Ctrl+Shift+Z
 undo/redo. The F1 shortcut sheet lists the bindings.
 
+## Optional Hand FX camera
+
+Studio's Hand FX uses an optional local tracking process. Source developers can
+install it using the [camera setup guide](../../BUILDING.md#optional-prism-hand-fx-camera-support).
+Start camera explicitly; choose a video capture device, not a metadata-only
+node. The preview stays local and is not recorded or uploaded. This source-only
+optional setup is not bundled into the current paid installers or standalone
+plugin. Closing the panel stops capture; recorded effect moves remain in the song.
+
 ## Install the separate plugin
 
 Copy `VST3/Anharmonic Prism.vst3` to your host's plugin folder and rescan:
@@ -80,7 +92,9 @@ Use the pack for the target operating system. AAX is not included.
 
 `python scripts/build_prism.py /new/output/Prism-platform --jobs 3` downloads and verifies JUCE 7.0.12, builds with CMake, runs the native tests, stages the bundled plugin, and produces the separate pack. Python 3.12+, CMake 3.22+, and a C++17 compiler are required. Linux also needs ALSA, FreeType, Fontconfig, X11 development packages and their graphics dependencies. WebKit is disabled. macOS builds require Xcode; Windows builds require Visual Studio C++ tools. See the dedicated CI workflow.
 
-The pack contains the corresponding project source and pinned JUCE source archive. The plugin is distributed under GPLv3, consistent with the source engine; framework and embedded SDK notices remain in their source files. This is an open-source release pack, not a proprietary-licensed plugin. JUCE source: https://github.com/juce-framework/JUCE/tree/7.0.12. VST is a trademark of Steinberg Media Technologies GmbH.
+The pack contains the corresponding project source and pinned JUCE source archive. The plugin is distributed under GPLv3, consistent with the source engine; framework and embedded SDK notices remain in their source files. The full source is open; official compiled plugin packs follow Studio’s paid-build
+distribution policy. CI uploads only encrypted binary packs. Matching source and
+notices remain publicly available without payment, and recipients retain GPL rights. JUCE source: https://github.com/juce-framework/JUCE/tree/7.0.12. VST is a trademark of Steinberg Media Technologies GmbH.
 
 Linux packages inherit the build machine's glibc and graphics requirements. Cross-platform targets and CI configuration are not evidence of successful builds, signing, notarization, or testing in every DAW; use the accompanying validation report for tested platforms and hosts. Keep both source archives with public distribution of this pack.
 
@@ -96,3 +110,7 @@ White notes use `Z X C V B N M , . /`; lower black notes use
 higher black notes use `1 2 3 4 5 6 7 8 9 0`. Upper rows start one octave above
 the lower rows. The piano shows all three octaves and labels overlapping keys.
 Page Up / Page Down or the OCT buttons shift the base octave.
+
+Prism’s Studio editor now uses a stable blue palette. Presets, automation, knobs
+and Hand FX change the sound without changing the panel colors or rebuilding
+its stylesheet during performance.

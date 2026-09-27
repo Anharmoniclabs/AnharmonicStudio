@@ -7,6 +7,8 @@ from .window_client import WindowClient
 
 from ..model import PADS_PER_BANK
 from ..music import Note
+from ..recording_timing import performance_beat
+from .performance_capture import captured_note, refresh_recorded_notes
 
 MIN_SAMPLE_FRAMES = 8
 
@@ -262,13 +264,16 @@ class SampleWorkflow(WindowClient):
         if app.project.pads[slot].empty:
             app.status.showMessage("This instrument has no sound. Load or replace it first.", 4000)
             return
+        start = performance_beat(app.engine)
+        token = app.engine.sample_note_on(slot, note, velocity)
         capture = getattr(app, "track_capture", None)
         if capture is not None:
             capture.note_on(note, velocity, slot)
-        if app.engine.recording and app.engine.playing and app.engine.mode == "pattern":
+        from .window_transport import pattern_recording_ready
+
+        if pattern_recording_ready(app):
             app._snapshot_recording_take()
-            self.recorded[note] = (app.project.pattern().id, app.engine.beat, velocity, slot)
-        token = app.engine.sample_note_on(slot, note, velocity)
+            self.recorded[note] = (app.project.pattern().id, start, velocity, slot)
         if note in self.recorded:
             self.recorded[note] = (*self.recorded[note], token)
         if app.typing_keyboard is not None:
@@ -283,6 +288,8 @@ class SampleWorkflow(WindowClient):
             instrument = self.held_instruments.pop(note, None)
             app.release_synth_note(note, instrument_id=instrument)
             return
+        end = performance_beat(app.engine)
+        app.engine.sample_note_off(slot, note)
         capture = getattr(app, "track_capture", None)
         if capture is not None:
             capture.note_off(note, slot)
@@ -291,14 +298,12 @@ class SampleWorkflow(WindowClient):
             pattern_id, start, velocity, recorded_slot, *tokens = recorded
             pattern = next((p for p in app.project.patterns if p.id == pattern_id), None)
             if pattern:
-                beat = start % pattern.length_beats
-                duration = min(max(0.03125, app.engine.beat - start), pattern.length_beats - beat)
-                captured = Note(note, beat, duration, velocity, recorded_slot)
+                captured = captured_note(
+                    app.engine, pattern, note, start, end, velocity, pad=recorded_slot
+                )
                 pattern.notes.append(captured)
                 app.engine.bind_recorded_note(pattern, captured, tokens[0] if tokens else None)
-                app._set_dirty(True)
-                app.piano_roll.canvas.refresh()
-        app.engine.sample_note_off(slot, note)
+                refresh_recorded_notes(app)
         if app.typing_keyboard is not None:
             app.typing_keyboard.keyboard.set_note_active(note, False)
 

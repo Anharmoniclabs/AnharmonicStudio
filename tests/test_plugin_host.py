@@ -102,12 +102,15 @@ def test_failed_or_hung_plugin_load_returns_control(mode):
 def live_fixture():
     bridge = LivePlugin.__new__(LivePlugin)
     bridge.blocksize = 16
-    bridge.requests = queue.Queue(maxsize=4)
-    bridge.results = queue.Queue(maxsize=4)
+    bridge.requests = queue.Queue(maxsize=4 * bridge.blocksize)
+    bridge.results = queue.Queue(maxsize=4 * bridge.blocksize)
     bridge.error = ""
     bridge.misses = 0
+    bridge.backlog_recoveries = 0
     bridge._consecutive_misses = 0
     bridge._position = 0
+    bridge._received_position = 0
+    bridge._missing_frames = 0
     bridge._pending = {}
     return bridge
 
@@ -148,14 +151,15 @@ def test_live_timeout_recovers_without_waiting_or_replaying_old_audio():
     assert queued[2][3:] == (note_off, True)
 
 
-def test_live_sustained_deadline_misses_still_fail_closed():
+def test_live_deadline_misses_do_not_permanently_disable_a_responding_worker():
     bridge = live_fixture()
     for _ in range(10):
         result = bridge.render(None, 16)
         # Simulate a worker accepting requests but always returning too late.
-        bridge.requests.get_nowait()
-    assert result is None
-    assert bridge.misses == 8 and "deadline" in bridge.error
+        request = bridge.requests.get_nowait()
+        bridge._received_position = request[0] + request[2]
+    assert result is not None
+    assert bridge.misses == 8 and not bridge.error
 
 
 def test_live_partial_deadline_miss_retains_only_timely_samples():
@@ -169,11 +173,13 @@ def test_live_partial_deadline_miss_retains_only_timely_samples():
     assert bridge.misses == 1 and not bridge.error
 
 
-def test_live_request_overflow_remains_a_fatal_error():
+def test_live_request_backlog_recovers_with_bounded_queue():
     bridge = live_fixture()
     for _ in range(5):
         result = bridge.render(None, 16)
-    assert result is None and "could not keep up" in bridge.error
+    assert result is not None and not bridge.error
+    assert bridge.requests.qsize() == 1
+    assert bridge.backlog_recoveries == 1
 
 
 def test_plugin_state_roundtrip_and_legacy_projects(tmp_path):
@@ -206,3 +212,46 @@ def test_recursive_discovery_does_not_enter_plugin_bundles_or_symlink_loops(tmp_
     (tmp_path / "Vendor/loop").symlink_to(tmp_path, target_is_directory=True)
     candidates = discover_plugins([tmp_path, tmp_path / "Vendor"])
     assert [p.path for p in candidates] == [str(bundle)]
+
+
+def test_live_dense_midi_chunks_fit_the_same_bounded_audio_backlog():
+    bridge = live_fixture()
+    source = np.arange(128, dtype=np.float32).reshape(64, 2)
+    # Worker receives one whole callback split by many MIDI events, then
+    # publishes every result before the next callback starts.
+    for frame in range(16):
+        assert bridge.render(source[frame : frame + 1], 1, [([0x90, 60, 90], 0)]) is not None
+    while not bridge.requests.empty():
+        position, audio, frames, midi, reset = bridge.requests.get_nowait()
+        bridge.results.put_nowait((position, audio))
+    assert bridge.render(source[16:32], 16) is not None
+    result = bridge.render(source[32:48], 16, [([0x80, 60, 0], 0)])
+    assert np.array_equal(result, source[:16])
+    assert not bridge.error and bridge.misses == 0
+
+
+def test_live_tiny_chunks_still_have_a_four_block_backlog_limit():
+    bridge = live_fixture()
+    for _ in range(64):
+        assert bridge.render(None, 1) is not None
+    assert bridge.render(None, 1) is not None
+    assert not bridge.error and bridge.requests.qsize() == 1
+    assert bridge.backlog_recoveries == 1
+
+
+def test_backlog_recovery_preserves_note_off_sustain_and_parameter_order():
+    bridge = live_fixture()
+    events = [([0x90, 60, 100], 0), ([0xB0, 64, 127], 0), ([0x80, 60, 0], 0), ([0xB0, 64, 0], 0)]
+    for index, event in enumerate(events):
+        bridge.render(None, 16, [event], parameters={"gain": index / 4})
+    bridge.render(None, 16, [([0x90, 67, 90], 0)], parameters={"gain": 0.9})
+    request = bridge.requests.get_nowait()
+    assert request[0] == 64
+    assert request[3] == events + [([0x90, 67, 90], 0)]
+    assert request[5] == {"gain": 0.9}
+    # Return the recovered chunk, then render far enough to hear it on time.
+    bridge.results.put((64, np.ones((16, 2), np.float32)))
+    bridge.render(None, 16)
+    output = bridge.render(None, 16)
+    assert np.array_equal(output, np.ones((16, 2), np.float32))
+    assert not bridge.error

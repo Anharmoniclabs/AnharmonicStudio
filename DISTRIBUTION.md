@@ -35,6 +35,14 @@ is not provided. See [SUPPORT.md](SUPPORT.md) and [BUILDING.md](BUILDING.md).
 The source remains complete and buildable. `run.sh`, native sources, dependency locks,
 and platform packaging definitions remain available; no artificial obstacles are added.
 
+## September 27 update policy
+
+The source update in [CHANGELOG.md](CHANGELOG.md) is public on `main`. The paid
+catalog remains `0.1.0-rc.1` until a new immutable candidate set is validated and
+promoted. Official Prism binary packs follow the same private-build policy as
+Studio installers; their source and build scripts remain free. Do not upload
+plaintext plugin packs to public Actions artifacts, Releases or Pages.
+
 ## Release status
 
 Native 0.1.0-rc.1 candidates have passed software checks on all four targets. They remain

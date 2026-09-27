@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from copy import deepcopy
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QInputDialog
 
-from ..model import Pattern, Clip, Row, uid, remap_step_lane
+from ..model import Pattern, Clip, Row, uid, remap_step_lane, MAX_INSTRUMENTS
 from ..workflow import pattern_arrangement_target
 from .playlist import RULER_H
 
@@ -39,6 +40,9 @@ class PatternActionsMixin:
         self.grid_box.blockSignals(False)
         self.step_grid.refresh()
         if hasattr(self, "piano_roll"):
+            rack = getattr(getattr(self, "synth_panel", None), "pattern_rack", None)
+            if rack is not None:
+                rack.select_pattern()
             self.piano_roll.sync()
         if hasattr(self, "scoring_panel") and self.scoring_panel.isVisible():
             self.scoring_panel.refresh()
@@ -59,20 +63,61 @@ class PatternActionsMixin:
         self._refresh_place_box()
 
     def dup_pattern(self):
-        self.snapshot()
         src = self.project.pattern()
+        owners = list(src.instrument_ids)
+        for event in [*src.notes, *src.midi_controls]:
+            if event.pad is None and event.instrument not in owners:
+                owners.append(event.instrument)
+        if len(self.project.instruments) + len(owners) > MAX_INSTRUMENTS:
+            self.status.showMessage("Not enough instrument slots to duplicate this pattern", 5000)
+            return
+        self.snapshot()
+        mapping, plugins = {}, {}
+        for owner in owners:
+            patch = self.project.instrument_patch(owner)
+            instance = self.project.add_instrument(
+                f"{src.name[:140]} copy · {patch.name}"[:200], patch
+            )
+            mapping[owner] = instance.id
+            spec = (
+                self.project.plugins.get("instrument")
+                if owner is None
+                else self.project.instrument_plugins.get(owner)
+            )
+            if spec:
+                plugins[instance.id] = deepcopy(spec)
+                self.project.instrument_plugins[instance.id] = plugins[instance.id]
         copy = Pattern(
             id=uid(),
             name=f"{src.name} copy",
             bars=src.bars,
             div=src.div,
             steps={k: dict(v) for k, v in src.steps.items()},
-            notes=[replace(note) for note in src.notes],
+            notes=[
+                replace(note, instrument=mapping.get(note.instrument) if note.pad is None else None)
+                for note in src.notes
+            ],
+            midi_controls=[
+                replace(
+                    event,
+                    message=list(event.message),
+                    instrument=mapping.get(event.instrument) if event.pad is None else None,
+                )
+                for event in src.midi_controls
+            ],
+            instrument_ids=list(mapping.values()),
+            selected_instrument=mapping.get(src.selected_instrument),
         )
         self.project.patterns.append(copy)
         self.project.current_pattern = copy.id
         self._sync_pattern_controls()
         self._refresh_place_box()
+        for owner, spec in plugins.items():
+            from ..plugin_host import UnavailablePlugin
+
+            self.engine.external.set_instrument(owner, UnavailablePlugin("Loading instrument…"))
+            self.devices.load_plugin("instrument", spec, instrument_id=owner, save=False)
+        self._set_dirty(True)
 
     def rename_pattern(self):
         pat = self.project.pattern()

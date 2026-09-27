@@ -90,6 +90,12 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
         for event in notes:
             beat, pad_idx, vel, _gate, sequence_id = event
             source = getattr(event, "source", None)
+            if source is not None and source.step is not None:
+                key = (id(source.pattern), source.pad, source.step)
+                recorded = engine._live_recorded_steps.get(key)
+                if recorded is not None and abs(recorded - beat) < 1e-9:
+                    del engine._live_recorded_steps[key]
+                    continue
             off = int(max(0.0, (beat - b0) / bps))
             if pad_idx < 0:
                 instrument_id, pitch = decode_destination(proj, pad_idx)
@@ -127,6 +133,9 @@ def render_block(engine: Engine, outdata, frames, monitor=None):
                     sequence_id=sequence_id,
                     event_source=source,
                 )
+        for key, occurrence in tuple(engine._live_recorded_steps.items()):
+            if occurrence < b1:
+                del engine._live_recorded_steps[key]
         for clip in audio:
             off = int(max(0.0, (clip.start_beat - b0) / bps))
             engine._spawn_audio_clip(clip, min(off, frames - 1))

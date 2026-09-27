@@ -39,9 +39,20 @@ and Pages site. Source access stays free; recipients retain their GPL rights.
 The [matching source and license packages for all four platforms](https://github.com/Anharmoniclabs/AnharmonicStudio/releases/tag/v0.1.0-rc.1-source)
 are public GitHub release assets. Cloudflare R2 stores only the compiled installers.
 
+## Latest source updates
+
+The September 27 source update improves count-in recording, separate pad/key
+routing, Song recording, uninterrupted workspace switching, independent Native
+and Prism instruments per pattern, and undo/redo responsiveness. Prism now
+recovers from transient render backlog. See the [changelog](CHANGELOG.md) and
+[recording guide](docs/architecture/RECORDING.md).
+
+These changes are newer than the paid **0.1.0-rc.1** packages. A new encrypted
+candidate build must pass validation before the private download catalog changes.
+
 ## What is inside
 
-The capability-foundations development branch adds a 128-track mixer, named
+The current source includes a 128-track mixer, named
 timeline markers/regions, and audio-file analysis. See the
 [usage guide and explicit limitations](planning/USAGE.md) and
 [full implementation backlog](planning/README.md). These additions are not yet
@@ -85,17 +96,21 @@ The plugin scanner checks standard installation folders and folders you add.
 Load a VST3 instrument for synth notes, and use **Plugins → Manage insert plugin
 chains** to configure serial effects on tracks, buses and the master. Parameters and
 presets save with the project and are used during WAV export. Pitch bend and
-unmapped MIDI CCs reach the external instrument during live playing. Native
+unmapped MIDI CCs reach the external instrument during live playing. Arbitrary native
 plugin windows, MIDI output/clock synchronization, and recording expression
 automation are not implemented yet. Plugin controls use the studio's parameter
-panel; applying changes reloads that plugin.
+panel; Prism has a dedicated Studio editor. Live parameter changes update a
+running instance where supported. Insert Native or Prism from the Instruments
+workspace to give each pattern its own instances; live input follows the selected
+instrument, and Layer current notes explicitly copies notes for stacking.
 
 Plugins must match your operating system and processor. VST2, CLAP, and LV2
 are listed but cannot be loaded by this host. Audio Unit support is available
 through the host on macOS; this integration has only been tested on Linux.
 Linux checks include the Nekobi instrument and MVerb effect; other plugins may
 need different bus layouts or host features. External instruments and effect
-chains run in isolated processes. A failed instrument is silenced and a failed
+chains run in isolated processes. Transient instrument backlogs recover while preserving queued MIDI releases.
+A crashed or timed-out instrument is silenced and a failed
 effect path is bypassed; failed exports report the error. A serial insert chain
 shares one two-buffer live bridge (about 21 ms at 48 kHz / 512 frames), in addition
 to plugin-reported latency and the native output queue.
