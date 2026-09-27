@@ -276,3 +276,41 @@ def test_known_instrument_stem_context_is_preserved():
         assert all(hit.kind == expected_hit for hit in result["hits"])
         assert result["loops"]
         assert all(loop.detail["content"] == expected_loop for loop in result["loops"])
+
+
+def test_auto_chop_quiet_boundaries_preserve_stereo_attack():
+    sr = 48000
+    t = np.arange(sr // 10) / sr
+    left = np.sin(2 * np.pi * 100 * t).astype(np.float32)
+    stereo = np.column_stack((left, -left))
+    centre = 0.023
+    cut = detect.quiet_boundary(stereo, sr, centre)
+    assert centre - 0.004 <= cut <= centre
+    index = round(cut * sr)
+    assert np.max(np.abs(stereo[index - 1 : index + 1])) < 0.02
+    assert detect.quiet_boundary(stereo, sr, 0) == 0
+    assert detect.quiet_boundary(stereo, sr, len(stereo) / sr) == len(stereo) / sr
+
+
+def test_quiet_phrase_preserves_bar_length():
+    sr = 48000
+    t = np.arange(sr) / sr
+    audio = np.sin(2 * np.pi * 100 * t).astype(np.float32)
+    phrase = detect.Candidate(0.103, 0.603, "loop")
+    detect.quiet_phrase(audio, sr, phrase)
+    assert abs(phrase.length - 0.5) < 1e-12
+    assert 0.099 <= phrase.start <= 0.103
+    assert abs(audio[round(phrase.start * sr)]) < 0.02
+    assert abs(audio[round(phrase.end * sr)]) < 0.02
+
+
+def test_shortlist_rewards_distinct_hits_and_avoids_duplicate_attacks():
+    profile = {"profile": [1, 0, 0], "decay": 0.1}
+    best = detect.Candidate(1, 1.2, "kick", 0.95, profile)
+    duplicate = detect.Candidate(1.01, 1.2, "kick", 0.94, profile)
+    similar = detect.Candidate(2, 2.2, "kick", 0.94, profile)
+    different = detect.Candidate(3, 3.2, "kick", 0.90, {"profile": [0.5, 0.5, 0], "decay": 0.25})
+    assert detect.best_hits([duplicate, similar, different, best], per_kind=2)["kick"] == [
+        best,
+        different,
+    ]

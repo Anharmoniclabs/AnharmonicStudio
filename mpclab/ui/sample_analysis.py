@@ -89,8 +89,7 @@ def auto_chop(window, *, then_map: bool = False, set_tempo: bool = False):
             audio = library.audio(clip_id)
             if audio is None or not len(audio):
                 raise ValueError("nothing to scan")
-            mono = detect.analysis_mono(audio)
-            result = detect.scan(mono, sample_rate, sensitivity=sens, source_kind=source_kind)
+            result = detect.scan(audio, sample_rate, sensitivity=sens, source_kind=source_kind)
         except Exception as exc:  # keep the app alive
             emit_if_alive(window, "scanFailed", clip_id, str(exc))
             return

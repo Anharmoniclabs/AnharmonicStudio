@@ -469,7 +469,28 @@ def best_hits(
             grouped.setdefault(hit.kind, []).append(hit)
     for _kind, items in grouped.items():
         items.sort(key=lambda c: -c.score)
-        del items[per_kind:]
+        selected = []
+        while items and len(selected) < per_kind:
+
+            def utility(candidate, selected=selected):
+                profile = np.asarray(candidate.detail.get("profile", []), dtype=float)
+                similarity = 0.0
+                for chosen in selected:
+                    other = np.asarray(chosen.detail.get("profile", []), dtype=float)
+                    if profile.size and profile.shape == other.shape:
+                        cosine = float(profile @ other) / (
+                            float(np.linalg.norm(profile) * np.linalg.norm(other)) + 1e-9
+                        )
+                        decay_gap = abs(
+                            candidate.detail.get("decay", 0) - chosen.detail.get("decay", 0)
+                        )
+                        similarity = max(similarity, cosine * np.exp(-decay_gap / 0.08))
+                return candidate.score - 0.12 * similarity
+
+            chosen = max(items, key=utility)
+            selected.append(chosen)
+            items[:] = [item for item in items if abs(item.start - chosen.start) >= 0.05]
+        items[:] = selected
     return grouped
 
 
@@ -726,6 +747,48 @@ def refine_attacks(x, sr, times):
     return out
 
 
+def quiet_boundary(audio: np.ndarray, sr: int, seconds: float, radius_ms: float = 4.0) -> float:
+    """Find a quiet stereo boundary just before a cut, preserving the attack.
+
+    Both sides of the splice and every channel matter: a cancelled mono sum
+    is not silence. Never move forward into a transient or the next hit.
+    """
+    data = np.asarray(audio)
+    centre = min(len(data), max(0, round(seconds * sr)))
+    if centre == 0 or centre == len(data):
+        return centre / sr
+    radius = max(1, round(sr * radius_ms / 1000))
+    lo = max(1, centre - radius)
+    segment = data[lo - 1 : centre + 1].reshape(centre - lo + 2, -1)
+    levels = np.max(np.abs(segment), axis=1)
+    edges = np.maximum(levels[:-1], levels[1:])
+    distance = (centre - np.arange(lo, centre + 1)) / radius
+    # Relative cost preserves quiet recordings and avoids a fixed amplitude
+    # floor that would disable snapping on low-level material.
+    cost = edges + 0.02 * max(float(edges.max()), 1e-9) * distance
+    return (lo + int(np.argmin(cost))) / sr
+
+
+def quiet_phrase(audio: np.ndarray, sr: int, candidate: Candidate) -> None:
+    """Shift both phrase edges together, preserving the musical loop length."""
+    start, end = round(candidate.start * sr), round(candidate.end * sr)
+    radius = min(round(sr * 0.004), max(0, start - 1))
+    if radius <= 0 or end >= len(audio):
+        return
+    shifts = np.arange(-radius, 1)
+    levels = []
+    for edge in (start, end):
+        before = np.abs(audio[edge + shifts - 1]).reshape(len(shifts), -1).max(axis=1)
+        after = np.abs(audio[edge + shifts]).reshape(len(shifts), -1).max(axis=1)
+        levels.append(np.maximum(before, after))
+    edges = np.maximum(levels[0], levels[1])
+    cost = edges + 0.02 * max(float(edges.max()), 1e-9) * (-shifts / radius)
+    shift = int(shifts[int(np.argmin(cost))]) / sr
+    candidate.start += shift
+    candidate.end += shift
+    candidate.detail["boundary_shift_ms"] = round(shift * 1000, 3)
+
+
 def scan(
     x: np.ndarray,
     sr: int = SR,
@@ -735,13 +798,14 @@ def scan(
     source_kind: str | None = None,
 ) -> dict:
     """Full pass: tempo, grid, classified hits, loops and drops."""
-    x = np.asarray(x, dtype=np.float32)
+    audio = np.asarray(x, dtype=np.float32)
+    x = analysis_mono(audio)
     spec = spectra(x, sr)
     env = spec.flux
     bpm = bpm or tempo_from_envelope(env, spec.fps)
     phase, downbeat = beat_grid(env, spec.fps, bpm, accent=spec.band_envelope(SUB, LOW))
 
-    onsets = _audible_onsets(x, sr, spec, sensitivity)
+    onsets = [quiet_boundary(audio, sr, t) for t in _audible_onsets(x, sr, spec, sensitivity)]
     # Move the spectral grid onto waveform attacks without quantizing chops.
     beat = 60.0 / bpm
     offsets = (np.asarray(onsets) - phase + beat / 2) % beat - beat / 2
@@ -755,6 +819,19 @@ def scan(
         if min(downbeat, 4 * beat - downbeat) < 0.002:
             downbeat = 0.0
     hits = find_hits(x, sr, spec=spec, onsets=onsets)
+    precise_onsets = {round(t, 5): t for t in onsets}
+    for hit in hits:
+        # Keep editor markers and auto-mapped pad starts on the same frame.
+        hit.start = precise_onsets[hit.start]
+        hit.end = max(hit.start + 1 / sr, quiet_boundary(audio, sr, hit.end))
+        edge = round(hit.start * sr)
+        before = x[max(0, edge - round(sr * 0.025)) : edge]
+        after = x[edge : min(len(x), edge + round(sr * 0.04))]
+        floor = float(np.mean(before**2)) if len(before) else 0.0
+        attack = float(np.mean(after**2)) if len(after) else 0.0
+        cleanliness = float(np.clip(1 - floor / (attack + 1e-12), 0, 1))
+        hit.detail["attack_cleanliness"] = round(cleanliness, 4)
+        hit.score = round(hit.score * (0.85 + 0.15 * cleanliness), 4)
     # Separation supplies trustworthy instrument context that broadband
     # attack heuristics cannot recover from every bass or piano articulation.
     if source_kind in ("bass", "other", "piano", "guitar", "vocals"):
@@ -781,6 +858,9 @@ def scan(
             or (members and drums < len(members) * 0.3)
             else "mixed loop"
         )
+    drops = find_drops(x, sr, bpm=bpm, spec=spec, phase=downbeat)
+    for phrase in loops + drops:
+        quiet_phrase(audio, sr, phrase)
     return {
         "bpm": bpm,
         "phase": phase,
@@ -789,7 +869,7 @@ def scan(
         "hits": hits,
         "by_kind": best_hits(hits, per_kind=per_kind),
         "loops": loops,
-        "drops": find_drops(x, sr, bpm=bpm, spec=spec, phase=downbeat),
+        "drops": drops,
     }
 
 

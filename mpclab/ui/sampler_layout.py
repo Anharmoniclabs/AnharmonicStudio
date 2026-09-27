@@ -45,7 +45,8 @@ def _build_chop(window) -> QWidget:
     window.btn_scan = QPushButton("Find slices")
     window.btn_scan.setObjectName("go")
     window.btn_scan.setToolTip(
-        "Find precise attacks, instrument hits and repeated 1/2/4-bar loops. "
+        "Find attacks, distinct instrument hits and repeated 1/2/4-bar loops. "
+        "Cuts use quiet stereo boundaries before the attack; loops retain their length. "
         "Adjust sensitivity and scan again; audio keeps playing during analysis."
     )
     window.btn_scan.clicked.connect(

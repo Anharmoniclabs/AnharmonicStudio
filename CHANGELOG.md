@@ -7,6 +7,10 @@ serves **0.1.0-rc.1** until a new, separately versioned installer set passes its
 build and delivery checks. Source availability does not mean an installed copy
 has updated itself.
 
+- Refine auto-chops with stereo-safe quiet boundaries before attacks, quieter
+  phrase edges without changing loop length, attack-cleanliness scoring and
+  a shortlist that favors distinct hits. Add a reproducible local song/stem
+  audition audit with pad exports and engine playback checks.
 - Compact the branding header and Song toolbars. Group marker actions into one
   dropdown, automatically collapse empty marker lanes, and keep one Zoom menu.
   Show the recording destination and count-in in the header (Record tooltip on
