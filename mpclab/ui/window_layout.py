@@ -149,6 +149,7 @@ def _build(window):
     window.panel_controls = QWidget()
     panel_controls = QHBoxLayout(window.panel_controls)
     panel_controls.setContentsMargins(0, 0, 6, 0)
+    window._panel_button_states = []
     for text, callback in (
         ("Browser", window.toggle_browser),
         ("Pads", window.toggle_pads),
@@ -158,6 +159,14 @@ def _build(window):
         button.setObjectName("mini")
         button.clicked.connect(callback)
         panel_controls.addWidget(button)
+        if text in ("Browser", "Pads"):
+            from .menu_hierarchy import _PanelButtonState
+
+            button.setCheckable(True)
+            panel = window.browser_frame if text == "Browser" else window.pad_side
+            window._panel_button_states.append(_PanelButtonState(panel, button))
+            shortcut = "F8" if text == "Browser" else "Shift+F8"
+            button.setToolTip(f"Show or hide {text.lower()} · {shortcut}")
         if text == "Arrange":
             button.setCheckable(True)
             button.setToolTip("Give Song Arrange the full workspace; press F11 to leave focus mode")

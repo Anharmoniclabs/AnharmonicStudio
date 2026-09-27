@@ -86,4 +86,7 @@ def attach_application_features(window):
     attach_dawproject_interchange(window, controller)
     attach_daw_expansion(window, controller)
     restore_unmanaged_legacy_shortcuts(controller)
+    from .ui.menu_hierarchy import organize_menus
+
+    organize_menus(window, controller)
     return controller

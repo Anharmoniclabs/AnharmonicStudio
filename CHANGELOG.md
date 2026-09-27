@@ -7,6 +7,10 @@ serves **0.1.0-rc.1** until a new, separately versioned installer set passes its
 build and delivery checks. Source availability does not mean an installed copy
 has updated itself.
 
+- Group the desktop header into File, Edit, View, Transport, Sound, Tools and
+  Help. Recording and markers live under Transport; instruments, plugins, routing
+  and device settings live under Sound. Commands search replaces the duplicate
+  Project dropdown, and Browser/Pads buttons reflect panel visibility.
 - Record MIDI keys, typing-keyboard chords and sample pads from Beats, Notes or
   Song. Count-in clicks and a shared recording deadline preserve the first hit
   after count-in without recording the count-in performance.
