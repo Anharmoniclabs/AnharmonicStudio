@@ -16,7 +16,6 @@ from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QSettings
 from PySide6.QtGui import QKeySequence, QShortcut, QAction, QActionGroup, QColor
 from PySide6.QtWidgets import (
     QMainWindow,
-    QDockWidget,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -68,8 +67,6 @@ from .audio_setup import AudioSetupDialog
 from .color_picker import TonePickerDialog
 from .visual_assets import owner_icon, brand_pixmap
 from .devices import DevicesController
-from ..agent_harness import AgentHarness
-from .agent_harness import AgentHarnessPanel
 from . import (
     window_layout,
     transport_layout,
@@ -397,14 +394,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.session_path = self.projects_dir / ".session-autosave.json"
         self.session_history_path = self.projects_dir / ".session-history.json"
         self.history_path = self.session_history_path
-        self.agent_harness = AgentHarness(root / "agent-swarm.json")
-        self._agent_harness_load_warning = ""
-        try:
-            self.agent_harness.load()
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            # A malformed optional harness preference must never prevent a
-            # song, its audio device, or recovery history from opening.
-            self._agent_harness_load_warning = str(exc)
         if not restore_session and self.session_path.exists():
             self._archive_session_recovery()
 
@@ -554,33 +543,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         scan_hint = self.audio_menu.addAction("OPEN TO SCAN CONNECTIONS")
         scan_hint.setEnabled(False)
 
-    def _build_agent_harness(self):
-        """Mount the swarm outside production editor ownership and splitter geometry."""
-        self.agent_swarm_dock = QDockWidget("Agentic MPC Labs", self)
-        self.agent_swarm_dock.setObjectName("agentSwarmDock")
-        self.agent_swarm_dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
-        self.agent_swarm_panel = AgentHarnessPanel(self.agent_harness, self.agent_swarm_dock)
-        self.agent_swarm_dock.setWidget(self.agent_swarm_panel)
-        self.addDockWidget(Qt.RightDockWidgetArea, self.agent_swarm_dock)
-        self.agent_swarm_dock.hide()
-
-    def show_agent_harness(self):
-        """Open the review-only swarm without changing song/editor navigation."""
-        summary = (
-            f"Project: {self.project.name}; BPM: {self.project.bpm:.2f}; "
-            f"patterns: {len(self.project.patterns)}; "
-            f"arrange clips: {sum(len(row.clips) for row in self.project.rows)}."
-        )
-        self.agent_swarm_panel.set_context_summary(summary)
-        self.agent_swarm_dock.show()
-        self.agent_swarm_dock.raise_()
-        if self._agent_harness_load_warning:
-            self.status.showMessage(
-                "Agent harness settings were ignored; using safe defaults", 5000
-            )
-        else:
-            self.status.showMessage("Agent swarm · review proposals only", 3000)
-
     def showEvent(self, event):
         super().showEvent(event)
         app = QApplication.instance()
@@ -597,22 +559,36 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             # non-blocking while still making onboarding the first visible task.
             QTimer.singleShot(0, self, self.show_audio_setup)
 
+    def _audio_setup_inventory(self):
+        # PipeWire discovers USB hot-plug devices even when PortAudio's
+        # process-local inventory still reflects startup.
+        try:
+            outputs, _ = output_device_inventory()
+        except Exception:
+            outputs = []
+        try:
+            outputs = pipewire_output_inventory() + outputs
+        except Exception:
+            pass
+        try:
+            inputs, _ = input_device_inventory()
+        except Exception:
+            inputs = []
+        return outputs, inputs
+
     def show_audio_setup(self):
         """Open first-run routing/calibration without disturbing live audio."""
         if self._audio_setup_dialog is not None:
             self._audio_setup_dialog.raise_()
             self._audio_setup_dialog.activateWindow()
             return
-        try:
-            outputs, _default_output = output_device_inventory()
-        except Exception:
-            outputs = []
-        try:
-            inputs, _default_input = input_device_inventory()
-        except Exception:
-            inputs = []
+        outputs, inputs = self._audio_setup_inventory()
         dialog = AudioSetupDialog(
-            outputs, inputs, self, calibration_runner=self._run_setup_loopback_calibration
+            outputs,
+            inputs,
+            self,
+            calibration_runner=self._run_setup_loopback_calibration,
+            device_loader=self._audio_setup_inventory,
         )
         self._audio_setup_dialog = dialog
         dialog.select_saved(

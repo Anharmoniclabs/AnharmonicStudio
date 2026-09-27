@@ -31,6 +31,7 @@ class AudioSetupDialog(QDialog):
         inputs: list[dict],
         parent=None,
         calibration_runner=run_loopback_calibration,
+        device_loader=None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Audio setup")
@@ -38,6 +39,7 @@ class AudioSetupDialog(QDialog):
         self.outputs = list(outputs)
         self.inputs = list(inputs)
         self.calibration_runner = calibration_runner
+        self.device_loader = device_loader
         self.calibration: LatencyCalibration | None = None
 
         form = QFormLayout(self)
@@ -107,7 +109,33 @@ class AudioSetupDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
+        self.refresh_button = QPushButton("Refresh connected devices")
+        self.refresh_button.setVisible(device_loader is not None)
+        self.refresh_button.clicked.connect(self.refresh_devices)
+        form.addRow(self.refresh_button)
         self._refresh_recommendation()
+
+    def refresh_devices(self):
+        if self.device_loader is None:
+            return
+        output_key, input_key = self.output_key, self.input_key
+        inputs, split = self.input_channels.currentData()
+        outputs = self.output_channels.currentData()
+        self.outputs, self.inputs = self.device_loader()
+        for box, items, key, label in (
+            (self.output_box, self.outputs, output_key, "System default output"),
+            (self.input_box, self.inputs, input_key, "System default input"),
+        ):
+            box.blockSignals(True)
+            box.clear()
+            box.addItem(label, "")
+            for item in items:
+                box.addItem(item["label"], item["key"])
+            box.setCurrentIndex(max(0, box.findData(key)))
+            box.blockSignals(False)
+        self._channels_changed()
+        self.select_channels(inputs, outputs, split, self.monitor_mode.currentData())
+        self._invalidate_calibration()
 
     def _invalidate_calibration(self, *_args):
         self.calibration = None
@@ -173,6 +201,10 @@ class AudioSetupDialog(QDialog):
 
     def _selected_device_index(self, items: list[dict], key: str):
         selected = next((item for item in items if item.get("key") == key), None)
+        if selected is not None and selected.get("kind") == "pipewire":
+            raise ValueError(
+                "For a cabled loopback test, select the direct ALSA device, not a PipeWire route."
+            )
         return selected.get("index") if selected is not None else None
 
     def _run_loopback(self) -> None:

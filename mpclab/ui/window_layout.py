@@ -146,7 +146,6 @@ def _build(window):
     outer.addWidget(window.main_splitter, 1)
 
     window.setCentralWidget(central)
-    window._build_agent_harness()
     # Put the single navigation row across the workspace, above both panels.
     window.studio.layout().removeWidget(window.studio.mode_scroll)
     outer.insertWidget(2, window.studio.mode_scroll)
@@ -248,7 +247,6 @@ def _build_menus(window):
             (
                 ("Add pattern to arrangement", window.append_pattern_to_arrangement),
                 ("Print synth to pad", window.print_synth_to_pad),
-                ("Agent swarm harness…", window.show_agent_harness),
                 ("Audio setup…", window.show_audio_setup),
                 ("Devices & Plugins…", window.show_devices),
             ),

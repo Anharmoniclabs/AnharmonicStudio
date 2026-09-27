@@ -62,18 +62,12 @@ def test_audio_setup_persists_devices_workflow_and_latency(window):
     assert window.project.vocal_record.input_latency_ms == 10.0
 
 
-def test_agent_swarm_harness_is_an_optional_review_dock(window):
-    assert window.agent_swarm_dock.isHidden()
-    project_before = window.project.to_dict()
-    window.show_agent_harness()
-    panel = window.agent_swarm_panel
-    assert panel.roster.rowCount() == 10
-    assert not window.agent_swarm_dock.isHidden()
-    panel.queue_selected()
-    panel.run_selected()
-    assert panel.harness.jobs[0].state == "complete"
-    assert panel.harness.jobs[0].agent_id == "atlas"
-    assert window.project.to_dict() == project_before
+def test_agent_swarm_is_not_attached_to_studio(window):
+    assert not hasattr(window, "agent_harness")
+    assert not hasattr(window, "agent_swarm_dock")
+    actions = window.menuBar().actions()
+    tools = next(a.menu() for a in actions if a.text() == "Tools")
+    assert not any("swarm" in a.text().lower() for a in tools.actions())
 
 
 def test_file_new_project_clears_session_but_retains_library_and_saved_file(window):
@@ -546,3 +540,19 @@ def test_precision_split_button_remains_reachable_in_sampler(window):
     point = button.mapTo(window, QPoint(0, 0))
     assert button.isVisible()
     assert 0 <= point.x() < window.width() - button.width()
+
+
+def test_setup_includes_hotplug_pipewire_output_and_refreshes(window, monkeypatch):
+    device = {"index": 73, "key": "scarlett", "label": "Focusrite Scarlett 2i2", "kind": "pipewire"}
+    monkeypatch.setattr(main_window, "output_device_inventory", lambda: ([], None))
+    monkeypatch.setattr(main_window, "pipewire_output_inventory", lambda: [device])
+    monkeypatch.setattr(main_window, "input_device_inventory", lambda: ([], None))
+    window.show_audio_setup()
+    dialog = window._audio_setup_dialog
+    assert dialog.output_box.findData("scarlett") > 0
+    dialog.select_saved("scarlett")
+    dialog.refresh_devices()
+    assert dialog.output_key == "scarlett"
+    with pytest.raises(ValueError, match="direct ALSA"):
+        dialog._selected_device_index(dialog.outputs, "scarlett")
+    dialog.reject()

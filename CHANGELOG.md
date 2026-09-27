@@ -7,6 +7,9 @@ serves **0.1.0-rc.1** until a new, separately versioned installer set passes its
 build and delivery checks. Source availability does not mean an installed copy
 has updated itself.
 
+- Show live PipeWire USB outputs in audio setup, with a refresh action for
+  newly connected interfaces. Remove the Agent swarm harness from Studio
+  menus and startup.
 - Refine auto-chops with stereo-safe quiet boundaries before attacks, quieter
   phrase edges without changing loop length, attack-cleanliness scoring and
   a shortlist that favors distinct hits. Add a reproducible local song/stem
