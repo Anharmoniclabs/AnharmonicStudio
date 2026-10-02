@@ -512,6 +512,13 @@ def main():
                     model()["patterns"][model()["selected_pattern"]]["selected_instrument"] is None,
                 )
                 page.locator("#stop").click()
+                check(
+                    "pattern_workspaces_record_performance_not_microphone",
+                    page.locator("#record-source").inner_text() == "🥁 PATTERN",
+                )
+
+                # Like the desktop, the Sampler samples the microphone into the selected pad.
+                workspace("sampler")
 
                 # No device is opened: permission denial must leave controls and storage sane.
                 page.evaluate(
@@ -549,8 +556,8 @@ def main():
                 }"""
                 )
                 check(
-                    "record_source_defaults_to_microphone",
-                    page.locator("#record-source").inner_text() == "MIC",
+                    "sampler_records_microphone_into_pad",
+                    page.locator("#record-source").inner_text().startswith("🎤 PAD"),
                 )
                 page.locator("#record").click()
                 page.wait_for_function(
@@ -701,20 +708,25 @@ def main():
                     "() => {AnharmonicProject.ProjectStore.prototype.addMedia = window.auditAddMedia;}"
                 )
 
-                # PERFORM records played pads into the looping pattern as one undo step.
-                page.locator("#playback-mode").select_option("pattern")
-                page.locator("#record-source").click()
-                check(
-                    "record_source_switches_to_performance",
-                    page.locator("#record-source").inner_text() == "PERFORM",
-                )
+                # In Beats, Record captures played pads into the looping pattern as one undo
+                # step, after a count-in, without opening the microphone.
                 workspace("beats")
+                check(
+                    "beats_record_targets_the_pattern",
+                    page.locator("#record-source").inner_text() == "🥁 PATTERN",
+                )
+                microphone_requests = page.evaluate("window.auditMicrophoneRequests")
                 page.evaluate(
                     "window.auditStore.transact('clear', p => { p.patterns[p.selected_pattern].steps = {}; })"
                 )
                 page.locator("#record").click()
                 page.wait_for_function(
-                    "auditEngine.playing && document.querySelector('#record').classList.contains('recording')"
+                    "document.querySelector('#status').textContent.startsWith('Recording pads and keys')"
+                )
+                check(
+                    "pattern_record_counts_in_then_loops_without_microphone",
+                    page.evaluate("auditEngine.playing && auditEngine.mode === 'pattern'")
+                    and page.evaluate("window.auditMicrophoneRequests") == microphone_requests,
                 )
                 page.locator('.pad-bank button[data-bank="1"]').click()
                 for _ in range(3):
@@ -737,7 +749,6 @@ def main():
                     not model()["patterns"][model()["selected_pattern"]]["steps"].get("16"),
                 )
                 page.locator("#stop").click()
-                page.locator("#record-source").click()
 
                 with page.expect_download() as original_audio:
                     page.locator("#download-sound").click()

@@ -21,8 +21,8 @@
     noOverlap: window.matchMedia('(max-width:760px), (pointer:coarse)').matches,
     heldPads: new Map(), heldSynth: new Set(), arpTimer: null, arpIndex: 0,
     browserOpen: true, padsOpen: true, focused: false, metronome: false, theme: 'dark', accent: DEFAULT_ACCENT,
-    // Recording: MIC captures real-time audio input; PERFORM writes played pads and keys into the pattern.
-    recordSource: 'mic', countIn: 1, monitorInput: false, performance: null, liveNotes: new Map(),
+    // Recording: what Record captures follows the workspace (see recordTarget()).
+    countIn: 1, monitorInput: false, performance: null, liveNotes: new Map(),
     // Instruments: touch keyboard octave (MIDI base) and Smart-style chord strip key/scale.
     keyboardOctave: 4, chordKey: 0, chordScale: 'major',
     // Phone shell: which full-screen view is visible and the timeline/step geometry it needs.
@@ -262,18 +262,35 @@
     state.performance.count += 1;
     if (state.workspace === 'notes' && state.notePad === held.pad) renderNotes();
   }
+  // Like the desktop: Record in a pattern workspace always captures pads and keys into
+  // the selected pattern. A running pattern is overdubbed at once; a stopped
+  // transport counts in, then loops the pattern while you play.
   async function startPerformanceRecording() {
     const engine = await ensureAudio(); if (!engine) return;
-    if ($('#playback-mode').value === 'song') throw new Error('Performance recording captures into the current pattern. Switch playback scope to “Current pattern”, or arm a Song row and use MIC for audio.');
-    if (!engine.playing) { await engine.start('pattern'); state.playing = true; $('#play').textContent = 'Ⅱ'; }
-    state.performance = { key: uid('take'), count: 0 };
-    $('#record').classList.add('recording'); $('#record').setAttribute('aria-label', 'Stop performance recording');
-    setStatus('Recording your performance into ' + projectStore.pattern.name + '. Play pads or keys; the pattern loops. Press Record to finish (Undo removes the whole take).');
+    if (state.performanceCountIn) return;
+    if (engine.playing && engine.mode !== 'pattern') { stopPlayback(); }
+    $('#playback-mode').value = 'pattern';
+    const begin = () => {
+      state.performance = { key: uid('take'), count: 0 };
+      $('#record').classList.add('recording'); $('#record').setAttribute('aria-label', 'Stop performance recording'); syncRecordControls();
+      setStatus('Recording pads and keys into ' + projectStore.pattern.name + '. The pattern loops; press Record to finish (Undo removes the whole take).');
+    };
+    if (engine.playing) { begin(); return; }
+    const beats = state.countIn * 4, spb = 60 / projectStore.project.bpm, lead = engine.context.currentTime + .08, generation = state.generation;
+    if (!beats) { await engine.start('pattern'); state.playing = true; $('#play').textContent = 'Ⅱ'; begin(); return; }
+    for (let index = 0; index < beats; index += 1) engine.click(lead + index * spb, index % 4 === 0);
+    const countIn = {}; state.performanceCountIn = countIn; $('#record').classList.add('recording');
+    setStatus('Count-in: ' + state.countIn + ' bar' + (state.countIn > 1 ? 's' : '') + ' → ' + projectStore.pattern.name + ' (pads & keys)…');
+    setTimeout(act(async () => {
+      if (state.performanceCountIn !== countIn || generation !== state.generation || state.performance) return;
+      state.performanceCountIn = null;
+      await engine.start('pattern'); state.playing = true; $('#play').textContent = 'Ⅱ'; begin();
+    }), Math.max(0, (lead + beats * spb - engine.context.currentTime - .02) * 1000));
   }
   function stopPerformanceRecording(message) {
     if (!state.performance) return;
     const count = state.performance.count; state.performance = null; state.liveNotes.clear();
-    $('#record').classList.remove('recording'); $('#record').setAttribute('aria-label', 'Record');
+    $('#record').classList.remove('recording'); $('#record').setAttribute('aria-label', 'Record'); syncRecordControls();
     setStatus(message || (count ? count + ' hit(s) recorded into ' + projectStore.pattern.name + '. Undo removes the take.' : 'Performance recording stopped. Nothing was played.'));
     if (state.workspace === 'beats') renderBeats(); else if (state.workspace === 'notes') renderNotes();
   }
@@ -295,6 +312,7 @@
     state.liveNotes.clear();
   }
   function stopPlayback() {
+    if (state.performanceCountIn) { state.performanceCountIn = null; $('#record').classList.remove('recording'); }
     if (state.performance) stopPerformanceRecording();
     state.engine?.stop(); state.playing = false; state.step = -1; state.beat = 0;
     releaseHeld();
@@ -318,6 +336,7 @@
     setStatus(mode === 'song' ? 'Playing song timeline' : 'Playing ' + projectStore.pattern.name);
   }
   projectStore.subscribe(() => {
+    syncRecordControls();
     state.revision += 1;
     state.dirty = true;
     $('#undo-project').disabled = !projectStore.history.length;
@@ -1621,7 +1640,7 @@
     $('.vocal-input-toggle').id = 'vocal-input';
     syncVocalInput(); syncVocalSummary();
     const takeFor = () => { const current = selectedTake(); if (!current) throw new Error('Record or choose a take first.'); return current; };
-    on('.vocal-record', 'click', () => { if (state.recordSource === 'performance' && !state.recording) setRecordSource('mic'); return toggleRecording(); });
+    on('.vocal-record', 'click', () => toggleRecording());
     $$('[data-monitor]').forEach(control => control.addEventListener('click', act(() => setVocalMonitor(control.dataset.monitor))));
     on('#vocal-input', 'click', () => state.vocalInput || state.vocalInputPending ? stopVocalInput() : startVocalInput());
     $$('.vocal-take').forEach(control => control.addEventListener('click', act(async () => { stopVocalAudition(); state.vocalTake = control.dataset.take; renderVocal(); await analyzeTake(takeFor()); drawVocalPitch(); syncVocalSummary(); })));
@@ -1712,16 +1731,19 @@
   }
   async function toggleRecording() {
     if (state.performance) { stopPerformanceRecording(); return; }
+    if (state.performanceCountIn) { state.performanceCountIn = null; $('#record').classList.remove('recording'); setStatus('Count-in cancelled.'); return; }
     if (state.recording) { state.recording.finish(); return; }
     if (state.recordPending) return;
     if (state.recoveryRecording) throw new Error('Use Recover take to download and clear the pending recovery before starting another recording.');
-    if (state.recordSource === 'performance') return startPerformanceRecording();
+    const target = recordTarget();
+    if (target.kind === 'pattern') return startPerformanceRecording();
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone recording needs a supported browser and HTTPS or localhost.');
     if (!window.AnharmonicRecorder) throw new Error('The real-time recorder did not load. Reload the studio and try again.');
-    // The Vocal workspace always records into its Vocals row; elsewhere an armed row or the selected pad.
-    const vocal = state.workspace === 'vocal';
+    // Microphone takes: the Vocal workspace records into its Vocals row, Song into the
+    // row armed for audio, and the Sampler into the selected pad.
+    const vocal = target.kind === 'vocal';
     if (vocal) { stopVocalInput(); stopVocalAudition(); projectStore.ensureVocalRow(); }
-    const pad = state.selectedPad, row = vocal ? projectStore.project.rows[projectStore.vocalRowIndex()] : projectStore.project.rows.find(item => item.record_armed), rowId = row?.id;
+    const pad = state.selectedPad, row = vocal ? projectStore.project.rows[projectStore.vocalRowIndex()] : target.kind === 'row' ? projectStore.project.rows.find(item => item.id === target.rowId) : null, rowId = row?.id;
     const generation = state.generation;
     state.recordPending = true; $('#record').disabled = true;
     let recorder = null, stream = null;
@@ -1827,7 +1849,7 @@
       const selected = tab.dataset.workspace === name;
       tab.classList.toggle('active', selected); tab.setAttribute('aria-selected', String(selected));
     });
-    syncMobileTabs();
+    syncMobileTabs(); syncRecordControls();
     ({ song: renderSong, beats: renderBeats, notes: renderNotes, sampler: renderSampler, instruments: renderInstruments, vocal: renderVocal, mix: renderMix }[name] || renderSong)();
   }
   function syncMobileTabs() {
@@ -1892,6 +1914,7 @@
     if (mobile && extras.parentElement !== sheet) sheet.append(extras);
     else if (!mobile && extras.parentElement !== bar) { bar.append(extras); if ($('#transport-sheet').open) $('#transport-sheet').close(); }
     if (mobile) state.mobileView = state.padsOpen ? 'pads' : 'stage'; else state.mobileView = 'stage';
+    syncRecordControls();
     document.body.dataset.mobileView = mobile ? state.mobileView : 'stage';
     const browser = state.browserOpen && !state.focused, pads = state.padsOpen && !state.focused;
     $('.main-split').classList.toggle('hide-browser', !browser); $('.main-split').classList.toggle('hide-pads', !pads);
@@ -1922,23 +1945,38 @@
   on('#pads-import', 'click', () => $('#audio-file').click());
   on('#pads-kit', 'click', event => kitMenu(event.currentTarget));
   on('#pads-edit', 'click', () => showMobileView('sampler'));
-  // Recording source and options.
+  // What Record captures follows the workspace, exactly like the desktop:
+  // Beats, Notes, Instruments and Pads record a performance into the selected
+  // pattern (never the microphone); Vocal records the microphone onto the Vocals
+  // row; Song and Mix record the microphone only into a row armed for audio
+  // (R), and otherwise a performance; the Sampler samples the microphone into
+  // the selected pad.
+  function recordTarget() {
+    const pattern = projectStore.pattern.name;
+    if (state.workspace === 'vocal') return { kind: 'vocal', label: 'Vocals · microphone' };
+    if (isMobile() && state.mobileView === 'pads') return { kind: 'pattern', label: pattern + ' · pads & keys' };
+    if (state.workspace === 'sampler') return { kind: 'pad', label: 'Pad ' + padNumber(state.selectedPad) + ' · microphone' };
+    if (['song', 'mix'].includes(state.workspace)) {
+      const row = projectStore.project.rows.find(item => item.record_armed);
+      if (row && row.record_source !== 'notes') return { kind: 'row', rowId: row.id, label: row.name + ' · microphone' };
+    }
+    return { kind: 'pattern', label: pattern + ' · pads & keys' };
+  }
   function syncRecordControls() {
-    const performance = state.recordSource === 'performance';
-    $('#record-source').textContent = performance ? 'PERFORM' : 'MIC';
-    $('#record-source').setAttribute('aria-label', 'Recording source: ' + (performance ? 'pads and keys into the pattern' : 'microphone'));
-    $('#record-source').classList.toggle('active', performance);
-    $('#record').title = performance ? 'Record pads and keys you play into the current pattern' : 'Record microphone or audio input' + (state.countIn ? ' after a ' + state.countIn + ' bar count-in' : '');
+    const target = state.performance ? { kind: 'pattern', label: projectStore.pattern.name + ' · pads & keys' } : recordTarget(), mic = target.kind !== 'pattern';
+    const control = $('#record-source'); if (!control) return;
+    control.textContent = mic ? '🎤 ' + (target.kind === 'vocal' ? 'VOCALS' : target.kind === 'pad' ? 'PAD ' + padNumber(state.selectedPad) : 'TRACK') : '🥁 PATTERN';
+    control.setAttribute('aria-label', 'Record captures: ' + target.label);
+    control.title = 'Record → ' + target.label + '. Beats, Notes, Keys and Pads record what you play into the pattern; Vocal records your voice; in Song, arm a track (R) to record audio onto it.';
+    control.classList.toggle('active', mic);
+    $('#record').title = 'Record → ' + target.label + (state.countIn ? ' (' + state.countIn + ' bar count-in)' : '');
   }
-  function setRecordSource(source) {
-    state.recordSource = source; syncRecordControls();
-    try { localStorage.setItem('anharmonic-record-source', source); } catch { /* session-only */ }
-    setStatus(source === 'performance' ? 'Record now captures pads and keys into the current pattern while it loops.' : 'Record now captures your microphone or audio input as uncompressed audio.');
-  }
-  on('#record-source', 'click', () => { if (state.recording || state.performance) throw new Error('Finish the current take before changing the recording source.'); setRecordSource(state.recordSource === 'mic' ? 'performance' : 'mic'); });
+  on('#record-source', 'click', () => {
+    const target = recordTarget();
+    setStatus('Record → ' + target.label + '. ' + (target.kind === 'pattern' ? 'Pads and keys you play go into the pattern. For your voice, use the Vocal tab; for audio on a Song track, arm its R.' : target.kind === 'vocal' ? 'Your voice records onto the Vocals track over the beat.' : target.kind === 'pad' ? 'The microphone is sampled into the selected pad.' : 'The microphone records onto the armed Song track.'));
+  });
   on('#record-settings', 'click', event => openMenu(event.currentTarget, [
-    { label: 'Source: microphone / audio input' + (state.recordSource === 'mic' ? ' ✓' : ''), disabled: Boolean(state.recording || state.performance), action: () => setRecordSource('mic') },
-    { label: 'Source: perform pads & keys into pattern' + (state.recordSource === 'performance' ? ' ✓' : ''), disabled: Boolean(state.recording || state.performance), action: () => setRecordSource('performance') },
+    { label: 'Record → ' + recordTarget().label, disabled: true, action: () => {} },
     ...[0, 1, 2].map(bars => ({ label: 'Count-in: ' + (bars ? bars + ' bar' + (bars > 1 ? 's' : '') : 'off') + (state.countIn === bars ? ' ✓' : ''), action: () => { state.countIn = bars; syncRecordControls(); try { localStorage.setItem('anharmonic-count-in', String(bars)); } catch { /* session-only */ } } })),
     { label: 'Monitor input while recording' + (state.monitorInput ? ' ✓' : ''), action: () => { state.monitorInput = !state.monitorInput; state.recording?.setMonitor(state.monitorInput); try { localStorage.setItem('anharmonic-monitor-input', String(state.monitorInput)); } catch { /* session-only */ } setStatus(state.monitorInput ? 'Input monitoring on. Use headphones: a phone speaker will feed back into the microphone.' : 'Input monitoring off.'); } }
   ]));
@@ -2123,7 +2161,6 @@
   try {
     const noOverlap = localStorage.getItem('anharmonic-no-overlap');
     if (noOverlap !== null) state.noOverlap = noOverlap === 'true';
-    if (localStorage.getItem('anharmonic-record-source') === 'performance') state.recordSource = 'performance';
     const countIn = Number(localStorage.getItem('anharmonic-count-in'));
     if ([0, 1, 2].includes(countIn) && localStorage.getItem('anharmonic-count-in') !== null) state.countIn = countIn;
     state.monitorInput = localStorage.getItem('anharmonic-monitor-input') === 'true';

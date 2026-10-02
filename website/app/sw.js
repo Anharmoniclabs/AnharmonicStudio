@@ -7,7 +7,7 @@
  * localStorage, never in this cache. */
 'use strict';
 
-const VERSION = '2026-10-02-3';
+const VERSION = '2026-10-02-4';
 const CACHE = 'anharmonic-studio-shell-' + VERSION;
 const SHELL = [
   './',
