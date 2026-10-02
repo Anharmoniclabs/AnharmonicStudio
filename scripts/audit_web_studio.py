@@ -1051,7 +1051,8 @@ def main():
                 vocal.locator("#vocal-use-key").click()
                 check(
                     "detected_key_applies",
-                    vocal_model()["vocal"]["key"] == "A" and vocal_model()["vocal"]["scale"] == "minor",
+                    vocal_model()["vocal"]["key"] == "A"
+                    and vocal_model()["vocal"]["scale"] == "minor",
                 )
                 vocal.locator('[data-vocal-style="hard"]').click()
                 check(
@@ -1094,7 +1095,9 @@ def main():
                 tuned_clip = next(row for row in document["rows"] if row["name"] == "Vocals")[
                     "clips"
                 ][0]
-                tuned_media = next(item for item in document["media"] if item["id"] == tuned_clip["ref"])
+                tuned_media = next(
+                    item for item in document["media"] if item["id"] == tuned_clip["ref"]
+                )
                 check(
                     "apply_swaps_take_and_keeps_original",
                     tuned_clip["id"] == take_clip["id"]
@@ -1130,18 +1133,18 @@ def main():
                 vocal.locator("#undo-project").click()
                 check(
                     "undo_restores_dry_take",
-                    next(row for row in vocal_model()["rows"] if row["name"] == "Vocals")["clips"][0][
-                        "ref"
-                    ]
+                    next(row for row in vocal_model()["rows"] if row["name"] == "Vocals")["clips"][
+                        0
+                    ]["ref"]
                     == take_clip["ref"],
                 )
                 vocal.locator("#redo-project").click()
                 vocal.locator(".vocal-revert").click()
                 check(
                     "revert_to_dry_restores_original",
-                    next(row for row in vocal_model()["rows"] if row["name"] == "Vocals")["clips"][0][
-                        "ref"
-                    ]
+                    next(row for row in vocal_model()["rows"] if row["name"] == "Vocals")["clips"][
+                        0
+                    ]["ref"]
                     == take_clip["ref"],
                 )
                 vocal_context.close()
@@ -1203,7 +1206,9 @@ def main():
                     mobile.locator(".vocal-record").is_visible()
                     and mobile.locator("#vocal-pitch").bounding_box()["width"] >= 300
                     and take_box["height"] >= 30
-                    and mobile.evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
+                    and mobile.evaluate(
+                        "document.documentElement.scrollWidth <= window.innerWidth"
+                    ),
                 )
                 mobile.locator('[data-mobile-tab="instruments"]').tap()
                 mobile.locator("#transport-more").tap()
