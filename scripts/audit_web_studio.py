@@ -81,7 +81,18 @@ def main():
                 page.goto(url)
                 page.wait_for_selector("#pad-grid .pad")
                 check("canonical_entry_opens_studio", page.url.endswith("/app/studio.html"))
-                check("honest_empty_library", page.locator("#library-count").inner_text() == "0")
+                check(
+                    "starter_project_has_official_trap_kit",
+                    page.locator("#library-count").inner_text() == "16"
+                    and page.locator("#kit-shelf .kit").count() == 3
+                    and page.locator("#pad-grid .pad.has-sample").count() == 16
+                    and all(
+                        "Official kit" in text
+                        for text in page.locator(
+                            "#sound-tree .sound[data-media-id] small"
+                        ).all_inner_texts()
+                    ),
+                )
                 check(
                     "empty_waveform_and_meter",
                     page.locator("#master-meter").evaluate("element => element.value") == 0,
@@ -173,10 +184,10 @@ def main():
                     {"name": "Audit sine.wav", "mimeType": "audio/wav", "buffer": test_audio}
                 )
                 page.wait_for_function(
-                    "document.querySelector('#library-count').textContent === '1'"
+                    "document.querySelector('#library-count').textContent === '17'"
                 )
                 check("audio_import_assigns_media", bool(model()["pads"][0]["sample_id"]))
-                page.locator("#sound-tree .sound[data-media-id]").dblclick()
+                page.locator("#sound-tree .sound[data-media-id]", has_text="Audit sine").dblclick()
                 page.wait_for_function(
                     "document.querySelector('#status').textContent.includes('assigned to pad 01')"
                 )
@@ -316,7 +327,7 @@ def main():
                 check("reverse_persisted", model()["pads"][16]["reverse"])
                 page.locator('.pad-bank button[data-bank="3"]').click()
                 page.locator('.pad[data-pad="62"]').click()
-                page.locator("#sound-tree .sound[data-media-id]").dblclick()
+                page.locator("#sound-tree .sound[data-media-id]", has_text="Audit sine").dblclick()
                 workspace("sampler")
                 page.locator(".chop-tools").click()
                 check(
@@ -392,7 +403,7 @@ def main():
                 page.get_by_role("menuitem", name="Enable monophonic notes", exact=True).click()
                 check("mono_persisted_for_sample", model()["pads"][16]["mono"])
                 page.locator(".note-action").click()
-                page.get_by_role("menuitem", name="Synthesizer", exact=True).click()
+                page.get_by_role("menuitem", name="Studio synth (shared)", exact=True).click()
                 grid = page.locator("#note-grid")
                 grid.click(position={"x": 90, "y": 200})
                 check(
@@ -452,11 +463,54 @@ def main():
                 )
                 check("compression_defaults_to_bypass", model()["web_effects"]["compression"] == 1)
                 workspace("instruments")
-                page.locator("#synth-preset").select_option("Copper Pluck")
+                page.locator("#native-preset").select_option("Copper Pluck")
+                check(
+                    "native_preset_applies_desktop_patch",
+                    model()["synth"]["name"] == "Copper Pluck"
+                    and model()["synth"]["filter_env"] == 0.78,
+                )
                 page.evaluate("window.auditPeak = 0")
                 page.locator(".synth-preview").click()
                 page.wait_for_function("window.auditPeak > 0", timeout=3000)
                 check("synth_preview_produces_meter_signal", page.evaluate("window.auditPeak > 0"))
+                check(
+                    "native_synth_runs_in_audio_worklet",
+                    page.evaluate(
+                        "auditEngine.workletReady.get(auditEngine.context) && auditEngine.graph.instruments.has('synth')"
+                    ),
+                )
+                page.locator(".insert-prism").click()
+                prism_id = model()["patterns"][model()["selected_pattern"]]["selected_instrument"]
+                check(
+                    "prism_inserts_in_desktop_format",
+                    bool(prism_id)
+                    and model()["instrument_plugins"][prism_id]["plugin_name"] == "Anharmonic Prism"
+                    and len(model()["instrument_plugins"][prism_id]["parameters"]) == 76
+                    and page.locator("#prism-sound option").count() == 174,
+                )
+                page.locator("#prism-search").fill("Glass Current")
+                page.locator("#prism-sound").select_option(index=0)
+                page.locator(".prism-load-sound").click()
+                check(
+                    "prism_sound_loads_into_instrument",
+                    "Glass Current" in model()["instruments"][-1]["name"],
+                )
+                page.evaluate("window.auditPeak = 0")
+                page.locator(".synth-preview").click()
+                page.wait_for_function("window.auditPeak > 0", timeout=3000)
+                check(
+                    "prism_preview_plays_through_worklet",
+                    page.evaluate(
+                        "auditEngine.graph.instruments.has('prism:' + arguments[0])".replace(
+                            "arguments[0]", repr(prism_id)
+                        )
+                    ),
+                )
+                page.locator("#instrument-select").select_option("")
+                check(
+                    "shared_synth_can_be_reselected",
+                    model()["patterns"][model()["selected_pattern"]]["selected_instrument"] is None,
+                )
                 page.locator("#stop").click()
 
                 # No device is opened: permission denial must leave controls and storage sane.
@@ -712,7 +766,7 @@ def main():
                     page.evaluate(
                         "JSON.parse(localStorage.getItem('anharmonic-web-studio-v2')).media.length"
                     )
-                    == 3,
+                    == 19,
                 )
                 with page.expect_download() as exported:
                     page.locator("#project-menu").click()
@@ -725,7 +779,7 @@ def main():
                 check(
                     "portable_export_contains_all_audio",
                     portable["anharmonic_bundle"] == 1
-                    and len(portable["media"]) == 3
+                    and len(portable["media"]) == 19
                     and all(item["data"] for item in portable["media"]),
                 )
                 page.evaluate("window.auditStore.setPatternGrid({bars:64,div:8})")
@@ -745,7 +799,7 @@ def main():
                 page.wait_for_selector("#pad-grid .pad")
                 check(
                     "saved_library_survives_reload",
-                    page.locator("#library-count").inner_text() == "3",
+                    page.locator("#library-count").inner_text() == "19",
                 )
                 page.locator("#play").click()
                 page.wait_for_function("document.querySelector('#play').textContent === 'Ⅱ'")
@@ -767,7 +821,7 @@ def main():
                 )
                 check(
                     "portable_import_works_in_clean_browser",
-                    second.locator("#library-count").inner_text() == "3",
+                    second.locator("#library-count").inner_text() == "19",
                 )
                 second.locator("#playback-mode").select_option("song")
                 with second.expect_download() as rendered:
@@ -846,7 +900,7 @@ def main():
                 second.locator('[data-workspace="instruments"]').click()
                 check(
                     "high_synth_route_survives_import",
-                    second.locator("#synth-track").input_value() == "127",
+                    second.locator("#instrument-track").input_value() == "127",
                 )
                 second.locator('[data-workspace="mix"]').click()
                 future_error = second.evaluate(
@@ -865,7 +919,7 @@ def main():
                 )
                 check(
                     "invalid_project_keeps_loaded_session",
-                    second.locator("#library-count").inner_text() == "3",
+                    second.locator("#library-count").inner_text() == "19",
                 )
                 second.locator("#focus-toggle").click()
                 check(

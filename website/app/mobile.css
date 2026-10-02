@@ -187,3 +187,13 @@
 }
 /* Pinch zooms the Song timeline on phones; keep only the compact zoom buttons. */
 @media (max-width: 760px) { .zoom-controls label { display: none !important; } .zoom-controls { padding: 6px 8px; } .stage-toolbar { padding: 6px 8px; } }
+/* Keys view on phones: keyboard and chords first, sound browser and editor below. */
+@media (max-width: 760px) {
+  .instrument-editor { display: flex; flex-direction: column; }
+  .instrument-editor > * { flex-shrink: 0; }
+  .instrument-editor > .chord-strip { order: -3; margin-top: 0; }
+  .instrument-editor > .keyboard-bar { order: -2; margin-top: 8px; }
+  .instrument-editor > .synth-keyboard { order: -1; margin-bottom: 12px; }
+  .prism-perform { display: grid; grid-template-columns: 1fr 1fr; }
+  .prism-perform strong { grid-column: 1 / -1; }
+}

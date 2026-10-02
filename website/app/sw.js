@@ -7,7 +7,7 @@
  * localStorage, never in this cache. */
 'use strict';
 
-const VERSION = '2026-10-02-1';
+const VERSION = '2026-10-02-2';
 const CACHE = 'anharmonic-studio-shell-' + VERSION;
 const SHELL = [
   './',
@@ -19,6 +19,10 @@ const SHELL = [
   'project-model.js',
   'audio-engine.js',
   'waveform-view.js',
+  'instrument-dsp.js',
+  'instrument-bank.js',
+  'instrument-worklet.js',
+  'factory-kits.js',
   'recorder.js',
   'recorder-worklet.js',
   'mobile-compat.js',

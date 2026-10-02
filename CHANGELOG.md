@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-02 — official kits, Native and Prism in the web studio
+
+- Three original official one-shot kits ship inside the web studio: Anharmonic
+  Trap, Live (acoustic-style) and Boom Bap, 48 sounds in all. They are generated
+  from code, carry no third-party licences and load onto any pad bank. New projects
+  start with the Trap kit on bank A.
+- Native and Prism come to the browser. Insert independent instances per pattern
+  in the desktop project format; browse the 54 Native tones and all 174 Prism sounds;
+  edit Prism's macros, two layers, arp, step and LFO motion and effects. The web
+  voice engine matches the desktop C++ engine sample for sample in tests.
+- Notes, live keys, chords and performance recording follow the selected
+  instrument. Desktop projects with Native and Prism parts now play in the browser;
+  third-party desktop instrument plugins are reported instead of being replaced.
+
+Not tested on physical phones or with real-time listening; checks run in headless
+Chromium.
+
 ## 2026-10-02 — installable phone studio (web)
 
 The browser studio at `app/studio.html` is now an installable app that works like a

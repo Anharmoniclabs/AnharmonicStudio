@@ -47,6 +47,36 @@ separately: sounds must be imported/relinked in the desktop library, and browser
 master effects must be recreated there. Never treat a browser bundle as a native
 project JSON or silently replace an unrecognized project with an empty song.
 
+### Official kits, Native and Prism
+
+New projects open with the **Anharmonic Trap** kit on bank A. The library's Official
+Kits shelf loads any of three original 16-pad kits onto any bank: **Trap** (hard and
+round kicks, three 808s tuned to G1 at 49 Hz, snares, stacked clap, snap, closed,
+tight and open hats, rim, wood, bell and crash), **Live** (an acoustic-style kit:
+kick, snare with wires, rimshot, cross-stick, closed, pedal and open hats, ride,
+ride bell, crash, three toms, shaker and tambourine) and **Boom Bap** (dusty
+sampler-era drums, congas, bongo and cowbell). `app/factory-kits.js` generates every
+one-shot from a fixed recipe and seed: there are no audio files, no downloads and
+no third-party sample licences. Kit audio is regenerated from code instead of being
+saved to browser storage. Hats share choke group 1 and 808s share choke group 2;
+808 pads are monophonic with root note 31 so they play in tune from Notes.
+
+The Instruments workspace inserts independent **Native** and **Prism** instances into a
+pattern, exactly like the desktop's Insert instrument. Projects use the desktop
+format (`instruments`, `instrument_plugins`, `pattern.instrument_ids`,
+`pattern.selected_instrument` and `note.instrument`), so desktop projects with Native
+and Prism parts play in the browser and browser instruments open on the desktop.
+`app/instrument-dsp.js` ports the desktop voice renderer (`mpclab/native/synth.cpp`),
+the Prism engine and the Prism processor; `app/instrument-worklet.js` runs it in an
+AudioWorklet for live playing and WAV export. Tests compile the desktop C++ engine
+and require the web engine to match it sample for sample, and check the worklet
+against the same code. Prism's chorus follows juce::dsp::Chorus and its reverb
+follows JUCE's Freeverb; both are equivalents, not compiled JUCE code.
+`app/instrument-bank.js` is generated from the desktop banks (54 Native/Prism tones,
+120 layered Prism performances) by `scripts/build_web_instruments.py`. Orchestral
+sounds that need recorded sample files and third-party VST3/AU instruments remain
+desktop-only and are reported instead of being replaced silently.
+
 ### Installable app (PWA) and phone layout
 
 The studio is an installable progressive web app. `app/manifest.webmanifest` opens it

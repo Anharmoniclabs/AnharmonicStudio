@@ -53,7 +53,7 @@ def main():
             page.locator("#audio-file").set_input_files(
                 {"name": "Zoom sine.wav", "mimeType": "audio/wav", "buffer": fixture_wav()}
             )
-            page.wait_for_function("document.querySelector('#library-count').textContent === '1'")
+            page.wait_for_function("document.querySelector('#library-count').textContent === '17'")
             page.locator('[data-workspace="sampler"]').click()
 
             def view():

@@ -26,10 +26,19 @@
     // Instruments: touch keyboard octave (MIDI base) and Smart-style chord strip key/scale.
     keyboardOctave: 4, chordKey: 0, chordScale: 'major',
     // Phone shell: which full-screen view is visible and the timeline/step geometry it needs.
-    mobileView: 'stage', songHead: 190, stepCell: 24, stepLabel: 150
+    mobileView: 'stage', songHead: 190, stepCell: 24, stepLabel: 150,
+    noteInstrument: null, prismQuery: '', prismCategory: '', prismSound: ''
   };
+  // A new project: empty arrangement, with the official Trap kit on bank A.
+  function starterProject() {
+    const document = window.AnharmonicProject.defaultProject();
+    const trap = window.AnharmonicKits?.KITS.find(kit => kit.id === 'trap');
+    return trap ? applyKit(document, trap, 0) : document;
+  }
   const isMobile = () => window.matchMedia('(max-width:760px)').matches;
-  const currentInstrument = () => projectStore.instrument;
+  // The selected pattern's live instrument (null = shared Studio synth) and its description.
+  const liveInstrument = () => projectStore.selectedInstrument;
+  const liveInfo = () => projectStore.instrumentInfo(liveInstrument()) || projectStore.instrumentInfo(null);
   const stage = $('#stage');
   let statusTimer = null;
   function setStatus(message) {
@@ -42,7 +51,13 @@
   const act = action => (...args) => { try { return Promise.resolve(action(...args)).catch(report); } catch (error) { report(error); } };
   const on = (selector, event, action) => $(selector)?.addEventListener(event, act(action));
   const padRecord = (index = state.selectedPad) => projectStore.project.pads[index];
-  const padBuffer = (index = state.selectedPad) => state.buffers.get(padRecord(index).sample_id);
+  // Official kit sounds are drawable before audio starts: they are generated from code.
+  const padBuffer = (index = state.selectedPad) => {
+    const id = padRecord(index).sample_id, decoded = state.buffers.get(id);
+    if (decoded || !window.AnharmonicKits?.parseMediaId(id)) return decoded;
+    const found = window.AnharmonicKits.parseMediaId(id), rendered = window.AnharmonicKits.render(found.kit.id, found.sound.id), data = rendered.channels[0];
+    return { length: data.length, sampleRate: rendered.sampleRate, numberOfChannels: 1, duration: data.length / rendered.sampleRate, getChannelData: () => data };
+  };
   const selectionKey = () => state.selectedPad + ':' + padRecord().sample_id;
   const decodedBytes = buffer => buffer.length * buffer.numberOfChannels * 4;
   function checkAudioBudget(buffer, collection = state.buffers, replacedId = null) {
@@ -177,6 +192,8 @@
     const generation = state.generation;
     for (const id of mediaIds()) {
       if (state.buffers.has(id)) continue;
+      const factory = factoryBuffer(id, state.engine.context);
+      if (factory) { state.buffers.set(id, factory); if (!state.media.has(id)) state.media.set(id, factoryBlob(id)); continue; }
       const blob = state.media.get(id) || await dbMedia(id);
       if (!blob) continue;
       try {
@@ -202,10 +219,11 @@
   // Live note helpers route every keyboard, chord and typing gesture through
   // one place so the performance recorder and the pattern instrument apply
   // consistently. `pad` null means the pattern's synth instrument.
-  function noteOn(pitch, pad = null, velocity = .8, source = 'keys') {
+  function noteOn(pitch, pad = null, velocity = .8, source = 'keys', instrument = undefined) {
     const engine = state.engine; if (!engine?.context) return null;
-    const voice = engine.triggerNote(pitch, { pad, velocity, synth: pad === null ? currentInstrument() : null });
-    if (state.performance && engine.playing) state.liveNotes.set(source + ':' + pitch, { pitch, pad, velocity, beat: engine.localBeatAt(), absolute: engine.beatAt(engine.context.currentTime) });
+    const target = pad === null ? (instrument === undefined ? liveInstrument() : instrument) : null;
+    const voice = engine.triggerNote(pitch, { pad, velocity, instrument: target });
+    if (state.performance && engine.playing) state.liveNotes.set(source + ':' + pitch, { pitch, pad, instrument: target, velocity, beat: engine.localBeatAt(), absolute: engine.beatAt(engine.context.currentTime) });
     return voice;
   }
   function noteOff(pitch, source = 'keys') {
@@ -236,7 +254,7 @@
     const duration = clamp(Math.round(Math.max(durationBeats, 1 / division) * division) / division, 1 / division, beats - start);
     projectStore.transact('record notes', project => {
       const target = project.patterns[project.selected_pattern];
-      target.notes.push({ id: uid('note'), pitch: clamp(held.pitch, 0, 127), start, duration, velocity: clamp(held.velocity, .05, 1), pad: held.pad });
+      target.notes.push({ id: uid('note'), pitch: clamp(held.pitch, 0, 127), start, duration, velocity: clamp(held.velocity, .05, 1), pad: held.pad, instrument: held.pad === null ? held.instrument ?? null : null });
     }, takeKey());
     engine.suppressRecordedEvent({ kind: 'note', pitch: held.pitch, pad: held.pad, beat: start, window: .5 / division });
     state.performance.count += 1;
@@ -322,6 +340,8 @@
     try {
     const project = projectDocument(), revision = state.revision, generation = state.generation;
     for (const id of mediaIds(project)) {
+      // Official kit audio is regenerated from code, so it never uses browser storage.
+      if (window.AnharmonicKits?.parseMediaId(id)) continue;
       const blob = state.media.get(id) || await dbMedia(id);
       if (!blob) throw new Error('Cannot save a complete session: missing audio. Reimport the sound or download the project for recovery.');
       await dbMedia(id, blob);
@@ -348,7 +368,7 @@
     const project = projectDocument(); const media = [];
     let bytes = 0;
     for (const id of mediaIds(project)) {
-      const blob = state.media.get(id) || await dbMedia(id);
+      const blob = state.media.get(id) || await dbMedia(id) || factoryBlob(id);
       if (!blob) throw new Error('Cannot export a portable session: audio for "' + id + '" is missing. Reimport it first.');
       bytes += blob.size;
       if (bytes > 256 * 1024 * 1024) throw new Error('Portable export exceeds 256 MB. Save locally and split this project before downloading.');
@@ -407,7 +427,7 @@
     state.media = nextMedia; state.buffers = nextBuffers; state.selections.clear();
     state.selectedMedia = null; projectStore.load(project);
     state.selectedPad = clamp(project.selected_pad, 0, 63); state.bank = Math.floor(state.selectedPad / 16);
-    state.notePad = null; state.dirty = true;
+    state.notePad = state.noteInstrument = null; state.dirty = true;
     syncControls(); renderAll();
     if (!bundle) await ensureAudio();
     renderAll();
@@ -443,7 +463,63 @@
     setStatus(imported + ' sound(s) imported' + (failed ? '; ' + failed + ' failed: ' + lastError : '') + (storageWarning ? '. Browser storage failed; download Project + audio now to keep the imported audio.' : '.'));
   }
 
+  // ---- Official kits ------------------------------------------------------
+  // Generated by factory-kits.js from fixed recipes: no downloads, no storage,
+  // identical every time. Media IDs are stable ("factory-trap-kick-hard").
+  const KITS = window.AnharmonicKits;
+  function factoryBlob(id) {
+    const found = KITS?.parseMediaId(id); if (!found) return null;
+    return new Blob([KITS.wav(KITS.render(found.kit.id, found.sound.id))], { type: 'audio/wav' });
+  }
+  function factoryBuffer(id, context) {
+    const found = KITS?.parseMediaId(id); if (!found || typeof context?.createBuffer !== 'function') return null;
+    const rendered = KITS.render(found.kit.id, found.sound.id), data = rendered.channels[0];
+    const buffer = context.createBuffer(1, data.length, rendered.sampleRate);
+    buffer.copyToChannel ? buffer.copyToChannel(data, 0) : buffer.getChannelData(0).set(data);
+    return buffer;
+  }
+  // Writes a kit's sounds into the library and onto one 16-pad bank of a project document.
+  function applyKit(document, kit, bank) {
+    for (const sound of kit.sounds) {
+      const rendered = KITS.render(kit.id, sound.id), duration = rendered.channels[0].length / rendered.sampleRate, id = sound.mediaId;
+      document.media = document.media.filter(item => item.id !== id);
+      document.media.push({ id, name: kit.name + ' · ' + sound.name, mime: 'audio/wav', duration, sample_rate: rendered.sampleRate, size: 44 + rendered.channels[0].length * 2, official_kit: kit.id });
+      const index = bank * 16 + sound.pad;
+      document.pads[index] = { ...document.pads[index], sample_id: id, name: sound.name, start: 0, end: duration, gain: sound.gain ?? 1, pan: 0, pitch: 0, sync_beats: 0,
+        choke: sound.choke ?? 0, root_note: sound.root_note ?? 60, mono: Boolean(sound.mono), mode: 'one-shot', reverse: false };
+    }
+    return document;
+  }
+  function loadKit(kitId, bank) {
+    const kit = KITS?.KITS.find(item => item.id === kitId); if (!kit) throw new Error('Unknown kit');
+    const occupied = projectStore.project.pads.slice(bank * 16, bank * 16 + 16).filter(pad => pad.sample_id && !KITS.parseMediaId(pad.sample_id)).length;
+    if (occupied && !confirm('Replace ' + occupied + ' of your own sounds on bank ' + 'ABCD'[bank] + '? Undo restores them.')) return;
+    projectStore.transact('load ' + kit.name, document => applyKit(document, kit, bank));
+    for (const sound of kit.sounds) {
+      if (state.engine?.context && !state.buffers.has(sound.mediaId)) state.buffers.set(sound.mediaId, factoryBuffer(sound.mediaId, state.engine.context));
+    }
+    state.bank = bank; state.selectedPad = bank * 16; renderAll();
+    setStatus(kit.name + ' loaded on bank ' + 'ABCD'[bank] + '. Tap the pads, or program them in Beats. Undo restores the previous pads.');
+  }
+  function kitMenu(anchor, kitId = null) {
+    const kits = kitId ? KITS.KITS.filter(kit => kit.id === kitId) : KITS.KITS;
+    openMenu(anchor, kits.flatMap(kit => [0, 1, 2, 3].map(bank => ({ label: (kitId ? '' : kit.name + ' → ') + 'Bank ' + 'ABCD'[bank] + ' (pads ' + (bank * 16 + 1) + '–' + (bank * 16 + 16) + ')', action: () => loadKit(kit.id, bank) }))));
+  }
+  function renderKits() {
+    const shelf = $('#kit-shelf'); if (!shelf || !KITS) return;
+    shelf.replaceChildren();
+    for (const kit of KITS.KITS) {
+      const row = document.createElement('div'); row.className = 'kit';
+      const text = document.createElement('div'), title = document.createElement('strong'), detail = document.createElement('small');
+      title.textContent = kit.name; detail.textContent = kit.sounds.length + ' one-shots · ' + kit.description;
+      text.append(title, detail);
+      const load = document.createElement('button'); load.type = 'button'; load.textContent = 'LOAD ▾'; load.setAttribute('aria-label', 'Load ' + kit.name);
+      load.addEventListener('click', act(event => kitMenu(event.currentTarget, kit.id)));
+      row.append(text, load); shelf.append(row);
+    }
+  }
   function renderLibrary() {
+    renderKits();
     const query = $('.search').value.trim().toLowerCase();
     const matches = projectStore.project.media.filter(item => String(item.name).toLowerCase().includes(query));
     const media = matches.slice(0, 500);
@@ -457,7 +533,7 @@
       sound.draggable = true; sound.dataset.mediaId = item.id;
       const icon = document.createElement('span'); icon.className = 'sound-icon'; icon.textContent = '∿';
       const details = document.createElement('span'), name = document.createElement('strong'), meta = document.createElement('small');
-      name.textContent = item.name; meta.textContent = (Number(item.duration) || 0).toFixed(2) + ' s · ' + (state.buffers.has(item.id) || state.media.has(item.id) ? 'Audio available' : 'Load to check audio');
+      name.textContent = item.name; meta.textContent = (Number(item.duration) || 0).toFixed(2) + ' s · ' + (window.AnharmonicKits?.parseMediaId(item.id) ? 'Official kit' : state.buffers.has(item.id) || state.media.has(item.id) ? 'Audio available' : 'Load to check audio');
       details.append(name, meta); sound.append(icon, details);
       sound.addEventListener('click', act(async () => { state.selectedMedia = item.id; $$('#sound-tree .sound[data-media-id]').forEach(element => element.classList.toggle('selected', element.dataset.mediaId === item.id)); $('#use-sound').disabled = $('#download-sound').disabled = false; const engine = await ensureAudio(); const buffer = state.buffers.get(item.id); if (!engine || !buffer) throw new Error('This sound is missing. Reimport its original file.'); engine.beginLiveTrigger(); state.previewSource?.stop(); const source = engine.context.createBufferSource(); source.buffer = buffer; source.connect(engine.graph.master); source.start(); state.previewSource = source; source.onended = () => { source.disconnect(); if (state.previewSource === source) state.previewSource = null; }; }));
       sound.addEventListener('dblclick', act(() => assignMedia(item.id, state.selectedPad)));
@@ -771,7 +847,7 @@
 
   function patternMenu(anchor) {
     openMenu(anchor, [
-      ...projectStore.project.patterns.map((pattern, index) => ({ label: pattern.name + (index === projectStore.project.selected_pattern ? ' ✓' : ''), action: () => { projectStore.transact('select pattern', project => project.selected_pattern = index); renderWorkspace(state.workspace); } })),
+      ...projectStore.project.patterns.map((pattern, index) => ({ label: pattern.name + (index === projectStore.project.selected_pattern ? ' ✓' : ''), action: () => { projectStore.transact('select pattern', project => project.selected_pattern = index); if (state.notePad === null) state.noteInstrument = projectStore.selectedInstrument; renderWorkspace(state.workspace); } })),
       { label: '+ New empty pattern', action: () => { projectStore.transact('new pattern', project => { project.patterns.push({ id: uid('pattern'), name: 'Pattern ' + (project.patterns.length + 1), bars: 1, div: 4, notes: [], steps: {} }); project.selected_pattern = project.patterns.length - 1; }); renderWorkspace(state.workspace); } },
       { label: 'Duplicate current pattern', action: () => { projectStore.transact('duplicate pattern', project => { const pattern = JSON.parse(JSON.stringify(project.patterns[project.selected_pattern])); pattern.id = uid('pattern'); pattern.name += ' copy'; pattern.notes.forEach(note => note.id = uid('note')); project.patterns.push(pattern); project.selected_pattern = project.patterns.length - 1; }); renderWorkspace(state.workspace); } },
       { label: 'Rename current pattern', action: () => { const name = prompt('Pattern name', projectStore.pattern.name); if (name?.trim()) { projectStore.transact('rename pattern', project => project.patterns[project.selected_pattern].name = name.trim().slice(0, 200)); renderWorkspace(state.workspace); } } }
@@ -946,20 +1022,25 @@
   }
 
 
+  // Which notes the piano roll shows and writes: a pad, the shared synth (null) or an instrument ID.
+  const noteInstrumentTarget = () => state.notePad === null ? state.noteInstrument ?? null : null;
+  const noteMatches = note => note.pad === state.notePad && (state.notePad !== null || (note.instrument ?? null) === noteInstrumentTarget());
   function addNotes(pitches, start = 0, duration = .5) {
-    const target = state.notePad, mono = target === null ? state.noteMono : padRecord(target).mono;
+    const target = state.notePad, instrument = noteInstrumentTarget(), mono = target === null ? state.noteMono : padRecord(target).mono;
     projectStore.transact('add notes', project => {
       const pattern = project.patterns[project.selected_pattern];
       start = clamp(start, 0, pattern.bars * 4 - 1 / state.noteDivision); duration = clamp(duration, 1 / state.noteDivision, pattern.bars * 4 - start);
-      if (mono) pattern.notes = pattern.notes.filter(note => note.pad !== target || note.start + note.duration <= start || note.start >= start + duration);
-      (mono ? pitches.slice(0, 1) : pitches).forEach(pitch => pattern.notes.push({ id: uid('note'), pitch: clamp(pitch, 0, 127), start, duration, velocity: .8, pad: target }));
+      if (mono) pattern.notes = pattern.notes.filter(note => !noteMatches(note) || note.start + note.duration <= start || note.start >= start + duration);
+      (mono ? pitches.slice(0, 1) : pitches).forEach(pitch => pattern.notes.push({ id: uid('note'), pitch: clamp(pitch, 0, 127), start, duration, velocity: .8, pad: target, instrument }));
     });
     renderNotes();
   }
   function renderNotes() {
     const prior = $('.piano');
     if (prior) state.noteScroll = { top: prior.scrollTop, left: prior.scrollLeft };
-    const pattern = projectStore.pattern, notes = pattern.notes.filter(note => note.pad === state.notePad);
+    if (state.noteInstrument && !projectStore.project.instruments.some(item => item.id === state.noteInstrument)) state.noteInstrument = null;
+    const pattern = projectStore.pattern, notes = pattern.notes.filter(noteMatches);
+    const soundLabel = state.notePad !== null ? 'PAD ' + padNumber(state.notePad) : state.noteInstrument ? (projectStore.instrumentInfo(state.noteInstrument)?.name || 'INSTRUMENT') : 'SYNTH';
     if (notes.length > 4096 || notes.some(note => note.start + note.duration > 2048)) {
       shell('Notes', button(pattern.name + ' ▾', 'pattern-menu'), '<p class="sampler-help">This piano roll exceeds the browser editor limit (4096 notes or 2048 beats). Its notes are preserved for playback and export. Choose a shorter pattern or edit this one in the desktop application.</p>');
       on('.pattern-menu', 'click', event => patternMenu(event.currentTarget)); return;
@@ -970,7 +1051,7 @@
     const width = Math.max(320, beats * zoom);
     const selected = notes.find(note => note.id === state.selectedNote);
     const ruler = '<div class="piano-ruler-label">BAR · BEAT</div><div class="piano-ruler" style="--beat-unit:' + zoom + 'px;--grid-unit:' + zoom / division + 'px;width:' + width + 'px">' + Array.from({ length: beats }, (_, index) => '<span class="' + (index % 4 === 0 ? 'bar-line' : '') + '" style="width:' + zoom + 'px">' + (Math.floor(index / 4) + 1) + '.' + (index % 4 + 1) + '</span>').join('') + '</div>';
-    shell('Notes', button(pattern.name + ' ▾', 'pattern-menu') + button('SOUND: ' + (state.notePad === null ? 'SYNTH' : 'PAD ' + padNumber(state.notePad)) + ' ▾', 'note-action') + '<label>SNAP <select id="note-division">' + [[1,'1/4'],[2,'1/8'],[3,'1/12'],[4,'1/16'],[6,'1/24'],[8,'1/32'],[16,'1/64']].map(([value,label]) => '<option value="' + value + '">' + label + '</option>').join('') + '</select></label><label>ZOOM <select id="note-zoom"><option value="35">50%</option><option value="70">100%</option><option value="140">200%</option><option value="280">400%</option></select></label><label>OCTAVE <select id="note-octave">' + Array.from({length:11},(_,i) => '<option value="' + (i-1) + '">' + (i-1) + '</option>').join('') + '</select></label>' + button('EDIT ▾', 'note-edit-menu'),
+    shell('Notes', button(pattern.name + ' ▾', 'pattern-menu') + button('SOUND: ' + soundLabel + ' ▾', 'note-action') + '<label>SNAP <select id="note-division">' + [[1,'1/4'],[2,'1/8'],[3,'1/12'],[4,'1/16'],[6,'1/24'],[8,'1/32'],[16,'1/64']].map(([value,label]) => '<option value="' + value + '">' + label + '</option>').join('') + '</select></label><label>ZOOM <select id="note-zoom"><option value="35">50%</option><option value="70">100%</option><option value="140">200%</option><option value="280">400%</option></select></label><label>OCTAVE <select id="note-octave">' + Array.from({length:11},(_,i) => '<option value="' + (i-1) + '">' + (i-1) + '</option>').join('') + '</select></label>' + button('EDIT ▾', 'note-edit-menu'),
       '<div class="piano">' + ruler + '<div class="keys">' + Array.from({ length: rows }, (_, index) => '<span>' + noteName(topPitch - index) + '</span>').join('') + '</div><div class="note-grid" id="note-grid" style="--beat-unit:' + zoom + 'px;--grid-unit:' + zoom / division + 'px;width:' + width + 'px;min-width:' + width + 'px;height:' + rows * 20 + 'px">' +
       Array.from({ length: rows }, (_, index) => '<span class="note-row ' + ([1, 3, 6, 8, 10].includes((topPitch - index) % 12) ? 'black-key' : '') + '"></span>').join('') +
       notes.map(note => '<button class="note ' + (note.id === state.selectedNote ? 'selected' : '') + '" data-note-id="' + escapeHTML(note.id) + '" style="left:' + note.start * zoom + 'px;top:' + (topPitch - note.pitch) * 20 + 'px;width:' + Math.max(9, note.duration * zoom - 2) + 'px;opacity:' + (.35 + note.velocity * .65) + '" aria-label="' + noteName(note.pitch) + ' at beat ' + note.start + '">' + noteName(note.pitch) + '<i></i></button>').join('') +
@@ -981,17 +1062,18 @@
     on('#note-zoom', 'change', event => { const beat = piano.scrollLeft / zoom; state.noteZoom = Number(event.target.value); renderNotes(); $('.piano').scrollLeft = beat * state.noteZoom; });
     on('#note-octave', 'change', event => { piano.scrollTop = Math.max(0, (127 - ((Number(event.target.value) + 1) * 12 + 11)) * 20); });
     on('.note-edit-menu', 'click', event => openMenu(event.currentTarget, [
-      { label: 'Quantize selected sound to grid', action: () => { projectStore.transact('quantize notes', project => project.patterns[project.selected_pattern].notes.filter(note => note.pad === state.notePad).forEach(note => { note.start = clamp(Math.round(note.start * division) / division, 0, beats - 1 / division); note.duration = clamp(Math.round(note.duration * division) / division, 1 / division, beats - note.start); })); renderNotes(); } },
+      { label: 'Quantize selected sound to grid', action: () => { projectStore.transact('quantize notes', project => project.patterns[project.selected_pattern].notes.filter(noteMatches).forEach(note => { note.start = clamp(Math.round(note.start * division) / division, 0, beats - 1 / division); note.duration = clamp(Math.round(note.duration * division) / division, 1 / division, beats - note.start); })); renderNotes(); } },
       { label: 'Root pitch: ' + noteName(root), action: () => { const value = prompt('Root MIDI pitch (0–127)', root); if (value === null || !Number.isFinite(Number(value))) return; const pitch = Math.round(clamp(value, 0, 127)); if (state.notePad === null) state.noteRoot = pitch; else projectStore.setPad(state.notePad, { root_note: pitch }); renderNotes(); } },
       { label: (mono ? 'Disable' : 'Enable') + ' monophonic notes', action: () => { if (state.notePad === null) state.noteMono = !mono; else projectStore.setPad(state.notePad, { mono: !mono }); renderNotes(); } },
       ...[['Major chord', [0,4,7]], ['Minor chord', [0,3,7]], ['Dominant 7 chord', [0,4,7,10]]].map(([label, intervals]) => ({ label, disabled: mono, action: () => addNotes(intervals.map(interval => root + interval), snapBeat(state.beat, 1 / division)) })),
-      { label: 'Clear notes for this sound', action: () => { projectStore.transact('clear notes for sound', project => project.patterns[project.selected_pattern].notes = project.patterns[project.selected_pattern].notes.filter(note => note.pad !== state.notePad)); renderNotes(); } }
+      { label: 'Clear notes for this sound', action: () => { projectStore.transact('clear notes for sound', project => project.patterns[project.selected_pattern].notes = project.patterns[project.selected_pattern].notes.filter(note => !noteMatches(note))); renderNotes(); } }
     ]));
     for (const property of ['pitch', 'start', 'duration', 'velocity']) on('#note-' + property, 'change', event => { projectStore.transact('edit note ' + property, project => { const note = project.patterns[project.selected_pattern].notes.find(item => item.id === state.selectedNote); if (!note) return; const value = Number(event.target.value); if (!Number.isFinite(value)) return; if (property === 'pitch') note.pitch = Math.round(clamp(value, 0, 127)); else if (property === 'velocity') note.velocity = clamp(value, 1, 127) / 127; else if (property === 'start') { note.start = clamp(value, 0, beats - .001); note.duration = Math.min(note.duration, beats - note.start); } else note.duration = clamp(value, .001, beats - note.start); }); renderNotes(); });
     on('.note-delete', 'click', () => { projectStore.transact('delete note', project => project.patterns[project.selected_pattern].notes = project.patterns[project.selected_pattern].notes.filter(note => note.id !== state.selectedNote)); state.selectedNote = null; renderNotes(); });
     on('.pattern-menu', 'click', event => patternMenu(event.currentTarget));
     on('.note-action', 'click', event => openMenu(event.currentTarget, [
-      { label: 'Synthesizer', action: () => { state.notePad = null; renderNotes(); } },
+      { label: 'Studio synth (shared)', action: () => { state.notePad = null; state.noteInstrument = null; renderNotes(); } },
+      ...projectStore.project.instruments.filter(item => projectStore.pattern.instrument_ids.includes(item.id) || item.id === projectStore.selectedInstrument).map(item => ({ label: item.name + ' · ' + (projectStore.instrumentInfo(item.id).kind === 'prism' ? 'Prism' : 'Native'), action: () => { state.notePad = null; state.noteInstrument = item.id; renderNotes(); } })),
       ...projectStore.project.pads.map((pad, index) => ({ label: 'Pad ' + padNumber(index) + ' · ' + pad.name, action: () => { state.notePad = index; renderNotes(); } }))
     ]));
     const grid = $('#note-grid'); let moved = false;
@@ -1000,7 +1082,7 @@
       const rect = grid.getBoundingClientRect(), start = Math.max(0, Math.floor((event.clientX - rect.left) / zoom * division) / division);
       const pitch = clamp(topPitch - Math.floor((event.clientY - rect.top) / 20), 0, 127);
       addNotes([pitch], start, 1 / division);
-      const engine = await ensureAudio(); engine?.triggerNote(pitch, { pad: state.notePad, velocity: .8, duration: 60 / projectStore.project.bpm / division, synth: state.notePad === null ? currentInstrument() : null });
+      const engine = await ensureAudio(); engine?.triggerNote(pitch, { pad: state.notePad, velocity: .8, duration: 60 / projectStore.project.bpm / division, instrument: noteInstrumentTarget() });
     }));
     grid.querySelectorAll('.note').forEach(element => {
       const id = element.dataset.noteId;
@@ -1033,35 +1115,15 @@
     });
   }
 
-  // Browser oscillator presets, grouped like a phone instrument picker. Each
-  // entry is a complete patch for the Web Audio synth; nothing here loads
-  // desktop sample layers.
-  const synthPresets = {
-    'Midnight Brass': { osc1: 'saw', osc2: 'square', osc_mix: .42, osc2_octave: 0, detune: 8, sub: .18, noise: .015, cutoff: 2400, resonance: .28, attack: .025, decay: .32, sustain: .68, release: .65, drive: .18, spread: .42, lfo_rate: .32, lfo_pitch: 2, volume: .42 },
-    'Felt Keys': { osc1: 'triangle', osc2: 'sine', osc_mix: .3, osc2_octave: 0, detune: 3, sub: .1, noise: .005, cutoff: 2600, resonance: .12, attack: .004, decay: .9, sustain: .2, release: .7, drive: .06, spread: .25, lfo_rate: 0, lfo_pitch: 0, volume: .48 },
-    'Glass Keys': { osc1: 'sine', osc2: 'triangle', osc_mix: .35, osc2_octave: 1, detune: 4, sub: 0, noise: 0, cutoff: 5200, resonance: .1, attack: .003, decay: .6, sustain: .3, release: .5, drive: .05, spread: .3, lfo_rate: 0, lfo_pitch: 0, volume: .45 },
-    'Warm Organ': { osc1: 'sine', osc2: 'square', osc_mix: .5, osc2_octave: 1, detune: 2, sub: .3, noise: 0, cutoff: 3200, resonance: .05, attack: .01, decay: .1, sustain: 1, release: .12, drive: .1, spread: .2, lfo_rate: 5.5, lfo_pitch: 1, volume: .4 },
-    'Velvet Poly': { osc1: 'saw', osc2: 'saw', osc_mix: .5, osc2_octave: 0, detune: 12, sub: .08, noise: .01, cutoff: 1750, resonance: .18, attack: .08, decay: .55, sustain: .72, release: 1.25, drive: .12, spread: .76, lfo_rate: .25, lfo_pitch: 2, volume: .38 },
-    'Deep Bass': { osc1: 'saw', osc2: 'sine', osc_mix: .5, osc2_octave: -1, detune: 0, sub: .5, noise: 0, cutoff: 420, resonance: .3, attack: .005, decay: .25, sustain: .7, release: .18, drive: .35, spread: 0, lfo_rate: 0, lfo_pitch: 0, volume: .55 },
-    'Neon Sub': { osc1: 'sine', osc2: 'square', osc_mix: .3, osc2_octave: -1, detune: 0, sub: .4, noise: 0, cutoff: 680, resonance: .16, attack: .004, decay: .3, sustain: .8, release: .32, drive: .4, spread: .04, lfo_rate: 0, lfo_pitch: 0, volume: .5 },
-    'Acid Bass': { osc1: 'saw', osc2: 'saw', osc_mix: .1, osc2_octave: 0, detune: 0, sub: .1, noise: 0, cutoff: 900, resonance: .8, attack: .002, decay: .22, sustain: .15, release: .12, drive: .5, spread: 0, lfo_rate: 0, lfo_pitch: 0, volume: .5 },
-    'Pulse Bass': { osc1: 'pulse', osc2: 'sine', pulse_width: .25, osc_mix: .4, osc2_octave: -1, detune: 0, sub: .3, noise: 0, cutoff: 700, resonance: .25, attack: .003, decay: .3, sustain: .6, release: .15, drive: .25, spread: 0, lfo_rate: 0, lfo_pitch: 0, volume: .5 },
-    'Solar Lead': { osc1: 'saw', osc2: 'square', osc_mix: .45, osc2_octave: 1, detune: 12, sub: 0, noise: 0, cutoff: 3800, resonance: .3, attack: .01, decay: .3, sustain: .8, release: .3, drive: .3, spread: .3, lfo_rate: 5, lfo_pitch: 6, volume: .42 },
-    'Whistle Lead': { osc1: 'sine', osc2: 'triangle', osc_mix: .3, osc2_octave: 2, detune: 5, sub: 0, noise: .01, cutoff: 6000, resonance: .2, attack: .02, decay: .2, sustain: .9, release: .25, drive: .1, spread: .1, lfo_rate: 6, lfo_pitch: 8, volume: .4 },
-    'Copper Pluck': { osc1: 'saw', osc2: 'triangle', osc_mix: .4, osc2_octave: 0, detune: 6, sub: .05, noise: .01, cutoff: 1150, resonance: .34, attack: .002, decay: .18, sustain: .08, release: .22, drive: .28, spread: .18, lfo_rate: 0, lfo_pitch: 0, volume: .48 },
-    'Marimba Pluck': { osc1: 'sine', osc2: 'triangle', osc_mix: .4, osc2_octave: 2, detune: 0, sub: 0, noise: .02, cutoff: 3400, resonance: .2, attack: .001, decay: .28, sustain: 0, release: .3, drive: .1, spread: .2, lfo_rate: 0, lfo_pitch: 0, volume: .5 },
-    'Bell Tone': { osc1: 'sine', osc2: 'sine', osc_mix: .5, osc2_octave: 3, detune: 7, sub: 0, noise: 0, cutoff: 8000, resonance: .1, attack: .001, decay: 1.2, sustain: .05, release: 1.2, drive: 0, spread: .4, lfo_rate: 0, lfo_pitch: 0, volume: .42 },
-    'Aurora Pad': { osc1: 'saw', osc2: 'saw', osc_mix: .5, osc2_octave: 0, detune: 18, sub: .1, noise: .02, cutoff: 1400, resonance: .15, attack: .6, decay: 1, sustain: .8, release: 1.8, drive: .05, spread: .9, lfo_rate: .2, lfo_pitch: 3, volume: .34 },
-    'Choir Pad': { osc1: 'triangle', osc2: 'pulse', pulse_width: .35, osc_mix: .5, osc2_octave: 0, detune: 10, sub: 0, noise: .01, cutoff: 2000, resonance: .2, attack: .4, decay: .8, sustain: .85, release: 1.4, drive: 0, spread: .8, lfo_rate: .3, lfo_pitch: 2, volume: .36 },
-    'Noise Riser': { osc1: 'noise', osc2: 'saw', osc_mix: .3, osc2_octave: 1, detune: 30, sub: 0, noise: .3, cutoff: 5000, resonance: .4, attack: .8, decay: .5, sustain: 1, release: .8, drive: .2, spread: .6, lfo_rate: .5, lfo_pitch: 4, volume: .3 }
-  };
-  const presetGroups = {
-    Keys: ['Midnight Brass', 'Felt Keys', 'Glass Keys', 'Warm Organ', 'Velvet Poly'],
-    Bass: ['Deep Bass', 'Neon Sub', 'Acid Bass', 'Pulse Bass'],
-    Leads: ['Solar Lead', 'Whistle Lead'],
-    'Plucks & Bells': ['Copper Pluck', 'Marimba Pluck', 'Bell Tone'],
-    'Pads & FX': ['Aurora Pad', 'Choir Pad', 'Noise Riser']
-  };
+  // Native and Prism, exactly as the desktop defines them: the 54 oscillator tones
+  // and 120 layered Prism performances come from the desktop banks
+  // (instrument-bank.js), and both play through the ported desktop engine.
+  const BANK = window.AnharmonicInstrumentBank || { tones: [], performances: [], arps: [] };
+  const DSP = window.AnharmonicDSP;
+  const PRISM_SOUNDS = [...BANK.tones.map(item => ({ ...item, source: 'tone' })), ...BANK.performances.map(item => ({ ...item, source: 'performance' }))];
+  const RATE_LABELS = ['1/32', '1/8 T', '1/16', '1/8', '1/8 D', '1/4'], TARGET_LABELS = ['Cutoff', 'Detune', 'Level', 'Pan', 'Blend'], WAVE_LABELS = ['Saw', 'Sine', 'Triangle', 'Pulse'];
+  const NATIVE_WAVES = ['saw', 'square', 'triangle', 'sine'];
+  const PARAM_LABELS = { osc_mix: 'Osc blend', osc2_octave: 'Osc 2 octave', pulse_width: 'Pulse width', filter_env: 'Filter env', lfo_rate: 'LFO rate', lfo_pitch: 'LFO pitch', lfo_filter: 'LFO filter', layer_mix: 'Layer B mix', macro_tone: 'Tone', macro_motion: 'Motion', macro_space: 'Space', macro_texture: 'Texture', seq_depth: 'Step depth', mod_rate: 'LFO rate', mod_depth: 'LFO depth', crush_bits: 'Crush bits', crush_mix: 'Crush', trem_rate: 'Tremolo rate', trem_depth: 'Tremolo', arp_gate: 'Arp gate', arp_octaves: 'Arp octaves', feedback: 'Echo feedback', space: 'Reverb', size: 'Room size' };
   const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10] };
   const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
   // Diatonic triads of the chosen key, like a phone's chord strips: tap one to play it.
@@ -1075,56 +1137,152 @@
     const numeral = numerals[degree]; return fifth === 6 ? numeral.toLowerCase() + '°' : third === 3 ? numeral.toLowerCase() : numeral;
   }
   // Live key press/release used by the on-screen keyboard, chord strip and typing keys.
+  // Prism runs its own tempo-synced arp, so the studio arp only drives Native sounds.
   function keyDown(pitch) {
     if (state.heldSynth.has(pitch)) return;
     state.heldSynth.add(pitch);
-    if (projectStore.project.arp.enabled) startArp(); else noteOn(pitch);
+    if (liveInfo().kind !== 'prism' && projectStore.project.arp.enabled) startArp(); else noteOn(pitch);
   }
   function keyUp(pitch) {
     if (!state.heldSynth.has(pitch)) return;
     state.heldSynth.delete(pitch); noteOff(pitch);
     if (!state.heldSynth.size) stopArp();
   }
-  function renderInstruments() {
-    const synth = currentInstrument(), arp = projectStore.project.arp, independent = Boolean(projectStore.pattern.instrument);
-    const ranges = {
-      cutoff: [80, 20000, 1], resonance: [0, .95, .01], attack: [.001, 2, .001], decay: [.001, 2, .001],
-      sustain: [0, 1, .01], release: [.01, 4, .01], drive: [0, 1, .01], spread: [0, 1, .01],
-      volume: [0, 1, .01], osc_mix: [0, 1, .01], detune: [0, 50, 1], sub: [0, 1, .01]
-    };
-    const base = state.keyboardOctave * 12, keyCount = 25;
-    let whites = 0;
+  function formatParam(id, value) {
+    const key = id.startsWith('b_') ? id.slice(2) : id;
+    if (key === 'cutoff') return Math.round(value) + ' Hz';
+    if (['lfo_rate', 'mod_rate', 'trem_rate'].includes(key)) return value.toFixed(2) + ' Hz';
+    if (['attack', 'decay', 'release'].includes(key)) return value < 1 ? Math.round(value * 1000) + ' ms' : value.toFixed(2) + ' s';
+    if (['detune', 'lfo_pitch'].includes(key)) return value.toFixed(1) + ' ct';
+    if (['osc2_octave', 'arp_octaves', 'crush_bits'].includes(key)) return String(Math.round(value));
+    return Math.round(value * 100) + '%';
+  }
+  // One slider per parameter. Continuous controls use the desktop's normalized
+  // (skewed) positions so cutoff and envelope times feel the same as in Studio.
+  function paramControl(spec, value, attribute) {
+    const label = (PARAM_LABELS[spec.id.replace(/^b_/, '')] || spec.id.replace(/^b_/, '').replace(/_/g, ' ')).toUpperCase();
+    const input = spec.step > 0
+      ? '<input type="range" ' + attribute + ' min="' + spec.low + '" max="' + spec.high + '" step="1" value="' + Math.round(value) + '">'
+      : '<input type="range" ' + attribute + ' min="0" max="1000" step="1" value="' + Math.round(DSP.prismNormalize(spec, value) * 1000) + '">';
+    return '<label>' + escapeHTML(label) + input + '<output>' + escapeHTML(formatParam(spec.id, value)) + '</output></label>';
+  }
+  const controlValue = (spec, input) => spec.step > 0 ? Number(input.value) : DSP.prismPlain(spec, Number(input.value) / 1000);
+  function choiceControl(label, attribute, labels, value) {
+    return '<label>' + label + '<select ' + attribute + '>' + labels.map((text, index) => '<option value="' + index + '"' + (Math.round(value) === index ? ' selected' : '') + '>' + text + '</option>').join('') + '</select></label>';
+  }
+  const instrumentOptions = selected => {
+    const pattern = projectStore.pattern, project = projectStore.project, here = new Set(pattern.instrument_ids);
+    if (selected) here.add(selected);
+    const label = item => escapeHTML(item.name) + ' · ' + (projectStore.instrumentInfo(item.id)?.kind === 'prism' ? 'Prism' : projectStore.instrumentInfo(item.id)?.kind === 'plugin' ? 'Desktop plugin' : 'Native');
+    const local = project.instruments.filter(item => here.has(item.id)), other = project.instruments.filter(item => !here.has(item.id));
+    return '<option value=""' + (selected ? '' : ' selected') + '>Studio synth (shared)</option>' + local.map(item => '<option value="' + escapeHTML(item.id) + '"' + (item.id === selected ? ' selected' : '') + '>' + label(item) + '</option>').join('') +
+      (other.length ? '<optgroup label="Other patterns">' + other.map(item => '<option value="' + escapeHTML(item.id) + '">' + label(item) + '</option>').join('') + '</optgroup>' : '');
+  };
+  function keyboardHTML() {
+    const base = state.keyboardOctave * 12, keyCount = 25; let whites = 0;
     const keys = Array.from({ length: keyCount }, (_, index) => {
       const pitch = base + index, black = [1, 3, 6, 8, 10].includes(pitch % 12);
       const html = '<button type="button" class="key ' + (black ? 'black' : 'white') + '" data-note="' + pitch + '" aria-label="' + noteName(pitch) + '"' + (black ? ' style="left:calc(var(--white-key) * ' + whites + ' - var(--black-key) / 2)"' : '') + '>' + (pitch % 12 === 0 ? noteName(pitch) : '') + '</button>';
       if (!black) whites += 1;
       return html;
     }).join('');
-    const presetOptions = (synthPresets[synth.name] ? '' : '<option selected>' + escapeHTML(synth.name) + '</option>') + Object.entries(presetGroups).map(([group, names]) => '<optgroup label="' + escapeHTML(group) + '">' + names.map(name => '<option' + (name === synth.name ? ' selected' : '') + '>' + escapeHTML(name) + '</option>').join('') + '</optgroup>').join('');
-    shell('Instruments · ' + projectStore.pattern.name, button('PREVIEW', 'synth-preview') + button('RELEASE ALL', 'synth-panic') + button(independent ? 'PATTERN INSTRUMENT ✓' : 'SHARED INSTRUMENT', 'instrument-scope'),
-      '<div class="instrument-editor"><div class="instrument-toolbar"><label>PRESET<select id="synth-preset">' + presetOptions + '</select></label><label>TRACK<select id="synth-track">' + projectStore.project.tracks.map((track, index) => '<option value="' + index + '"' + (index === synth.track ? ' selected' : '') + '>' + escapeHTML(track.name) + '</option>').join('') + '</select></label>' +
-      '<button id="arp-toggle" class="' + (arp.enabled ? 'active' : '') + '">ARP ' + (arp.enabled ? 'ON' : 'OFF') + '</button><label>RATE<select id="arp-rate"><option value=".125">1/32</option><option value=".25">1/16</option><option value=".5">1/8</option><option value="1">1/4</option></select></label><label>MODE<select id="arp-mode"><option>up</option><option>down</option><option>up/down</option><option>random</option></select></label><label>OCTAVES<select id="arp-octaves"><option>1</option><option>2</option><option>3</option><option>4</option></select></label></div>' +
-      '<div class="chord-strip" role="group" aria-label="Chords in the selected key"><label>KEY<select id="chord-key">' + NOTE_NAMES.map((name, index) => '<option value="' + index + '"' + (index === state.chordKey ? ' selected' : '') + '>' + name + '</option>').join('') + '</select></label><label>SCALE<select id="chord-scale"><option value="major"' + (state.chordScale === 'major' ? ' selected' : '') + '>major</option><option value="minor"' + (state.chordScale === 'minor' ? ' selected' : '') + '>minor</option></select></label><div class="chords">' + Array.from({ length: 7 }, (_, degree) => '<button type="button" class="chord" data-chord="' + degree + '" aria-label="' + chordLabel(degree) + ' chord">' + chordLabel(degree) + '<small>' + NOTE_NAMES[(state.chordKey + (SCALES[state.chordScale] || SCALES.major)[degree]) % 12] + '</small></button>').join('') + '</div></div>' +
-      '<details class="synth-details"' + (isMobile() ? '' : ' open') + '><summary>SOUND DESIGN</summary><div class="synth-controls">' + ['osc1', 'osc2'].map(field => '<label>' + field.toUpperCase() + '<select id="' + field + '">' + ['saw', 'square', 'triangle', 'sine', 'pulse', 'noise'].map(wave => '<option' + (wave === synth[field] ? ' selected' : '') + '>' + wave + '</option>').join('') + '</select></label>').join('') +
-      Object.entries(ranges).map(([field, [min, max, step]]) => '<label>' + field.replace('_', ' ').toUpperCase() + '<input data-synth="' + field + '" type="range" min="' + min + '" max="' + max + '" step="' + step + '" value="' + synth[field] + '"><output>' + synth[field] + '</output></label>').join('') + '</div></details>' +
+    return '<div class="chord-strip" role="group" aria-label="Chords in the selected key"><label>KEY<select id="chord-key">' + NOTE_NAMES.map((name, index) => '<option value="' + index + '"' + (index === state.chordKey ? ' selected' : '') + '>' + name + '</option>').join('') + '</select></label><label>SCALE<select id="chord-scale"><option value="major"' + (state.chordScale === 'major' ? ' selected' : '') + '>major</option><option value="minor"' + (state.chordScale === 'minor' ? ' selected' : '') + '>minor</option></select></label><div class="chords">' + Array.from({ length: 7 }, (_, degree) => '<button type="button" class="chord" data-chord="' + degree + '" aria-label="' + chordLabel(degree) + ' chord">' + chordLabel(degree) + '<small>' + NOTE_NAMES[(state.chordKey + (SCALES[state.chordScale] || SCALES.major)[degree]) % 12] + '</small></button>').join('') + '</div></div>' +
       '<div class="keyboard-bar"><button type="button" class="octave-down" ' + (state.keyboardOctave <= 0 ? 'disabled' : '') + '>OCT −</button><span id="octave-label">' + noteName(base) + ' – ' + noteName(base + keyCount - 1) + '</span><button type="button" class="octave-up" ' + (state.keyboardOctave >= 8 ? 'disabled' : '') + '>OCT +</button><span class="keyboard-hint">Slide across keys to glide · multi-touch chords</span></div>' +
-      '<div class="synth-keyboard" id="synth-keyboard" role="group" aria-label="Touch keyboard">' + keys + '</div><p class="sampler-help">Hold keys or chords to play' + (arp.enabled ? '; ARP sequences held notes' : '') + '. Set Record to PERFORM to capture what you play into this pattern while it loops. ' + (independent ? 'This pattern owns its instrument; other patterns keep theirs.' : 'This pattern uses the shared project instrument; choose PATTERN INSTRUMENT to give it its own sound.') + '</p></div>');
-    ['osc1', 'osc2'].forEach(field => on('#' + field, 'change', event => projectStore.setInstrument({ [field]: event.target.value })));
-    $$('[data-synth]').forEach(control => control.addEventListener('input', act(() => { projectStore.setInstrument({ [control.dataset.synth]: Number(control.value) }, 'instrument:' + control.dataset.synth + ':' + projectStore.pattern.id); control.nextElementSibling.textContent = control.value; })));
-    on('#synth-preset', 'change', event => { const patch = synthPresets[event.target.value]; if (patch) projectStore.applyInstrumentPreset(event.target.value, patch); renderInstruments(); });
-    on('#synth-track', 'change', event => projectStore.setInstrument({ track: Number(event.target.value) }));
-    on('.instrument-scope', 'click', () => { projectStore.setPatternInstrumentIndependent(!independent); renderInstruments(); setStatus(independent ? projectStore.pattern.name + ' now plays the shared project instrument.' : projectStore.pattern.name + ' now has its own instrument. Other patterns are unchanged.'); });
-    on('#arp-toggle', 'click', () => { releaseHeld(); projectStore.setArp({ enabled: !arp.enabled }); renderInstruments(); });
-    $('#arp-rate').value = String(arp.rate_beats).replace(/^0\./, '.'); $('#arp-mode').value = arp.mode; $('#arp-octaves').value = String(arp.octaves);
-    on('#arp-rate', 'change', event => { projectStore.setArp({ rate_beats: Number(event.target.value) }); if (state.arpTimer) { stopArp(); startArp(); } });
-    on('#arp-mode', 'change', event => projectStore.setArp({ mode: event.target.value }));
-    on('#arp-octaves', 'change', event => projectStore.setArp({ octaves: Number(event.target.value) }));
+      '<div class="synth-keyboard" id="synth-keyboard" role="group" aria-label="Touch keyboard">' + keys + '</div>';
+  }
+  function nativePanel(info) {
+    const patch = info.patch, arp = projectStore.project.arp;
+    const groups = BANK.tones.reduce((result, item) => { (result[item.category] ||= []).push(item.name); return result; }, {});
+    const known = BANK.tones.some(item => item.name === patch.name);
+    const fields = DSP.PRISM_SPECS.slice(2, 21);
+    return '<div class="instrument-toolbar"><label>NATIVE SOUND<select id="native-preset">' + (known ? '' : '<option selected>' + escapeHTML(patch.name || 'Custom') + '</option>') + Object.entries(groups).map(([group, names]) => '<optgroup label="' + escapeHTML(group) + '">' + names.map(name => '<option' + (name === patch.name ? ' selected' : '') + '>' + escapeHTML(name) + '</option>').join('') + '</optgroup>').join('') + '</select></label>' +
+      '<label>TRACK<select id="instrument-track">' + projectStore.project.tracks.map((track, index) => '<option value="' + index + '"' + (index === patch.track ? ' selected' : '') + '>' + escapeHTML(track.name) + '</option>').join('') + '</select></label>' +
+      '<button id="arp-toggle" class="' + (arp.enabled ? 'active' : '') + '">ARP ' + (arp.enabled ? 'ON' : 'OFF') + '</button><label>RATE<select id="arp-rate"><option value=".125">1/32</option><option value=".25">1/16</option><option value=".5">1/8</option><option value="1">1/4</option></select></label><label>MODE<select id="arp-mode"><option>up</option><option>down</option><option>up/down</option><option>random</option></select></label><label>OCTAVES<select id="arp-octaves"><option>1</option><option>2</option><option>3</option><option>4</option></select></label></div>' +
+      '<details class="synth-details"' + (isMobile() ? '' : ' open') + '><summary>SOUND DESIGN</summary><div class="synth-controls">' +
+      ['osc1', 'osc2'].map(field => '<label>' + field.toUpperCase() + '<select data-native-wave="' + field + '">' + NATIVE_WAVES.map(wave => '<option' + (wave === patch[field] ? ' selected' : '') + '>' + wave + '</option>').join('') + '</select></label>').join('') +
+      fields.map(spec => paramControl(spec, Number(patch[spec.id] ?? spec.initial), 'data-native="' + spec.id + '"')).join('') + '</div></details>';
+  }
+  function prismPanel(info) {
+    const values = DSP.prismValuesFromParameters(info.plugin?.parameters || {}), specs = DSP.PRISM_SPECS;
+    const categories = [...new Set(PRISM_SOUNDS.map(item => item.category))];
+    const query = (state.prismQuery || '').toLowerCase(), category = state.prismCategory || '';
+    const sounds = PRISM_SOUNDS.filter(item => (!category || item.category === category) && (!query || item.name.toLowerCase().includes(query)));
+    const control = index => paramControl(specs[index], values[index], 'data-prism="' + index + '"');
+    const layer = offset => choiceControl('OSC 1', 'data-prism-choice="' + offset + '"', WAVE_LABELS, values[offset]) + choiceControl('OSC 2', 'data-prism-choice="' + (offset + 1) + '"', WAVE_LABELS, values[offset + 1]) + Array.from({ length: 19 }, (_, index) => control(offset + 2 + index)).join('');
+    const instrument = projectStore.project.instruments.find(item => item.id === info.id);
+    return '<div class="prism-browser"><label>SEARCH<input id="prism-search" type="search" value="' + escapeHTML(state.prismQuery || '') + '" placeholder="Search 174 Prism sounds"></label><label>BANK<select id="prism-category"><option value="">All banks</option>' + categories.map(name => '<option' + (name === category ? ' selected' : '') + '>' + escapeHTML(name) + '</option>').join('') + '</select></label>' +
+      '<select id="prism-sound" size="' + (isMobile() ? 1 : 7) + '" aria-label="Prism sounds">' + sounds.map(item => '<option value="' + escapeHTML(item.name) + '"' + (item.name === state.prismSound ? ' selected' : '') + '>' + escapeHTML(item.name) + ' — ' + escapeHTML(item.category) + '</option>').join('') + '</select>' +
+      '<div class="prism-load">' + button('LOAD SOUND', 'prism-load-sound') + button('TO LAYER A', 'prism-load-a') + button('TO LAYER B', 'prism-load-b') + '</div></div>' +
+      '<div class="instrument-toolbar prism-perform"><strong>PERFORM</strong>' + [53, 54, 55, 56, 57].map(control).join('') + '<label>TRACK<select id="instrument-track">' + projectStore.project.tracks.map((track, index) => '<option value="' + index + '"' + (index === instrument?.patch.track ? ' selected' : '') + '>' + escapeHTML(track.name) + '</option>').join('') + '</select></label></div>' +
+      '<details class="synth-details"' + (isMobile() ? '' : ' open') + '><summary>LAYER A</summary><div class="synth-controls">' + layer(0) + '</div></details>' +
+      '<details class="synth-details"><summary>LAYER B</summary><div class="synth-controls">' + layer(32) + '</div></details>' +
+      '<details class="synth-details"><summary>ARP & MOTION</summary><div class="synth-controls"><label>ARP<select data-prism-choice="21"><option value="0"' + (values[21] < .5 ? ' selected' : '') + '>Off</option><option value="1"' + (values[21] >= .5 ? ' selected' : '') + '>On</option></select></label>' +
+      choiceControl('ARP RATE', 'data-prism-choice="22"', RATE_LABELS, values[22]) + choiceControl('ARP MODE', 'data-prism-choice="23"', ['Up', 'Down', 'Up/down', 'Random'], values[23]) + control(24) + control(25) +
+      control(58) + choiceControl('STEP RATE', 'data-prism-choice="59"', RATE_LABELS, values[59]) + choiceControl('STEP TARGET', 'data-prism-choice="60"', TARGET_LABELS, values[60]) + Array.from({ length: 8 }, (_, index) => control(61 + index)).join('') +
+      control(69) + control(70) + choiceControl('LFO TARGET', 'data-prism-choice="71"', TARGET_LABELS, values[71]) + '</div></details>' +
+      '<details class="synth-details"><summary>EFFECTS</summary><div class="synth-controls">' + control(31) + control(26) + control(27) + choiceControl('ECHO RATE', 'data-prism-choice="28"', RATE_LABELS, values[28]) + control(29) + control(30) + control(72) + control(73) + control(74) + control(75) + '</div></details>';
+  }
+  function renderInstruments() {
+    const pattern = projectStore.pattern, selected = projectStore.selectedInstrument, info = liveInfo();
+    const kindLabel = info.kind === 'prism' ? 'Prism' : info.kind === 'plugin' ? 'Desktop plugin' : 'Native';
+    const body = info.kind === 'plugin'
+      ? '<p class="sampler-help">' + escapeHTML(info.name) + ' is a third-party plugin from the desktop app. The browser cannot host it; render it to audio in the desktop app, or choose another sound.</p>'
+      : info.kind === 'prism' ? prismPanel(info) : nativePanel(info);
+    shell('Instruments · ' + pattern.name, '<label class="instrument-picker">SOUND<select id="instrument-select">' + instrumentOptions(selected) + '</select></label>' + button('+ NATIVE', 'insert-native') + button('+ PRISM', 'insert-prism') + button('PREVIEW', 'synth-preview') + button('RELEASE ALL', 'synth-panic') + (selected ? button('RENAME', 'instrument-rename') : ''),
+      '<div class="instrument-editor" data-instrument-kind="' + info.kind + '">' + body + keyboardHTML() +
+      '<p class="sampler-help">' + kindLabel + (selected ? ' instance “' + escapeHTML(info.name) + '” plays this pattern’s notes and live keys.' : ': the shared Studio synth plays notes that have no instrument.') + ' Native and Prism use the same voice engine as the desktop app. Hold keys or chords to play; set Record to PERFORM to capture them into this pattern. Insert another Native or Prism to layer a new part with its own sound.</p></div>');
+    // Like the desktop, the selected instrument is also the piano roll's target.
+    const follow = id => { state.notePad = null; state.noteInstrument = id; };
+    on('#instrument-select', 'change', event => { releaseHeld(); projectStore.selectInstrument(event.target.value || null); follow(event.target.value || null); renderInstruments(); });
+    on('.insert-native', 'click', () => { releaseHeld(); const id = projectStore.insertInstrument('native'); follow(id); renderInstruments(); setStatus('Native inserted into ' + pattern.name + '. New notes and live keys play it; other instruments keep their own sound.'); return id; });
+    on('.insert-prism', 'click', () => { releaseHeld(); const values = DSP.prismLoadSound(DSP.prismDefaults(), BANK.performances[0] || BANK.tones[0]); const sound = BANK.performances[0] || BANK.tones[0], id = projectStore.insertInstrument('prism', DSP.prismParametersFromValues(values)); follow(id); state.prismSound = sound?.name; if (sound) projectStore.renameInstrument(id, pattern.name.slice(0, 120) + ' · ' + sound.name); renderInstruments(); setStatus('Prism inserted into ' + pattern.name + '. Browse 174 sounds, then play the keys.'); });
+    on('.instrument-rename', 'click', () => { const name = prompt('Instrument name', info.name); if (name?.trim()) { projectStore.renameInstrument(selected, name.trim().slice(0, 200)); renderInstruments(); } });
+    on('.synth-preview', 'click', async () => { const engine = await ensureAudio(); engine?.triggerNote(60, { velocity: .8, duration: .6, instrument: selected }); });
+    on('.synth-panic', 'click', () => { releaseHeld(); state.engine?.cancelVoices(); setStatus('Held voices released.'); });
+    on('#instrument-track', 'change', event => projectStore.setInstrumentPatch(selected, { track: Number(event.target.value) }));
+    if (info.kind === 'native') {
+      const arp = projectStore.project.arp;
+      on('#native-preset', 'change', event => { const tone = BANK.tones.find(item => item.name === event.target.value); if (tone) projectStore.setInstrumentPatch(selected, { ...tone.patch, name: tone.name }); renderInstruments(); });
+      $$('[data-native-wave]').forEach(control => control.addEventListener('change', act(() => projectStore.setInstrumentPatch(selected, { [control.dataset.nativeWave]: control.value }))));
+      $$('[data-native]').forEach(control => control.addEventListener('input', act(() => {
+        const spec = DSP.PRISM_SPECS[DSP.PRISM_INDEX[control.dataset.native]], value = controlValue(spec, control);
+        projectStore.setInstrumentPatch(selected, { [spec.id]: value }, 'native:' + (selected || 'synth') + ':' + spec.id); control.nextElementSibling.textContent = formatParam(spec.id, value);
+      })));
+      on('#arp-toggle', 'click', () => { releaseHeld(); projectStore.setArp({ enabled: !arp.enabled }); renderInstruments(); });
+      $('#arp-rate').value = String(arp.rate_beats).replace(/^0\./, '.'); $('#arp-mode').value = arp.mode; $('#arp-octaves').value = String(arp.octaves);
+      on('#arp-rate', 'change', event => { projectStore.setArp({ rate_beats: Number(event.target.value) }); if (state.arpTimer) { stopArp(); startArp(); } });
+      on('#arp-mode', 'change', event => projectStore.setArp({ mode: event.target.value }));
+      on('#arp-octaves', 'change', event => projectStore.setArp({ octaves: Number(event.target.value) }));
+    }
+    if (info.kind === 'prism') {
+      const loadPrism = mode => {
+        const item = PRISM_SOUNDS.find(sound => sound.name === $('#prism-sound').value); if (!item) throw new Error('Choose a Prism sound first.');
+        const current = DSP.prismValuesFromParameters(projectStore.instrumentInfo(selected).plugin.parameters || {});
+        const next = mode === 'sound' ? DSP.prismLoadSound(current, item) : DSP.prismLoadLayer(current, item, mode === 'b');
+        releaseHeld(); state.prismSound = item.name;
+        projectStore.setPrismParameters(selected, DSP.prismParametersFromValues(next));
+        if (mode === 'sound') projectStore.renameInstrument(selected, pattern.name.slice(0, 120) + ' · ' + item.name);
+        renderInstruments(); setStatus(item.name + (mode === 'sound' ? ' loaded into Prism.' : ' loaded into layer ' + mode.toUpperCase() + '.'));
+      };
+      on('.prism-load-sound', 'click', () => loadPrism('sound')); on('.prism-load-a', 'click', () => loadPrism('a')); on('.prism-load-b', 'click', () => loadPrism('b'));
+      on('#prism-sound', 'dblclick', () => loadPrism('sound'));
+      on('#prism-sound', 'change', event => { state.prismSound = event.target.value; if (isMobile()) loadPrism('sound'); });
+      on('#prism-search', 'input', event => { state.prismQuery = event.target.value; const position = event.target.selectionStart; renderInstruments(); const search = $('#prism-search'); search.focus(); search.setSelectionRange(position, position); });
+      on('#prism-category', 'change', event => { state.prismCategory = event.target.value; renderInstruments(); });
+      $$('[data-prism]').forEach(control => control.addEventListener('input', act(() => {
+        const spec = DSP.PRISM_SPECS[Number(control.dataset.prism)], value = controlValue(spec, control);
+        projectStore.setPrismParameters(selected, { [spec.index]: DSP.prismNormalize(spec, value) }, 'prism:' + selected + ':' + spec.index); control.nextElementSibling.textContent = formatParam(spec.id, value);
+      })));
+      $$('[data-prism-choice]').forEach(control => control.addEventListener('change', act(() => {
+        const spec = DSP.PRISM_SPECS[Number(control.dataset.prismChoice)];
+        if (spec.index === 21) releaseHeld();
+        projectStore.setPrismParameters(selected, { [spec.index]: DSP.prismNormalize(spec, Number(control.value)) });
+      })));
+    }
     on('#chord-key', 'change', event => { state.chordKey = Number(event.target.value); renderInstruments(); });
     on('#chord-scale', 'change', event => { state.chordScale = event.target.value; renderInstruments(); });
     on('.octave-down', 'click', () => { releaseHeld(); state.keyboardOctave = Math.max(0, state.keyboardOctave - 1); renderInstruments(); });
     on('.octave-up', 'click', () => { releaseHeld(); state.keyboardOctave = Math.min(8, state.keyboardOctave + 1); renderInstruments(); });
-    on('.synth-preview', 'click', async () => { const engine = await ensureAudio(); engine?.triggerNote(60, { velocity: .8, duration: .5, synth: currentInstrument() }); });
-    on('.synth-panic', 'click', () => { releaseHeld(); setStatus('Held synth voices released.'); });
     // One pointer per finger: press, glide across keys, lift. Chords hold all their notes until release.
     const keyboard = $('#synth-keyboard'); const pointers = new Map();
     const keyAt = event => document.elementFromPoint(event.clientX, event.clientY)?.closest('#synth-keyboard [data-note]');
@@ -1143,13 +1301,13 @@
     }));
     const lift = event => { const pitch = pointers.get(event.pointerId); if (pitch === undefined) return; pointers.delete(event.pointerId); keyboard.querySelector('[data-note="' + pitch + '"]')?.classList.remove('down'); keyUp(pitch); };
     keyboard.addEventListener('pointerup', lift); keyboard.addEventListener('pointercancel', lift); keyboard.addEventListener('lostpointercapture', lift);
-    $$('#synth-keyboard [data-note]').forEach(key => key.addEventListener('keydown', act(async event => { if (event.code === 'Enter' && !event.repeat) { const engine = await ensureAudio(); engine?.triggerNote(Number(key.dataset.note), { duration: .4, synth: currentInstrument() }); } })));
+    $$('#synth-keyboard [data-note]').forEach(key => key.addEventListener('keydown', act(async event => { if (event.code === 'Enter' && !event.repeat) { const engine = await ensureAudio(); engine?.triggerNote(Number(key.dataset.note), { duration: .4, instrument: selected }); } })));
     $$('.chord').forEach(control => {
       const pitches = chordPitches(Number(control.dataset.chord));
       control.addEventListener('pointerdown', act(async event => { if (event.button !== 0) return; event.preventDefault(); control.setPointerCapture?.(event.pointerId); control.classList.add('down'); await ensureAudio(); if (control.classList.contains('down')) pitches.forEach(keyDown); }));
       const release = () => { control.classList.remove('down'); pitches.forEach(keyUp); };
       control.addEventListener('pointerup', release); control.addEventListener('pointercancel', release); control.addEventListener('lostpointercapture', release);
-      control.addEventListener('keydown', act(async event => { if (event.code === 'Enter' && !event.repeat) { const engine = await ensureAudio(); pitches.forEach(pitch => engine?.triggerNote(pitch, { duration: .5, synth: currentInstrument() })); } }));
+      control.addEventListener('keydown', act(async event => { if (event.code === 'Enter' && !event.repeat) { const engine = await ensureAudio(); pitches.forEach(pitch => engine?.triggerNote(pitch, { duration: .5, instrument: selected })); } }));
     });
   }
   function startArp() {
@@ -1163,8 +1321,8 @@
       if (arp.mode === 'up/down' && sequence.length > 2) sequence = sequence.concat(sequence.slice(1, -1).reverse());
       const index = arp.mode === 'random' ? Math.floor(Math.random() * sequence.length) : state.arpIndex++ % sequence.length;
       const pitch = sequence[index], gateBeats = arp.rate_beats * arp.gate;
-      state.engine?.triggerNote(pitch, { velocity: .8, duration: 60 / projectStore.project.bpm * gateBeats, synth: currentInstrument() });
-      if (state.performance && state.engine?.playing) recordNote({ pitch, pad: null, velocity: .8, beat: state.engine.localBeatAt() }, gateBeats);
+      state.engine?.triggerNote(pitch, { velocity: .8, duration: 60 / projectStore.project.bpm * gateBeats, instrument: liveInstrument() });
+      if (state.performance && state.engine?.playing) recordNote({ pitch, pad: null, instrument: liveInstrument(), velocity: .8, beat: state.engine.localBeatAt() }, gateBeats);
       state.arpTimer = setTimeout(tick, 60000 / projectStore.project.bpm * arp.rate_beats);
     };
     tick();
@@ -1393,6 +1551,7 @@
   on('#mobile-library', 'click', () => { state.focused = false; state.browserOpen = !state.browserOpen; updatePanels(); if (state.browserOpen) $('.search').focus({ preventScroll: true }); });
   on('#transport-more', 'click', () => $('#transport-sheet').showModal());
   on('#pads-import', 'click', () => $('#audio-file').click());
+  on('#pads-kit', 'click', event => kitMenu(event.currentTarget));
   on('#pads-edit', 'click', () => showMobileView('sampler'));
   // Recording source and options.
   function syncRecordControls() {
@@ -1459,7 +1618,7 @@
   on('.project-name', 'change', event => projectStore.transact('project name', project => project.name = event.target.value.trim() || 'Untitled project'));
   on('#save-project', 'click', saveProject); on('#export-project', 'click', exportProject); on('#export-wav', 'click', exportWav);
   on('#export-desktop', 'click', () => { const project = projectDocument(); download(safeFilename(project.name) + '-desktop.json', JSON.stringify(project, null, 2), 'application/json'); setStatus('Desktop project metadata downloaded. Relink audio files and recreate browser master effects in the native app.'); });
-  on('#new-project', 'click', () => { if (!canReplace()) return; stopPlayback(); state.generation++; state.selectedMedia = null; state.media = new Map(); state.buffers = new Map(); state.selections.clear(); state.selectedPad = state.bank = 0; projectStore.load(window.AnharmonicProject.defaultProject()); state.dirty = false; syncControls(); renderAll(); setStatus('New empty project. Your previous saved session is retained until you Save.'); });
+  on('#new-project', 'click', () => { if (!canReplace()) return; stopPlayback(); state.generation++; state.selectedMedia = null; state.media = new Map(); state.buffers = new Map(); state.selections.clear(); state.selectedPad = state.bank = 0; state.notePad = state.noteInstrument = null; projectStore.load(starterProject()); state.dirty = false; syncControls(); renderAll(); if (state.engine) ensureAudio().catch(report); setStatus('New project with the Anharmonic Trap kit on bank A. Load more official kits from the library. Your previous saved session is retained until you Save.'); });
   on('#undo-project', 'click', () => { if (projectStore.undo()) { syncControls(); renderAll(); } });
   on('#redo-project', 'click', () => { if (projectStore.redo()) { syncControls(); renderAll(); } });
   on('#load-project', 'click', () => $('#project-file').click());
@@ -1471,7 +1630,7 @@
   on('#download-sound', 'click', async () => {
     const id = state.selectedMedia, metadata = projectStore.project.media.find(item => item.id === id);
     if (!metadata) throw new Error('Select an imported or recorded sound first.');
-    const blob = state.media.get(id) || await dbMedia(id);
+    const blob = state.media.get(id) || await dbMedia(id) || factoryBlob(id);
     if (!blob) throw new Error('The original audio is missing. Relink this sound first.');
     const extension = blob.type.includes('wav') ? '.wav' : blob.type.includes('mpeg') ? '.mp3' : blob.type.includes('ogg') ? '.ogg' : blob.type.includes('mp4') ? '.m4a' : '.webm';
     const name = /\.[a-z0-9]{2,5}$/i.test(metadata.name) ? metadata.name : metadata.name + extension;
@@ -1550,8 +1709,8 @@
           if (!state.heldSynth.has(pitch) || !engine) return;
           if (projectStore.project.arp.enabled) startArp(); else noteOn(pitch);
         } else {
-          const targetPad = state.notePad; state.heldPads.set(event.code, 'note:' + pitch);
-          const engine = await ensureAudio(); if (engine && state.heldPads.get(event.code) === 'note:' + pitch) noteOn(pitch, targetPad, .8, 'typing');
+          const targetPad = state.notePad, targetInstrument = noteInstrumentTarget(); state.heldPads.set(event.code, 'note:' + pitch);
+          const engine = await ensureAudio(); if (engine && state.heldPads.get(event.code) === 'note:' + pitch) noteOn(pitch, targetPad, .8, 'typing', targetInstrument);
         }
         return;
       }
@@ -1606,6 +1765,8 @@
       if (state.accent !== accent) localStorage.setItem('anharmonic-accent', state.accent);
     }
     const saved = localStorage.getItem(storageKey);
+    // First launch: start with the official Trap kit on bank A, ready to play.
+    if (!saved) { projectStore.load(starterProject()); setStatus('Welcome. The Anharmonic Trap kit is on bank A: tap the pads, or load the Live and Boom Bap kits from the library.'); }
     if (saved) {
       try { projectStore.load(JSON.parse(saved)); state.selectedPad = clamp(projectStore.project.selected_pad, 0, 63); state.bank = Math.floor(state.selectedPad / 16); setStatus('Saved project restored. Audio will load on your first playback or preview.'); }
       catch (error) { state.corruptSaved = saved; setStatus('The saved project could not be opened; its original data is retained. ' + error.message); }
