@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-02 — Vocal tab with Autotune in the web studio
+
+- New Vocal workspace (desktop tab and phone tab): record dry takes over the beat
+  onto a Vocals row with count-in, a live tuner, and off/dry/tuned monitoring. Tuned
+  monitoring corrects your pitch live while you sing.
+- Autotune and vocal cleanup run the desktop's default processing in the browser.
+  Choose a key or use the detected key, pick Natural/Pop/Hard tune or set each
+  control, compare tuned and original with A/B, then apply. The tuned copy becomes
+  the take in one undo step and the dry original stays in the library.
+- Fix (desktop and web): the default Autotune now corrects held notes. Overlapping
+  grains were re-centred on their own output position, which cancelled the pitch
+  shift on notes held longer than about half a second; grains now continue in phase and wrap
+  by whole pitch periods. A flat A3 held for 3 s now renders at 220.0 Hz.
+
+Not tested on physical phones or with a real microphone; checks run in headless
+Chromium with a synthetic voice.
+
 ## 2026-10-02 — official kits, Native and Prism in the web studio
 
 - Three original official one-shot kits ship inside the web studio: Anharmonic

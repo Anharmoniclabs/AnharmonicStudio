@@ -35,7 +35,7 @@ JavaScript to verify the purchase and request download links.
 
 The standalone browser DAW is at http://127.0.0.1:8765/app/studio.html; `/app/`
 redirects to this canonical implementation. Its Song, Beats, Notes, Sampler,
-Instruments and Mix workspaces share one project store and one playback/export
+Instruments, Vocal and Mix workspaces share one project store and one playback/export
 audio graph. Empty projects contain no invented library entries or audio clips.
 
 Browser support includes imported audio, 64 pads, sample trim/pitch/pan/gain and
@@ -76,6 +76,33 @@ follows JUCE's Freeverb; both are equivalents, not compiled JUCE code.
 120 layered Prism performances) by `scripts/build_web_instruments.py`. Orchestral
 sounds that need recorded sample files and third-party VST3/AU instruments remain
 desktop-only and are reported instead of being replaced silently.
+
+### Vocal recording and Autotune
+
+The Vocal workspace is the desktop vocal deck in the browser. **Record take** counts
+in, starts the beat and records a dry, uncompressed take onto a **Vocals** song row
+with its own mixer track (`vocal_record.playlist_row`/`mixer_track`); stopping the
+take stops the transport. The first take sung over a looping pattern also lays that
+pattern under it in the Song. **Input** turns on a live tuner (note, cents and target
+note); monitoring can be off, dry or **tuned** (live pitch correction you hear while
+singing; use headphones). Takes are always recorded dry, as on the desktop.
+
+Choose the key and scale or apply the detected key, pick a style (Natural, Pop, Hard
+tune, Off) or set strength, retune speed, humanize, mix, body, transpose and range,
+plus cleanup (high-pass, de-esser, presence, gate, compression, output). The pitch view
+draws the detected pitch against the corrected target over the scale. Preview the
+tuned take with A/B against the original, then **Apply to take**: the tuned render
+becomes the take in one undo step and the dry original stays in the library
+(**Revert to dry** restores it). Settings live in the project's desktop `vocal` key.
+
+`app/vocal-dsp.js` ports the desktop's default Autotune (`mpclab/vocal.py`: YIN pitch
+tracking, scale quantization with hysteresis, overlapping resampled grains, the tone
+FIR, gate/compressor and peak guard); `app/vocal-worker.js` runs it off the main
+thread. Tests run the desktop Python on the same audio and require the browser render
+to match within 5e-5. `app/autotune-worklet.js` is the live monitor: the same pitch
+tracker with a two-tap delay-line shifter whose window is locked to whole voice
+periods. The Rubber Band (v2) engine, manual pitch edits and vocal comping remain
+desktop-only.
 
 ### Installable app (PWA) and phone layout
 

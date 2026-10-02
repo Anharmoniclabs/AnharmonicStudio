@@ -60,13 +60,17 @@
   // browser has one, or a ScriptProcessor on older engines. Monitoring feeds
   // the input to the given destination (off by default: phones feed back).
   class PCMRecorder {
-    constructor(context, stream, { maxSeconds = 300, monitor = false, monitorDestination = null, workletURL = 'recorder-worklet.js', onLevel = () => {} } = {}) {
+    // `monitorProcessor` (optional) sits in the monitor path only, e.g. the
+    // live autotune; the captured take always stays dry.
+    constructor(context, stream, { maxSeconds = 300, monitor = false, monitorDestination = null, monitorProcessor = null, workletURL = 'recorder-worklet.js', onLevel = () => {} } = {}) {
       if (!context || typeof context.createMediaStreamSource !== 'function') throw new Error('Real-time recording needs Web Audio input support.');
       this.context = context; this.stream = stream; this.workletURL = workletURL; this.onLevel = onLevel;
       this.capture = new PCMCapture(context.sampleRate, { maxFrames: Math.floor(maxSeconds * context.sampleRate) });
       this.source = context.createMediaStreamSource(stream);
       this.monitorGain = context.createGain(); this.monitorGain.gain.value = monitor ? 1 : 0;
-      this.source.connect(this.monitorGain); this.monitorGain.connect(monitorDestination || context.destination);
+      this.monitorProcessor = monitorProcessor;
+      if (monitorProcessor) { this.source.connect(monitorProcessor); monitorProcessor.connect(this.monitorGain); } else this.source.connect(this.monitorGain);
+      this.monitorGain.connect(monitorDestination || context.destination);
       this.node = null; this.silence = null; this.state = 'idle'; this.armed = false; this.onFull = () => {};
     }
     setMonitor(enabled) { this.monitorGain.gain.setTargetAtTime(enabled ? 1 : 0, this.context.currentTime, .01); }
@@ -131,7 +135,7 @@
     close() {
       this.stop();
       try { this.node?.port?.postMessage('stop'); } catch { /* script processor */ }
-      for (const node of [this.source, this.node, this.silence, this.monitorGain]) { try { node?.disconnect(); } catch { /* already gone */ } }
+      for (const node of [this.source, this.node, this.silence, this.monitorGain, this.monitorProcessor]) { try { node?.disconnect(); } catch { /* already gone */ } }
       if (this.node && 'onaudioprocess' in this.node) this.node.onaudioprocess = null;
       this.stream?.getTracks?.().forEach(track => { try { track.stop(); } catch { /* already stopped */ } });
       this.state = 'closed';

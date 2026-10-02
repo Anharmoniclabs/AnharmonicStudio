@@ -27,7 +27,9 @@
     keyboardOctave: 4, chordKey: 0, chordScale: 'major',
     // Phone shell: which full-screen view is visible and the timeline/step geometry it needs.
     mobileView: 'stage', songHead: 190, stepCell: 24, stepLabel: 150,
-    noteInstrument: null, prismQuery: '', prismCategory: '', prismSound: ''
+    noteInstrument: null, prismQuery: '', prismCategory: '', prismSound: '',
+    // Vocal: selected take, cached pitch analyses and render, audition, and live input/monitoring.
+    vocalTake: null, vocalAnalysis: new Map(), vocalRender: null, vocalPlaying: null, vocalFrame: 0, vocalMonitor: 'off', vocalInput: null, vocalNode: null, vocalRefresh: null
   };
   // A new project: empty arrangement, with the official Trap kit on bank A.
   function starterProject() {
@@ -1350,6 +1352,323 @@
     })));
   }
 
+  // ── Vocal: the desktop vocal deck in the browser ──
+  // Takes are recorded dry into the "Vocals" song row. Autotune and cleanup are
+  // the desktop's default render (vocal-dsp.js, run in vocal-worker.js). A tuned
+  // render becomes a new take in one undo step; the dry original stays in the
+  // library. The live monitor (autotune-worklet.js) tunes what you hear only.
+  const VOCAL = window.AnharmonicVocal;
+  const percent = value => Math.round(value * 100) + '%';
+  const decibels = value => (value > 0 ? '+' : '') + Number(value).toFixed(1) + ' dB';
+  const VOCAL_TUNE = [
+    ['strength', 'STRENGTH', 0, 1, .01, percent], ['retune_ms', 'RETUNE SPEED', 0, 250, 1, value => Math.round(value) + ' ms'],
+    ['humanize', 'HUMANIZE', 0, 1, .01, percent], ['mix', 'MIX', 0, 1, .01, percent],
+    ['formant', 'BODY', 0, 1, .01, percent], ['transpose', 'TRANSPOSE', -12, 12, 1, value => (value > 0 ? '+' : '') + value + ' st']
+  ];
+  const VOCAL_CLEAN = [
+    ['highpass_hz', 'HIGH-PASS', 20, 300, 1, value => value <= 22 ? 'Off' : Math.round(value) + ' Hz'], ['deesser', 'DE-ESSER', 0, 1, .01, percent],
+    ['presence_db', 'PRESENCE', -6, 9, .5, decibels], ['gate_db', 'GATE', -80, -20, 1, value => Math.round(value) + ' dB'],
+    ['compression', 'COMPRESSION', 0, 1, .01, percent], ['output_db', 'OUTPUT', -18, 12, .5, decibels]
+  ];
+  // Quick styles, like GarageBand's pitch-correction amount: each sets only tuning fields.
+  const VOCAL_STYLES = {
+    natural: { label: 'Natural', settings: { enabled: true, strength: .65, retune_ms: 70, humanize: .35 } },
+    pop: { label: 'Pop', settings: { enabled: true, strength: .9, retune_ms: 25, humanize: .15 } },
+    hard: { label: 'Hard tune', settings: { enabled: true, strength: 1, retune_ms: 0, humanize: 0 } },
+    off: { label: 'Off', settings: { enabled: false } }
+  };
+  const vocalSettings = () => projectStore.project.vocal;
+  const vocalStyle = () => { const s = vocalSettings(); return Object.entries(VOCAL_STYLES).find(([, style]) => Object.entries(style.settings).every(([key, value]) => s[key] === value))?.[0] || null; };
+  function vocalTakes() {
+    const index = projectStore.vocalRowIndex(); if (index < 0) return [];
+    return projectStore.project.rows[index].clips.filter(clip => clip.kind === 'audio').sort((a, b) => a.start_beat - b.start_beat);
+  }
+  const vocalMedia = id => projectStore.project.media.find(item => item.id === id);
+  // The dry source a take was rendered from (a take that was never tuned is its own source).
+  const drySource = clip => { const source = vocalMedia(clip.ref)?.vocal_source; return source && vocalMedia(source) ? source : clip.ref; };
+  function selectedTake() { const takes = vocalTakes(); return takes.find(clip => clip.id === state.vocalTake) || takes.at(-1) || null; }
+  const analysisKey = (mediaId, s = vocalSettings()) => [mediaId, s.key, s.scale, s.transpose, s.low_note, s.high_note].join('|');
+  let vocalWorker = null, vocalJobs = 0;
+  // Analyse or render in the worker; falls back to the main thread where workers are unavailable.
+  function vocalTask(op, buffer, settings, onProgress = () => {}) {
+    const channels = Array.from({ length: Math.min(2, buffer.numberOfChannels) }, (_, index) => Float32Array.from(buffer.getChannelData(index)));
+    if (typeof Worker !== 'function') {
+      const result = op === 'render' ? VOCAL.renderAutotune(channels, settings, buffer.sampleRate) : { analysis: VOCAL.analyzePitch(channels, settings, buffer.sampleRate) };
+      return Promise.resolve({ ...result, key: VOCAL.detectKey(result.analysis) });
+    }
+    try { vocalWorker ||= new Worker('vocal-worker.js'); } catch (error) { vocalWorker = null; throw new Error('The vocal processor could not start: ' + error.message); }
+    const id = ++vocalJobs, worker = vocalWorker;
+    return new Promise((resolve, reject) => {
+      const listen = event => {
+        const data = event.data; if (data?.id !== id) return;
+        if (data.type === 'progress') { onProgress(data.value); return; }
+        worker.removeEventListener('message', listen); worker.removeEventListener('error', failed);
+        if (data.type === 'error') reject(new Error(data.message)); else resolve(data);
+      };
+      const failed = event => { worker.removeEventListener('message', listen); worker.removeEventListener('error', failed); vocalWorker = null; worker.terminate(); reject(new Error(event.message || 'The vocal processor stopped.')); };
+      worker.addEventListener('message', listen); worker.addEventListener('error', failed);
+      worker.postMessage({ id, op, channels, settings: { ...settings }, sampleRate: buffer.sampleRate }, channels.map(channel => channel.buffer));
+    });
+  }
+  function vocalProgress(label, value) {
+    const element = $('#vocal-progress'); if (!element) return;
+    element.hidden = value === null; element.value = value ?? 0; $('#vocal-busy').textContent = value === null ? '' : label + ' ' + Math.round((value || 0) * 100) + '%';
+  }
+  async function vocalBuffer(mediaId) {
+    await ensureAudio();
+    const buffer = state.buffers.get(mediaId);
+    if (!buffer) throw new Error('This take’s audio is missing. Reimport it or record a new take.');
+    return buffer;
+  }
+  async function analyzeTake(clip) {
+    const source = drySource(clip), key = analysisKey(source);
+    if (state.vocalAnalysis.has(key)) return state.vocalAnalysis.get(key);
+    const pending = vocalBuffer(source).then(buffer => vocalTask('analyze', buffer, vocalSettings(), value => vocalProgress('Analysing', value)).then(result => ({ ...result, duration: buffer.duration })));
+    state.vocalAnalysis.set(key, pending);
+    try { const result = await pending; state.vocalAnalysis.set(key, result); return result; }
+    catch (error) { state.vocalAnalysis.delete(key); throw error; }
+    finally { vocalProgress('', null); }
+  }
+  // Renders the selected take's dry source with the current settings (cached until a setting changes).
+  async function renderTake(clip) {
+    const source = drySource(clip), settings = vocalSettings(), key = source + '|' + JSON.stringify(settings);
+    if (state.vocalRender?.key === key) return state.vocalRender;
+    const dry = await vocalBuffer(source), engine = state.engine;
+    const result = await vocalTask('render', dry, settings, value => vocalProgress('Tuning', value)).finally(() => vocalProgress('', null));
+    const buffer = engine.context.createBuffer(result.channels.length, result.channels[0].length, dry.sampleRate);
+    result.channels.forEach((channel, index) => buffer.copyToChannel ? buffer.copyToChannel(channel, index) : buffer.getChannelData(index).set(channel));
+    state.vocalAnalysis.set(analysisKey(source, settings), { analysis: result.analysis, key: result.key, duration: dry.duration });
+    state.vocalRender = { key, source, buffer };
+    return state.vocalRender;
+  }
+  function stopVocalAudition() {
+    const playing = state.vocalPlaying; state.vocalPlaying = null;
+    if (playing) { try { playing.source.stop(); } catch { /* already ended */ } playing.source.disconnect(); }
+    cancelAnimationFrame(state.vocalFrame);
+    $$('.vocal-play').forEach(control => control.classList.remove('active'));
+    drawVocalPitch();
+  }
+  async function auditionVocal(buffer, which, offset = 0) {
+    const engine = await ensureAudio(); if (!engine) return;
+    stopVocalAudition(); engine.beginLiveTrigger?.();
+    const source = engine.context.createBufferSource(); source.buffer = buffer; source.connect(engine.graph.master);
+    const start = engine.context.currentTime + .02; source.start(start, Math.min(offset, Math.max(0, buffer.duration - .01)));
+    state.vocalPlaying = { source, which, start: start - offset, duration: buffer.duration };
+    source.onended = () => { if (state.vocalPlaying?.source === source) stopVocalAudition(); };
+    $$('.vocal-play').forEach(control => control.classList.toggle('active', control.dataset.which === which));
+    const tick = () => { if (state.vocalPlaying?.source !== source) return; drawVocalPitch(); state.vocalFrame = requestAnimationFrame(tick); };
+    tick();
+  }
+  // Waveform with the detected pitch (solid) and the corrected target (dashed) over scale guide lines.
+  function drawVocalPitch() {
+    const canvas = $('#vocal-pitch'), clip = selectedTake(); if (!canvas || !canvas.getBoundingClientRect().width) return;
+    const buffer = clip && state.buffers.get(drySource(clip));
+    const styles = getComputedStyle(document.documentElement), color = name => styles.getPropertyValue(name).trim();
+    if (buffer) AnharmonicWaveform.draw(canvas, buffer, { color: color('--line') || '#2d3b4d' });
+    else { const ratio = Math.min(3, window.devicePixelRatio || 1), bounds = canvas.getBoundingClientRect(); canvas.width = Math.max(1, Math.ceil(bounds.width * ratio)); canvas.height = Math.max(1, Math.ceil(bounds.height * ratio)); }
+    const context = canvas.getContext('2d'), width = canvas.width, height = canvas.height, ratio = width / Math.max(1, canvas.getBoundingClientRect().width);
+    if (!buffer) context.clearRect(0, 0, width, height);
+    const result = clip && state.vocalAnalysis.get(analysisKey(drySource(clip)));
+    const analysis = result && !(result instanceof Promise) ? result.analysis : null;
+    const voiced = analysis ? Array.from(analysis.midi).filter(Number.isFinite) : [];
+    const low = voiced.length ? Math.floor(Math.min(...voiced)) - 2 : 48, high = voiced.length ? Math.ceil(Math.max(...voiced)) + 2 : 72;
+    const y = midi => height - (midi - low) / Math.max(1, high - low) * height;
+    const allowed = new Set(VOCAL.allowedNotes(vocalSettings()));
+    context.font = Math.round(10 * ratio) + 'px DM Mono, monospace'; context.lineWidth = Math.max(1, ratio * .5);
+    for (let midi = Math.ceil(low); midi <= high; midi++) {
+      if (!allowed.has(midi)) continue;
+      context.strokeStyle = color('--bg3') || '#1d2938'; context.globalAlpha = midi % 12 === 0 ? .9 : .5;
+      context.beginPath(); context.moveTo(0, y(midi)); context.lineTo(width, y(midi)); context.stroke();
+      if (midi % 12 === 0 || high - low <= 14) { context.fillStyle = color('--dim') || '#999'; context.fillText(VOCAL.noteName(midi), 4 * ratio, y(midi) - 2 * ratio); }
+    }
+    context.globalAlpha = 1;
+    if (analysis && buffer) {
+      const duration = buffer.duration, x = time => time / duration * width;
+      const line = (values, stroke, dash) => {
+        context.strokeStyle = stroke; context.setLineDash(dash); context.lineWidth = 2 * ratio; context.beginPath(); let open = false;
+        for (let index = 0; index < values.length; index++) {
+          const value = values[index]; if (!Number.isFinite(value) || analysis.hz[index] <= 0) { open = false; continue; }
+          const px = x(analysis.times[index]), py = y(value); if (open) context.lineTo(px, py); else { context.moveTo(px, py); open = true; }
+        }
+        context.stroke(); context.setLineDash([]);
+      };
+      line(analysis.target, color('--dim2') || '#888', [4 * ratio, 4 * ratio]);
+      line(analysis.midi, color('--accent-ink') || '#4d8dff', []);
+    }
+    const playing = state.vocalPlaying;
+    if (playing && state.engine) {
+      const px = Math.min(1, (state.engine.context.currentTime - playing.start) / playing.duration) * width;
+      context.fillStyle = playing.which === 'tuned' ? (color('--accent') || '#4d8dff') : (color('--fg') || '#fff'); context.fillRect(px, 0, Math.max(1, 1.5 * ratio), height);
+    }
+  }
+  function vocalTuner(data) {
+    const note = $('#vocal-note'), cents = $('#vocal-cents'), needle = $('#vocal-needle'), target = $('#vocal-target');
+    if (!note) return;
+    if (!data || !(data.hz > 0) || !data.confidence) { note.textContent = '—'; cents.textContent = 'sing or play a note'; target.textContent = ''; needle.style.left = '50%'; needle.classList.remove('in-tune'); return; }
+    const nearest = Math.round(data.midi), offset = Math.round((data.midi - nearest) * 100);
+    note.textContent = VOCAL.noteName(nearest); cents.textContent = (offset > 0 ? '+' : '') + offset + ' ct · ' + data.hz.toFixed(1) + ' Hz';
+    target.textContent = Number.isFinite(data.target) ? '→ ' + VOCAL.noteName(data.target) : '';
+    needle.style.left = (50 + Math.max(-50, Math.min(50, offset))) + '%'; needle.classList.toggle('in-tune', Math.abs(offset) <= 8);
+  }
+  const autotuneLoads = new WeakMap();
+  async function autotuneNode(context, mode) {
+    if (!context.audioWorklet || typeof AudioWorkletNode !== 'function') return null;
+    let pending = autotuneLoads.get(context);
+    if (!pending) { pending = context.audioWorklet.addModule('autotune-worklet.js').then(() => true, () => false); autotuneLoads.set(context, pending); }
+    if (!await pending) return null;
+    const node = new AudioWorkletNode(context, 'anharmonic-autotune', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 1, channelCountMode: 'explicit', processorOptions: { settings: { ...vocalSettings() }, mode } });
+    node.port.onmessage = event => { if (event.data?.type === 'pitch') vocalTuner(event.data); };
+    return node;
+  }
+  // Standalone input for the tuner and tuned monitoring while not recording.
+  async function startVocalInput() {
+    if (state.vocalInput || state.recording) return;
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone input needs a supported browser and HTTPS or localhost.');
+    const engine = await ensureAudio(); if (!engine) return;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    const context = engine.context, node = await autotuneNode(context, state.vocalMonitor);
+    if (!node) { stream.getTracks().forEach(track => track.stop()); throw new Error('Live tuning needs AudioWorklet support in this browser.'); }
+    const source = context.createMediaStreamSource(stream), gain = context.createGain();
+    source.connect(node); node.connect(gain); gain.connect(context.destination);
+    state.vocalInput = { stream, source, node, gain };
+    state.vocalNode = node; syncVocalInput();
+  }
+  function stopVocalInput() {
+    const input = state.vocalInput; state.vocalInput = null;
+    if (!input) return;
+    try { input.node.port.postMessage({ type: 'stop' }); } catch { /* closed */ }
+    for (const node of [input.source, input.node, input.gain]) { try { node.disconnect(); } catch { /* already gone */ } }
+    input.stream.getTracks().forEach(track => track.stop());
+    if (state.vocalNode === input.node) state.vocalNode = null;
+    vocalTuner(null); syncVocalInput();
+  }
+  function syncVocalInput() {
+    const live = Boolean(state.vocalInput || (state.recording && state.vocalNode));
+    const toggle = $('#vocal-input'); if (toggle) { toggle.textContent = live ? 'INPUT ON' : 'INPUT OFF'; toggle.classList.toggle('active', live); toggle.setAttribute('aria-pressed', String(live)); }
+    $$('[data-monitor]').forEach(control => { const active = control.dataset.monitor === state.vocalMonitor; control.classList.toggle('active', active); control.setAttribute('aria-pressed', String(active)); });
+  }
+  function setVocalMonitor(mode) {
+    state.vocalMonitor = mode;
+    try { localStorage.setItem('anharmonic-vocal-monitor', mode); } catch { /* session-only */ }
+    state.vocalNode?.port.postMessage({ type: 'mode', mode });
+    if (state.recording?.vocal) state.recording.setMonitor(mode !== 'off');
+    if (projectStore.project.vocal_record?.corrected_monitor !== (mode === 'tuned')) projectStore.transact('vocal monitor', project => { project.vocal_record = { ...(project.vocal_record || {}), corrected_monitor: mode === 'tuned' }; });
+    syncVocalInput();
+    setStatus(mode === 'off' ? 'Monitoring off: the tuner still listens while input is on.' : (mode === 'tuned' ? 'Tuned monitoring: you hear the corrected voice live. ' : 'Dry monitoring. ') + 'Use headphones: a phone speaker will feed back. Takes are always recorded dry.');
+  }
+  // Settings edits: one undo step per slider drag; renders and analyses refresh after a short pause.
+  function editVocal(changes, mergeKey = null) {
+    projectStore.setVocal(changes, mergeKey);
+    state.vocalNode?.port.postMessage({ type: 'settings', settings: { ...vocalSettings() } });
+    clearTimeout(state.vocalRefresh);
+    state.vocalRefresh = setTimeout(act(async () => { const clip = selectedTake(); if (clip && state.workspace === 'vocal' && state.buffers.has(drySource(clip))) { await analyzeTake(clip); drawVocalPitch(); syncVocalSummary(); } }), 250);
+    drawVocalPitch(); syncVocalSummary();
+  }
+  function syncVocalSummary() {
+    const clip = selectedTake(), result = clip && state.vocalAnalysis.get(analysisKey(drySource(clip))), summary = $('#vocal-summary');
+    if (!summary) return;
+    if (!clip) { summary.textContent = 'No take yet. Press RECORD TAKE to sing over your beat.'; return; }
+    if (!result || result instanceof Promise) { summary.textContent = 'Analysing pitch…'; return; }
+    const { analysis, key } = result, voiced = Array.from(analysis.hz).filter(value => value > 0).length;
+    let drift = 0, count = 0; for (let index = 0; index < analysis.midi.length; index++) if (analysis.hz[index] > 0) { drift += Math.abs(analysis.target[index] - (vocalSettings().transpose | 0) - analysis.midi[index]); count++; }
+    summary.innerHTML = 'Detected key <strong>' + escapeHTML(key.key + ' ' + key.scale) + '</strong> · ' + Math.round(100 * voiced / Math.max(1, analysis.hz.length)) + '% voiced · average ' + Math.round(100 * drift / Math.max(1, count)) + ' ct from the scale';
+    $('#vocal-use-key').disabled = vocalSettings().key === key.key && vocalSettings().scale === key.scale;
+  }
+  function vocalSlider([field, label, min, max, step, format], value) {
+    return '<label>' + label + '<input type="range" data-vocal="' + field + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + value + '"><output>' + escapeHTML(format(value)) + '</output></label>';
+  }
+  function renderVocal() {
+    const s = vocalSettings(), takes = vocalTakes(), clip = selectedTake(), bpm = projectStore.project.bpm, style = vocalStyle();
+    if (clip) state.vocalTake = clip.id;
+    const tuned = clip && vocalMedia(clip.ref)?.vocal_source;
+    const takeList = takes.length ? takes.map((take, index) => {
+      const media = vocalMedia(take.ref), isTuned = Boolean(media?.vocal_source);
+      return '<button type="button" class="vocal-take' + (take.id === clip?.id ? ' active' : '') + '" data-take="' + escapeHTML(take.id) + '" aria-pressed="' + String(take.id === clip?.id) + '"><strong>Take ' + (index + 1) + (isTuned ? ' · TUNED' : '') + '</strong><span>Bar ' + (Math.floor(take.start_beat / 4) + 1) + '.' + (Math.floor(take.start_beat % 4) + 1) + ' · ' + (take.length_beats * 60 / bpm).toFixed(1) + ' s' + (take.mute ? ' · muted' : '') + '</span></button>';
+    }).join('') : '<p class="sampler-help">No takes yet. Record over your beat: the count-in plays, the song or pattern starts, and the take lands on the Vocals row in time.</p>';
+    shell('Vocal', button('● RECORD TAKE', 'vocal-record' + (state.recording?.vocal ? ' recording' : '')) + '<span class="tool-group" role="group" aria-label="Monitoring">' + ['off', 'dry', 'tuned'].map(mode => '<button type="button" data-monitor="' + mode + '" aria-pressed="false">' + (mode === 'off' ? 'MONITOR OFF' : mode.toUpperCase()) + '</button>').join('') + '</span>' + button('INPUT OFF', 'vocal-input-toggle'),
+      '<div class="vocal-editor">' +
+      '<div class="vocal-tuner" aria-live="off"><div class="tuner-readout"><span id="vocal-note">—</span><small id="vocal-target"></small></div><div class="tuner-scale"><i id="vocal-needle"></i></div><small id="vocal-cents">Turn input on to see the tuner.</small></div>' +
+      '<div class="vocal-takes" role="group" aria-label="Takes">' + takeList + '</div>' +
+      '<div class="vocal-view"><canvas id="vocal-pitch" aria-label="Take waveform with detected pitch and corrected target"></canvas><div class="vocal-legend"><span class="detected">Detected</span><span class="target">Corrected</span><span id="vocal-busy"></span><progress id="vocal-progress" max="1" value="0" hidden></progress></div></div>' +
+      '<p id="vocal-summary" class="vocal-summary"></p>' +
+      '<div class="vocal-actions">' + button('▶ ORIGINAL', 'vocal-play', !clip).replace('class="vocal-play"', 'class="vocal-play" data-which="dry"') + button('▶ TUNED PREVIEW', 'vocal-play', !clip).replace('class="vocal-play"', 'class="vocal-play" data-which="tuned"') + button('A/B', 'vocal-ab', !clip) + button('■', 'vocal-stop', !clip) + button('APPLY TO TAKE', 'vocal-apply primary', !clip) + button('REVERT TO DRY', 'vocal-revert', !tuned) + button('TAKE ⋮', 'vocal-take-menu', !clip) + '</div>' +
+      '<div class="instrument-toolbar vocal-key"><label>KEY<select id="vocal-key">' + VOCAL.NOTE_NAMES.map(name => '<option' + (name === s.key ? ' selected' : '') + '>' + name + '</option>').join('') + '</select></label><label>SCALE<select id="vocal-scale">' + Object.keys(VOCAL.SCALES).map(name => '<option value="' + name + '"' + (name === s.scale ? ' selected' : '') + '>' + name[0].toUpperCase() + name.slice(1) + '</option>').join('') + '</select></label>' + button('USE DETECTED KEY', 'vocal-use-key').replace('class="vocal-use-key"', 'class="vocal-use-key" id="vocal-use-key"') +
+      '<label>LOWEST<select id="vocal-low">' + Array.from({ length: 61 }, (_, index) => index + 24).map(midi => '<option value="' + midi + '"' + (midi === s.low_note ? ' selected' : '') + '>' + VOCAL.noteName(midi) + '</option>').join('') + '</select></label><label>HIGHEST<select id="vocal-high">' + Array.from({ length: 61 }, (_, index) => index + 48).map(midi => '<option value="' + midi + '"' + (midi === s.high_note ? ' selected' : '') + '>' + VOCAL.noteName(midi) + '</option>').join('') + '</select></label></div>' +
+      '<div class="vocal-styles" role="group" aria-label="Pitch correction style">' + Object.entries(VOCAL_STYLES).map(([id, item]) => '<button type="button" data-vocal-style="' + id + '" class="' + (style === id ? 'active' : '') + '" aria-pressed="' + String(style === id) + '">' + item.label + '</button>').join('') + '</div>' +
+      '<details class="synth-details" open><summary>AUTOTUNE</summary><div class="synth-controls">' + VOCAL_TUNE.map(control => vocalSlider(control, s[control[0]])).join('') + '</div></details>' +
+      '<details class="synth-details"' + (isMobile() ? '' : ' open') + '><summary>CLEANUP</summary><div class="synth-controls">' + VOCAL_CLEAN.map(control => vocalSlider(control, s[control[0]])).join('') + '</div></details>' +
+      '<p class="sampler-help">The same Autotune and vocal cleanup as the desktop app. Record dry, choose the key (or use the detected key), preview, then Apply to keep a tuned copy as the take; Revert or Undo brings back the original, which stays in your library. Tuned monitoring lets you hear the correction live while singing; use headphones.</p></div>');
+    $('.vocal-input-toggle').id = 'vocal-input';
+    syncVocalInput(); syncVocalSummary();
+    const takeFor = () => { const current = selectedTake(); if (!current) throw new Error('Record or choose a take first.'); return current; };
+    on('.vocal-record', 'click', () => { if (state.recordSource === 'performance' && !state.recording) setRecordSource('mic'); return toggleRecording(); });
+    $$('[data-monitor]').forEach(control => control.addEventListener('click', act(() => setVocalMonitor(control.dataset.monitor))));
+    on('#vocal-input', 'click', () => state.vocalInput ? stopVocalInput() : startVocalInput());
+    $$('.vocal-take').forEach(control => control.addEventListener('click', act(async () => { stopVocalAudition(); state.vocalTake = control.dataset.take; renderVocal(); await analyzeTake(takeFor()); drawVocalPitch(); syncVocalSummary(); })));
+    $$('.vocal-play').forEach(control => control.addEventListener('click', act(async () => {
+      const current = takeFor();
+      if (control.dataset.which === 'dry') await auditionVocal(await vocalBuffer(drySource(current)), 'dry');
+      else { const render = await renderTake(current); drawVocalPitch(); syncVocalSummary(); await auditionVocal(render.buffer, 'tuned'); }
+    })));
+    on('.vocal-ab', 'click', async () => {
+      const current = takeFor(), playing = state.vocalPlaying, offset = playing && state.engine ? Math.max(0, state.engine.context.currentTime - playing.start) : 0;
+      const next = playing?.which === 'tuned' ? 'dry' : 'tuned';
+      const buffer = next === 'dry' ? await vocalBuffer(drySource(current)) : (await renderTake(current)).buffer;
+      await auditionVocal(buffer, next, offset); setStatus(next === 'tuned' ? 'B: tuned preview' : 'A: original take');
+    });
+    on('.vocal-stop', 'click', stopVocalAudition);
+    on('.vocal-apply', 'click', async () => {
+      const current = takeFor(), generation = state.generation;
+      if (state.recording) throw new Error('Finish recording before applying Autotune.');
+      if (state.playing) stopPlayback();
+      const render = await renderTake(current); if (generation !== state.generation) return;
+      checkAudioBudget(render.buffer);
+      const blob = window.AnharmonicAudio.encodeWav(render.buffer), original = vocalMedia(render.source), mediaId = uid('sample');
+      const name = (original?.name || 'Vocal take').replace(/\.wav$/i, '').replace(/ \(tuned[^)]*\)$/, '') + ' (tuned ' + s.key + ' ' + s.scale + ').wav';
+      state.media.set(mediaId, blob); state.buffers.set(mediaId, render.buffer);
+      projectStore.transact('apply vocal autotune', project => {
+        project.media.push({ id: mediaId, name, mime: 'audio/wav', duration: render.buffer.duration, sample_rate: render.buffer.sampleRate, size: blob.size, vocal_source: render.source, vocal_render: { ...project.vocal } });
+        for (const row of project.rows) for (const item of row.clips) if (item.id === current.id) item.ref = mediaId;
+      });
+      let warning = ''; try { await dbMedia(mediaId, blob); } catch { warning = ' Browser storage failed; download Project + audio to keep it.'; }
+      stopVocalAudition(); renderVocal(); requestSongWaveforms();
+      setStatus('Autotune applied: the take now plays the tuned copy. The dry original stays in the library; Undo or Revert to dry brings it back.' + warning);
+    });
+    on('.vocal-revert', 'click', () => {
+      const current = takeFor(), source = drySource(current); if (source === current.ref) return;
+      projectStore.transact('revert vocal take', project => { for (const row of project.rows) for (const item of row.clips) if (item.id === current.id) item.ref = source; });
+      stopVocalAudition(); renderVocal(); setStatus('Take reverted to the dry recording.');
+    });
+    on('.vocal-take-menu', 'click', event => {
+      const current = takeFor(), rowIndex = projectStore.vocalRowIndex();
+      const update = (label, change) => projectStore.transact(label, project => { const item = project.rows[rowIndex].clips.find(entry => entry.id === current.id); if (item) change(item, project.rows[rowIndex]); });
+      openMenu(event.currentTarget, [
+        { label: current.mute ? 'Unmute take' : 'Mute take', action: () => { update('mute vocal take', item => item.mute = !item.mute); renderVocal(); } },
+        { label: 'Solo this take (mute the others)', action: () => { projectStore.transact('solo vocal take', project => project.rows[rowIndex].clips.forEach(item => { if (item.kind === 'audio') item.mute = item.id !== current.id; })); renderVocal(); } },
+        { label: 'Show in Song', action: () => renderWorkspace('song') },
+        { label: 'Download take audio', action: async () => { const blob = state.media.get(current.ref) || await dbMedia(current.ref); if (!blob) throw new Error('The take audio is missing.'); download(safeFilename((vocalMedia(current.ref)?.name || 'vocal-take').replace(/\.wav$/i, '')) + '.wav', blob); } },
+        { label: 'Delete take (Undo available)', action: () => { stopVocalAudition(); projectStore.transact('delete vocal take', project => { const row = project.rows[rowIndex]; row.clips = row.clips.filter(item => item.id !== current.id); }); state.vocalTake = null; renderVocal(); } }
+      ]);
+    });
+    on('#vocal-key', 'change', event => editVocal({ key: event.target.value }));
+    on('#vocal-scale', 'change', event => editVocal({ scale: event.target.value }));
+    on('#vocal-low', 'change', event => { const value = Number(event.target.value); editVocal({ low_note: Math.min(value, vocalSettings().high_note) }); });
+    on('#vocal-high', 'change', event => { const value = Number(event.target.value); editVocal({ high_note: Math.max(value, vocalSettings().low_note) }); });
+    on('.vocal-use-key', 'click', () => {
+      const current = takeFor(), result = state.vocalAnalysis.get(analysisKey(drySource(current)));
+      if (!result || result instanceof Promise) throw new Error('The take is still being analysed.');
+      editVocal({ key: result.key.key, scale: result.key.scale }); renderVocal(); setStatus('Key set to ' + result.key.key + ' ' + result.key.scale + '.');
+    });
+    $$('[data-vocal-style]').forEach(control => control.addEventListener('click', act(() => { editVocal(VOCAL_STYLES[control.dataset.vocalStyle].settings); renderVocal(); })));
+    $$('[data-vocal]').forEach(control => control.addEventListener('input', act(() => {
+      const spec = [...VOCAL_TUNE, ...VOCAL_CLEAN].find(item => item[0] === control.dataset.vocal), value = Number(control.value);
+      editVocal({ [spec[0]]: value }, 'vocal:' + spec[0]); control.nextElementSibling.textContent = spec[5](value);
+      const style = vocalStyle(); $$('[data-vocal-style]').forEach(item => { item.classList.toggle('active', item.dataset.vocalStyle === style); item.setAttribute('aria-pressed', String(item.dataset.vocalStyle === style)); });
+    })));
+    requestAnimationFrame(drawVocalPitch);
+    if (clip && state.engine && state.buffers.has(drySource(clip)) && !state.vocalAnalysis.has(analysisKey(drySource(clip)))) analyzeTake(clip).then(() => { drawVocalPitch(); syncVocalSummary(); }, report);
+  }
+
   // Audio recording captures uncompressed PCM straight from the audio graph
   // (see recorder.js). With a Song row armed and the transport stopped, Record
   // counts in, starts playback and lands the take on beat 1; with the
@@ -1371,7 +1690,10 @@
     if (state.recordSource === 'performance') return startPerformanceRecording();
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone recording needs a supported browser and HTTPS or localhost.');
     if (!window.AnharmonicRecorder) throw new Error('The real-time recorder did not load. Reload the studio and try again.');
-    const pad = state.selectedPad, row = projectStore.project.rows.find(item => item.record_armed), rowId = row?.id;
+    // The Vocal workspace always records into its Vocals row; elsewhere an armed row or the selected pad.
+    const vocal = state.workspace === 'vocal';
+    if (vocal) { stopVocalInput(); stopVocalAudition(); projectStore.ensureVocalRow(); }
+    const pad = state.selectedPad, row = vocal ? projectStore.project.rows[projectStore.vocalRowIndex()] : projectStore.project.rows.find(item => item.record_armed), rowId = row?.id;
     const generation = state.generation;
     state.recordPending = true; $('#record').disabled = true;
     let recorder = null, stream = null;
@@ -1380,7 +1702,10 @@
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
       const context = engine.context, limits = window.AnharmonicAudio.LIMITS;
       const maximumSeconds = Math.min(240, Math.floor(limits.renderSeconds * limits.sampleRate / context.sampleRate) - 1);
-      recorder = new window.AnharmonicRecorder.PCMRecorder(context, stream, { maxSeconds: maximumSeconds, monitor: state.monitorInput, monitorDestination: context.destination, onLevel: level => { state.inputLevel = level; } });
+      // Vocal takes monitor through the live autotune (dry, tuned or tuner only); the take stays dry.
+      const monitorProcessor = vocal ? await autotuneNode(context, state.vocalMonitor) : null;
+      recorder = new window.AnharmonicRecorder.PCMRecorder(context, stream, { maxSeconds: maximumSeconds, monitor: vocal && monitorProcessor ? state.vocalMonitor !== 'off' : state.monitorInput, monitorDestination: context.destination, monitorProcessor, onLevel: level => { state.inputLevel = level; } });
+      if (monitorProcessor) state.vocalNode = monitorProcessor;
       await recorder.prepare();
       if (generation !== state.generation) { recorder.close(); return; }
       const project = projectStore.project, spb = 60 / project.bpm;
@@ -1400,6 +1725,7 @@
           const latency = window.AnharmonicRecorder.roundTripLatency(context);
           const absolute = engine.beatAt(capture.startTime) - latency / spb;
           if (absolute < 0) trimSeconds = -absolute * spb;
+          else if (mode === 'pattern' && vocal) startBeat = absolute;
           else if (mode === 'pattern') startBeat = absolute % (projectStore.pattern.bars * 4);
           else {
             const current = projectStore.project, songEnd = window.AnharmonicAudio.lengthBeats(current, 'song');
@@ -1408,7 +1734,10 @@
           }
         }
         recorder.close();
-        state.recording = null; state.inputLevel = 0; $('#record').classList.remove('recording'); $('#record').setAttribute('aria-label', 'Record'); $('#input-meter').value = 0;
+        // Ending a vocal take that started the transport also stops playback, like GarageBand.
+        if (vocal && startsTransport && mode !== null) stopPlayback();
+        if (state.vocalNode === monitorProcessor) { state.vocalNode = null; vocalTuner(null); }
+        state.recording = null; state.inputLevel = 0; $('.vocal-record')?.classList.remove('recording'); $('#record').classList.remove('recording'); $('#record').setAttribute('aria-label', 'Record'); $('#input-meter').value = 0;
         state.recordPending = true; $('#record').disabled = true;
         try {
           if (generation !== state.generation) { keepRecovery(capture, context); return; }
@@ -1421,19 +1750,31 @@
           let warning = '';
           try { await dbMedia(mediaId, blob); } catch { warning = ' Browser storage failed; download Project + audio to keep this take.'; }
           if (generation !== state.generation) return;
+          let beatPlaced = false;
           if (rowId) {
-            const index = projectStore.project.rows.findIndex(item => item.id === rowId);
-            if (index >= 0) projectStore.transact('record audio clip', current => current.rows[index].clips.push({ id: uid('clip'), kind: 'audio', ref: mediaId, start_beat: startBeat, length_beats: buffer.duration * current.bpm / 60, offset: 0, source_length: buffer.duration, gain: 1, track: current.rows[index].record_track || 0, loop: false, reverse: false, mute: false }));
+            const index = projectStore.project.rows.findIndex(item => item.id === rowId), clipId = uid('clip');
+            if (index >= 0) projectStore.transact(vocal ? 'record vocal take' : 'record audio clip', current => {
+              const length = buffer.duration * current.bpm / 60;
+              current.rows[index].clips.push({ id: clipId, kind: 'audio', ref: mediaId, start_beat: startBeat, length_beats: length, offset: 0, source_length: buffer.duration, gain: 1, track: current.rows[index].record_track || 0, loop: false, reverse: false, mute: false });
+              // A vocal sung over the looping pattern gets that beat laid under it in the Song, like GarageBand's first take.
+              const pattern = current.patterns[current.selected_pattern], bars = pattern.bars * 4, host = current.rows.findIndex((item, rowIndex) => rowIndex !== index && !item.clips.length);
+              if (vocal && mode === 'pattern' && host >= 0 && !current.rows.some(item => item.clips.some(entry => entry.kind === 'pattern'))) {
+                for (let beat = 0; beat < startBeat + length; beat += bars) current.rows[host].clips.push({ id: uid('clip'), kind: 'pattern', ref: pattern.id, start_beat: beat, length_beats: bars, offset: 0, source_length: bars, gain: 1, track: current.rows[host].record_track || 0, loop: false, reverse: false, mute: false });
+                beatPlaced = true;
+              }
+            });
             else warning += ' The armed row was removed; the take is in the library.';
+            if (vocal) { state.vocalTake = clipId; $('#playback-mode').value = 'song'; }
           } else projectStore.assignPad(pad, mediaId, { name: name.replace('.wav', ''), start: 0, end: buffer.duration });
           state.selectedMedia = mediaId; renderAll();
-          setStatus('Take captured in ' + (rowId ? 'the armed arrangement row at beat ' + (startBeat + 1).toFixed(2) : 'pad ' + padNumber(pad)) + ' (' + buffer.duration.toFixed(2) + ' s, ' + buffer.sampleRate + ' Hz, uncompressed).' + warning);
+          if (vocal) setStatus('Vocal take recorded at bar ' + (Math.floor(startBeat / 4) + 1) + ' (' + buffer.duration.toFixed(1) + ' s, dry).' + (beatPlaced ? ' Your beat was laid under it in the Song.' : '') + ' Pick the key, preview the tuned take, then Apply.' + warning);
+          else setStatus('Take captured in ' + (rowId ? 'the armed arrangement row at beat ' + (startBeat + 1).toFixed(2) : 'pad ' + padNumber(pad)) + ' (' + buffer.duration.toFixed(2) + ' s, ' + buffer.sampleRate + ' Hz, uncompressed).' + warning);
         } catch (error) { keepRecovery(capture, context); throw new Error(error.message + (state.recoveryRecording ? ' Use Recover take to download the original capture.' : '')); }
         finally { state.recordPending = false; $('#record').disabled = false; }
       });
       recorder.onFull = finish;
-      state.recording = { recorder, finish, setMonitor: enabled => recorder.setMonitor(enabled) };
-      $('#record').classList.add('recording'); $('#record').setAttribute('aria-label', 'Stop recording');
+      state.recording = { recorder, finish, vocal, setMonitor: enabled => recorder.setMonitor(enabled) };
+      $('#record').classList.add('recording'); $('#record').setAttribute('aria-label', 'Stop recording'); $('.vocal-record')?.classList.add('recording'); syncVocalInput();
       const begin = async () => {
         if (generation !== state.generation || state.recording?.recorder !== recorder || finished) return;
         try {
@@ -1443,23 +1784,23 @@
           } else await recorder.start(countInBeats ? lead + countInBeats * spb : null);
           recordTimer = setTimeout(finish, (maximumSeconds + .5) * 1000);
           setStatus('Recording ' + (rowId ? 'into ' + row.name + (mode === 'song' ? ' in time with the song' : mode === 'pattern' ? ' with the current pattern as a guide' : '') : 'into pad ' + padNumber(pad)) + '. Press Record or Stop to finish (maximum ' + maximumSeconds + ' seconds).' + (state.monitorInput ? ' Monitoring is on; use headphones to avoid feedback.' : ''));
-        } catch (error) { finished = true; recorder.close(); state.recording = null; $('#record').classList.remove('recording'); $('#record').setAttribute('aria-label', 'Record'); report(error); }
+        } catch (error) { finished = true; recorder.close(); state.recording = null; $('.vocal-record')?.classList.remove('recording'); $('#record').classList.remove('recording'); $('#record').setAttribute('aria-label', 'Record'); report(error); }
       };
       if (countInBeats) { setStatus('Count-in: ' + state.countIn + ' bar' + (state.countIn > 1 ? 's' : '') + '…'); setTimeout(() => act(begin)(), Math.max(0, (lead + countInBeats * spb - context.currentTime - .05) * 1000)); }
       else await begin();
     } catch (error) {
-      recorder?.close(); stream?.getTracks().forEach(track => track.stop()); state.recording = null; $('#record').classList.remove('recording'); throw error;
+      recorder?.close(); stream?.getTracks().forEach(track => track.stop()); state.recording = null; state.vocalNode = null; $('.vocal-record')?.classList.remove('recording'); $('#record').classList.remove('recording'); throw error;
     } finally { state.recordPending = false; $('#record').disabled = false; }
   }
 
   function renderWorkspace(name) {
-    closeMenu?.(); state.workspace = name;
+    closeMenu?.(); if (state.workspace === 'vocal' && name !== 'vocal') { stopVocalAudition(); stopVocalInput(); } state.workspace = name;
     $$('.studio-nav [data-workspace]').forEach(tab => {
       const selected = tab.dataset.workspace === name;
       tab.classList.toggle('active', selected); tab.setAttribute('aria-selected', String(selected));
     });
     syncMobileTabs();
-    ({ song: renderSong, beats: renderBeats, notes: renderNotes, sampler: renderSampler, instruments: renderInstruments, mix: renderMix }[name] || renderSong)();
+    ({ song: renderSong, beats: renderBeats, notes: renderNotes, sampler: renderSampler, instruments: renderInstruments, vocal: renderVocal, mix: renderMix }[name] || renderSong)();
   }
   function syncMobileTabs() {
     $$('.mobile-tabs [data-mobile-tab]').forEach(tab => {
@@ -1758,6 +2099,7 @@
     const countIn = Number(localStorage.getItem('anharmonic-count-in'));
     if ([0, 1, 2].includes(countIn) && localStorage.getItem('anharmonic-count-in') !== null) state.countIn = countIn;
     state.monitorInput = localStorage.getItem('anharmonic-monitor-input') === 'true';
+    if (['off', 'dry', 'tuned'].includes(localStorage.getItem('anharmonic-vocal-monitor'))) state.vocalMonitor = localStorage.getItem('anharmonic-vocal-monitor');
     state.theme = localStorage.getItem('anharmonic-theme') === 'light' ? 'light' : 'dark';
     const accent = localStorage.getItem('anharmonic-accent');
     if (/^#[0-9a-f]{6}$/i.test(accent || '')) {
@@ -1777,7 +2119,7 @@
   // Home-screen shortcuts and links can open a specific view.
   try {
     const params = new URLSearchParams(location.search), view = params.get('view');
-    if (['song', 'beats', 'notes', 'sampler', 'instruments', 'mix'].includes(view)) state.workspace = view;
+    if (['song', 'beats', 'notes', 'sampler', 'instruments', 'vocal', 'mix'].includes(view)) state.workspace = view;
     else if (view === 'pads') { state.padsOpen = true; state.mobileView = 'pads'; }
     if (params.get('record') === '1') setStatus('Ready to record: arm a Song row or select a pad, then press Record.');
     if (params.has('source') && window.history?.replaceState) history.replaceState(null, '', location.pathname);

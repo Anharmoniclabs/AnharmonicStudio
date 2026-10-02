@@ -781,6 +781,15 @@ def render_autotune(
         starts = np.arange(0, len(source), hop, dtype=np.int64)
         centers = starts + frame_size // 2
         padded = np.pad(source, ((frame_size * 2, frame_size * 2), (0, 0)), mode="reflect")
+        # Each grain reads the source where the previous grain's resampled
+        # waveform would continue (its read offset advances by (ratio - 1) per
+        # output sample), so overlapping grains stay in phase and the shifted
+        # pitch is heard. Without this, re-centring every grain on its own
+        # output position cancels the shift on any note longer than a grain.
+        # The offset wraps by whole detected periods, which keeps a periodic
+        # voice in phase while staying within half a period of the original.
+        offset = 0.0
+        previous_ratio = 1.0
         for index, center in enumerate(centers):
             if index % 8 == 0:
                 _check_cancel(cancelled)
@@ -808,7 +817,14 @@ def render_autotune(
                 desired = 1.0
             ratio_state += (desired - ratio_state) * smoothing
             ratio = float(np.clip(ratio_state, 0.49, 2.04))
-            read = center + rel * ratio + frame_size * 2
+            if index:
+                offset += hop * (0.5 * (previous_ratio + ratio) - 1.0)
+            previous_ratio = ratio
+            frequency = float(analysis.detected_hz[analysis_index])
+            if frequency > 0.0 and analysis.confidence[analysis_index] >= PITCH_VOICING_THRESHOLD:
+                period = sr / frequency
+                offset -= period * round(offset / period)
+            read = center + offset + rel * ratio + frame_size * 2
             lo = np.floor(read).astype(np.int64)
             frac = (read - lo).astype(np.float32)
             frame = padded[lo] * (1.0 - frac[:, None]) + padded[lo + 1] * frac[:, None]
