@@ -53,7 +53,7 @@
         for (const note of pattern.notes || []) {
           const start = finite(note.start); const beat = base + start;
           if (start < 0 || start >= length || finite(note.duration, .25) <= 0 || finite(note.velocity, .8) <= 0 || beat + EPSILON < from || beat >= Math.min(to, end) - EPSILON) continue;
-          append({ kind: 'note', pitch: clamp(note.pitch, 0, 127, 60), pad: note.pad ?? null, beat, velocity: clamp(note.velocity, 0, 1, .8), durationBeats: Math.min(finite(note.duration, .25), length - start, end - beat), gain, row, sequence, clipId: row ? sequence : null });
+          append({ kind: 'note', pitch: clamp(note.pitch, 0, 127, 60), pad: note.pad ?? null, beat, velocity: clamp(note.velocity, 0, 1, .8), durationBeats: Math.min(finite(note.duration, .25), length - start, end - beat), gain, row, sequence, clipId: row ? sequence : null, synth: pattern.instrument || null });
         }
       }
     };
@@ -260,7 +260,28 @@
       this.voices = new Set(); this.retiringVoices = new Set(); this.reverseBuffers = new WeakMap(); this.loopBuffers = new WeakMap(); this.noiseBuffers = new WeakMap(); this.metronome = false; this.rendering = false;
       this.preparedBudget = null;
       this.anchorTime = 0; this.anchorBeat = 0; this.cursor = 0; this.tempo = 110; this.project = null; this.lastPosition = -1;
+      this.skipOnce = [];
     }
+
+    // A hit played live while recording is already sounding; the step or
+    // note it wrote must not retrigger when the scheduler reaches it in the
+    // same pass. Each entry suppresses one matching scheduled event.
+    suppressRecordedEvent({ kind, pad = null, pitch = null, beat, window = .25 }) {
+      if (this.skipOnce.length > 512) this.skipOnce.shift();
+      this.skipOnce.push({ kind, pad, pitch, beat: finite(beat), window: Math.max(1e-6, finite(window, .25)) });
+    }
+    consumeSuppressed(event, localBeat) {
+      for (let index = 0; index < this.skipOnce.length; index += 1) {
+        const entry = this.skipOnce[index];
+        if (entry.kind !== event.kind) continue;
+        if (event.kind === 'pad' && entry.pad !== event.pad) continue;
+        if (event.kind === 'note' && (entry.pitch !== event.pitch || entry.pad !== (event.pad ?? null))) continue;
+        if (Math.abs(localBeat - entry.beat) <= entry.window) { this.skipOnce.splice(index, 1); return true; }
+      }
+      return false;
+    }
+    // The beat position inside the pattern or song at an audio-clock time.
+    localBeatAt(time = this.context?.currentTime || 0) { return this.positionBeat(Math.max(0, this.beatAt(time))); }
 
     async resume() {
       if (!this.context) {
@@ -486,7 +507,7 @@
     releasePad(index) { for (const voice of [...this.voices, ...this.retiringVoices]) if (voice.live && voice.pad === index && voice.gate) voice.stop(); }
 
     synthVoice(pitch, opts, context, graph, pool, offline = false) {
-      const project = opts.project || this.getProject(); const patch = project.synth || {};
+      const project = opts.project || this.getProject(); const patch = opts.synth || project.synth || {};
       if (!audible(project.tracks, project.tracks[patch.track || 0])) return null;
       if (patch.sample_source || patch.sample_layer) throw new Error('This instrument uses desktop sample layers. Choose a browser oscillator preset or render this instrument to audio in the desktop app.');
       const when = Math.max(0, finite(opts.when, context.currentTime)); const duration = clamp(opts.duration, .001, 60, 30);
@@ -560,7 +581,7 @@
 
     schedule(event, when, project, context, graph, pool, offline = false) {
       const spb = secondsPerBeat(project);
-      const opts = { when, project, velocity: event.velocity, gain: event.gain, duration: event.durationBeats * spb, row: event.row, sequence: event.sequence, clipId: event.clipId };
+      const opts = { when, project, velocity: event.velocity, gain: event.gain, duration: event.durationBeats * spb, row: event.row, sequence: event.sequence, clipId: event.clipId, synth: event.synth || null };
       if (event.kind === 'pad') return this.padVoice(event.pad, opts, context, graph, pool, offline);
       if (event.kind === 'note') return event.pad === null ? this.synthVoice(event.pitch, opts, context, graph, pool, offline) : this.padVoice(event.pad, { ...opts, pitch: event.pitch }, context, graph, pool, offline);
       const clip = event.clip;
@@ -638,6 +659,7 @@
           const to = Math.min(horizon, regionEnd); const offset = from - localFrom;
           if (looping && from >= loopEnd && Math.abs(localFrom - loopStart) < EPSILON) this.resumeClips(localFrom, this.timeAt(from), project, this.timeAt(regionEnd));
           for (const event of collectEvents(project, this.mode, localFrom, to - offset, 4096)) {
+            if (this.skipOnce.length && event.sequence && this.consumeSuppressed(event, event.beat)) continue;
             const voice = this.schedule(event, this.timeAt(event.beat + offset), project, this.context, this.graph, this.voices);
             if (voice && (voice.gate || event.kind === 'audio')) voice.endBeat = Math.min(regionEnd, event.beat + offset + (event.durationBeats ?? event.clip.length_beats));
             if (looping && voice) voice.stop(this.timeAt(regionEnd), true);
@@ -700,7 +722,7 @@
 
     stop() {
       window.clearInterval(this.timer); this.timer = null; this.playing = false;
-      this.cancelVoices(); this.paused = false; this.pausedBeat = 0; this.cursor = 0; this.lastPosition = -1;
+      this.cancelVoices(); this.paused = false; this.pausedBeat = 0; this.cursor = 0; this.lastPosition = -1; this.skipOnce = [];
       // Disconnect delay/reverb tails as well as source nodes. Rebuild the
       // graph to keep stopped playback silent without closing the context.
       if (this.context && this.graph) { this.graph.disconnect(); this.graph = makeGraph(this.context, this.getProject()); }

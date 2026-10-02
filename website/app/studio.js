@@ -20,10 +20,24 @@
     beatPage: 0, notePad: null, noteRoot: 60, noteMono: false, sampleSnap: 0, sampleView: null, sampleEdge: 'start', noteDivision: 4, noteZoom: 70, noteScroll: null, selectedNote: null,
     noOverlap: window.matchMedia('(max-width:760px), (pointer:coarse)').matches,
     heldPads: new Map(), heldSynth: new Set(), arpTimer: null, arpIndex: 0,
-    browserOpen: true, padsOpen: true, focused: false, metronome: false, theme: 'dark', accent: DEFAULT_ACCENT
+    browserOpen: true, padsOpen: true, focused: false, metronome: false, theme: 'dark', accent: DEFAULT_ACCENT,
+    // Recording: MIC captures real-time audio input; PERFORM writes played pads and keys into the pattern.
+    recordSource: 'mic', countIn: 1, monitorInput: false, performance: null, liveNotes: new Map(),
+    // Instruments: touch keyboard octave (MIDI base) and Smart-style chord strip key/scale.
+    keyboardOctave: 4, chordKey: 0, chordScale: 'major',
+    // Phone shell: which full-screen view is visible and the timeline/step geometry it needs.
+    mobileView: 'stage', songHead: 190, stepCell: 24, stepLabel: 150
   };
+  const isMobile = () => window.matchMedia('(max-width:760px)').matches;
+  const currentInstrument = () => projectStore.instrument;
   const stage = $('#stage');
-  function setStatus(message) { $('#status').textContent = String(message); }
+  let statusTimer = null;
+  function setStatus(message) {
+    $('#status').textContent = String(message);
+    // Phones show the status as a toast above the tab bar.
+    const bar = $('.status-bar'); bar.classList.add('show'); clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => bar.classList.remove('show'), 5000);
+  }
   function report(error) { setStatus(error?.message || String(error)); }
   const act = action => (...args) => { try { return Promise.resolve(action(...args)).catch(report); } catch (error) { report(error); } };
   const on = (selector, event, action) => $(selector)?.addEventListener(event, act(action));
@@ -151,7 +165,8 @@
           $$('.step-line button[data-step="' + position.step + '"]').forEach(cell => cell.classList.add('current'));
           if (state.follow) $('.step-line button.current')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         }
-        const playhead = $('#song-playhead'); if (playhead) playhead.style.left = (190 + position.beat * state.songZoom) + 'px';
+        const playhead = $('#song-playhead'); if (playhead) playhead.style.left = (12 + state.songHead + position.beat * state.songZoom) + 'px';
+        if (!position.playing && state.performance) stopPerformanceRecording('Performance recording ended with the transport.');
       },
       onError: report,
       onLiveTrigger: () => { state.previewSource?.stop(); state.previewSource = null; }
@@ -178,10 +193,70 @@
     const engine = await ensureAudio();
     if (!engine || !padRecord(index)?.sample_id || !padBuffer(index)) { setStatus('This pad has no available audio. Import or assign a sound first.'); return; }
     engine.triggerPad(index, options);
+    if (state.performance && engine.playing && !options.start) recordPadHit(index, engine);
     const pad = $('.pad[data-pad="' + index + '"]');
     pad?.classList.add('hit'); setTimeout(() => pad?.classList.remove('hit'), 100);
   }
   function releasePad(index) { state.engine?.releasePad(index); }
+
+  // Live note helpers route every keyboard, chord and typing gesture through
+  // one place so the performance recorder and the pattern instrument apply
+  // consistently. `pad` null means the pattern's synth instrument.
+  function noteOn(pitch, pad = null, velocity = .8, source = 'keys') {
+    const engine = state.engine; if (!engine?.context) return null;
+    const voice = engine.triggerNote(pitch, { pad, velocity, synth: pad === null ? currentInstrument() : null });
+    if (state.performance && engine.playing) state.liveNotes.set(source + ':' + pitch, { pitch, pad, velocity, beat: engine.localBeatAt(), absolute: engine.beatAt(engine.context.currentTime) });
+    return voice;
+  }
+  function noteOff(pitch, source = 'keys') {
+    state.engine?.releaseNote(pitch);
+    const key = source + ':' + pitch, held = state.liveNotes.get(key);
+    if (!held) return;
+    state.liveNotes.delete(key);
+    if (state.performance && state.engine?.playing) recordNote(held, state.engine.beatAt(state.engine.context.currentTime) - held.absolute);
+  }
+  // Performance recording writes what you play into the current pattern while
+  // it loops, GarageBand style. Every take is one undo step.
+  const takeKey = () => state.performance?.key || null;
+  function recordPadHit(index, engine) {
+    const pattern = projectStore.pattern, division = pattern.div, total = pattern.bars * 4 * division;
+    if (engine.mode !== 'pattern') return;
+    const beat = engine.localBeatAt();
+    const step = Math.round(beat * division) % total;
+    projectStore.setStep(index, step, 1, takeKey());
+    engine.suppressRecordedEvent({ kind: 'pad', pad: index, beat: step / division, window: .5 / division });
+    const cell = $('.step-line button[data-pad="' + index + '"][data-step="' + step + '"]');
+    if (cell) { cell.classList.add('on'); cell.style.setProperty('--velocity', 1); cell.setAttribute('aria-pressed', 'true'); }
+    state.performance.count += 1;
+  }
+  function recordNote(held, durationBeats) {
+    const engine = state.engine; if (!engine || engine.mode !== 'pattern') return;
+    const pattern = projectStore.pattern, division = state.noteDivision, beats = pattern.bars * 4;
+    const start = Math.round(held.beat * division) / division % beats;
+    const duration = clamp(Math.round(Math.max(durationBeats, 1 / division) * division) / division, 1 / division, beats - start);
+    projectStore.transact('record notes', project => {
+      const target = project.patterns[project.selected_pattern];
+      target.notes.push({ id: uid('note'), pitch: clamp(held.pitch, 0, 127), start, duration, velocity: clamp(held.velocity, .05, 1), pad: held.pad });
+    }, takeKey());
+    engine.suppressRecordedEvent({ kind: 'note', pitch: held.pitch, pad: held.pad, beat: start, window: .5 / division });
+    state.performance.count += 1;
+    if (state.workspace === 'notes' && state.notePad === held.pad) renderNotes();
+  }
+  async function startPerformanceRecording() {
+    const engine = await ensureAudio(); if (!engine) return;
+    if ($('#playback-mode').value === 'song') throw new Error('Performance recording captures into the current pattern. Switch playback scope to “Current pattern”, or arm a Song row and use MIC for audio.');
+    if (!engine.playing) { await engine.start('pattern'); state.playing = true; $('#play').textContent = 'Ⅱ'; }
+    state.performance = { key: uid('take'), count: 0 };
+    $('#record').classList.add('recording'); $('#record').setAttribute('aria-label', 'Stop performance recording');
+    setStatus('Recording your performance into ' + projectStore.pattern.name + '. Play pads or keys; the pattern loops. Press Record to finish (Undo removes the whole take).');
+  }
+  function stopPerformanceRecording(message) {
+    if (!state.performance) return;
+    const count = state.performance.count; state.performance = null; state.liveNotes.clear();
+    $('#record').classList.remove('recording'); $('#record').setAttribute('aria-label', 'Record');
+    setStatus(message || (count ? count + ' hit(s) recorded into ' + projectStore.pattern.name + '. Undo removes the take.' : 'Performance recording stopped. Nothing was played.'));
+    if (state.workspace === 'beats') renderBeats(); else if (state.workspace === 'notes') renderNotes();
+  }
   function syncNoOverlap() {
     const control = $('#no-overlap');
     control.textContent = 'NO OVERLAP: ' + (state.noOverlap ? 'ON' : 'OFF');
@@ -194,17 +269,22 @@
     syncNoOverlap();
     setStatus(state.noOverlap ? 'No overlap: each tap replaces the previous sample or note.' : 'Overlap enabled: samples and notes can layer.');
   });
+  function releaseHeld() {
+    stopArp(); state.heldSynth.forEach(note => noteOff(note)); state.heldSynth.clear();
+    state.heldPads.forEach(value => typeof value === 'string' && value.startsWith('note:') ? noteOff(Number(value.slice(5)), 'typing') : releasePad(value)); state.heldPads.clear();
+    state.liveNotes.clear();
+  }
   function stopPlayback() {
+    if (state.performance) stopPerformanceRecording();
     state.engine?.stop(); state.playing = false; state.step = -1; state.beat = 0;
-    stopArp(); state.heldSynth.forEach(note => state.engine?.releaseNote(note)); state.heldSynth.clear();
-    state.heldPads.forEach(index => releasePad(index)); state.heldPads.clear();
+    releaseHeld();
     $('#play').textContent = '▶'; $('#counter').textContent = '001 . 1 . 00';
     $$('.current').forEach(cell => cell.classList.remove('current'));
   }
   function pausePlayback() {
+    if (state.performance) stopPerformanceRecording();
     state.engine?.pause(); state.playing = false;
-    stopArp(); state.heldSynth.forEach(note => state.engine?.releaseNote(note)); state.heldSynth.clear();
-    state.heldPads.forEach(index => releasePad(index)); state.heldPads.clear();
+    releaseHeld();
     $('#play').textContent = '▶';
     $$('.current').forEach(cell => cell.classList.remove('current'));
   }
@@ -290,7 +370,7 @@
     } finally { $('#export-wav').disabled = false; }
   }
   function canReplace() {
-    if (state.recording || state.recordPending) throw new Error('Stop microphone recording before changing projects.');
+    if (state.recording || state.recordPending || state.performance) throw new Error('Stop recording before changing projects.');
     return !state.dirty || window.confirm('Replace this session? Save or download your changes first. Your previous browser save will be retained.');
   }
   async function loadProject(file) {
@@ -420,6 +500,8 @@
   function drawWaveform(canvas, buffer, selection = null) {
     if (!canvas) return;
     const bounds = canvas.getBoundingClientRect(), ratio = Math.min(3, window.devicePixelRatio || 1);
+    // A hidden canvas has no size; drawing it would stretch one pixel across the box later.
+    if (!bounds.width || !bounds.height) return;
     canvas.width = clamp(Math.floor(bounds.width * ratio), 1, 4096); canvas.height = clamp(Math.floor(bounds.height * ratio), 1, 1024);
     const context = canvas.getContext('2d'), width = canvas.width, height = canvas.height;
     context.clearRect(0, 0, width, height);
@@ -528,7 +610,7 @@
   }
   function renderSong() {
     const oldTimeline = $('.timeline'), oldScroll = oldTimeline ? { left: oldTimeline.scrollLeft, top: oldTimeline.scrollTop } : { left: 0, top: 0 };
-    const zoom = state.songZoom;
+    const zoom = state.songZoom, head = state.songHead;
     const rows = projectStore.project.rows;
     const end = rows.reduce((maximum, row) => row.clips.reduce((value, clip) => Math.max(value, clip.start_beat + clip.length_beats + 4), maximum), 32);
     if (rows.length > 128 || rows.reduce((sum, row) => sum + row.clips.length, 0) > 4096 || end > 2048) {
@@ -541,8 +623,8 @@
         '<button type="button" class="song-tool tool-' + tool + (state.arrangeTool === tool ? ' active' : '') + '" data-tool="' + tool + '" aria-pressed="' + String(state.arrangeTool === tool) + '">' + tool.toUpperCase() + '</button>'
       ).join('') + '</span>';
     shell('Song', button('+ ADD TRACK', 'add-track') + toolsHtml + button('SNAP: ' + ({ 4: 'BAR', 1: 'BEAT', .25: '1/16', 0: 'OFF' }[state.arrangeSnap]) + ' ▾', 'song-snap') + button('PATTERN: ' + projectStore.pattern.name + ' ▾', 'pattern-menu'),
-      '<div class="zoom-controls" role="group" aria-label="Song view controls"><label>TIME % <input id="song-time-zoom" type="number" min="25" max="1600" step="25" value="' + Math.round(zoom / 45 * 100) + '"></label>' + button('−', 'song-zoom-out') + button('+', 'song-zoom-in') + '<label>TRACK HEIGHT <input id="song-track-height" type="range" min="42" max="180" step="2" value="' + state.songHeight + '"></label>' + button('RESET VIEW', 'song-view-reset') + '<span>Pinch / Ctrl+wheel: time · Alt+wheel: track height · horizontal scroll: pan</span></div><div class="timeline" style="--song-beat:' + zoom + 'px;--song-height:' + state.songHeight + 'px"><div class="ruler" style="width:' + (190 + width) + 'px"><span style="width:190px">BAR / BEAT</span>' + ruler + '</div><div id="song-playhead" aria-hidden="true"></div>' +
-      rows.map((row, rowIndex) => '<div class="track-row" data-row-index="' + rowIndex + '" style="min-width:' + (190 + width) + 'px"><div class="track-head"><strong>' + escapeHTML(row.name) + '</strong><span>' +
+      '<div class="zoom-controls" role="group" aria-label="Song view controls"><label>TIME % <input id="song-time-zoom" type="number" min="25" max="1600" step="25" value="' + Math.round(zoom / 45 * 100) + '"></label>' + button('−', 'song-zoom-out') + button('+', 'song-zoom-in') + '<label>TRACK HEIGHT <input id="song-track-height" type="range" min="42" max="180" step="2" value="' + state.songHeight + '"></label>' + button('RESET VIEW', 'song-view-reset') + '<span>Pinch / Ctrl+wheel: time · Alt+wheel: track height · horizontal scroll: pan</span></div><div class="timeline" style="--song-beat:' + zoom + 'px;--song-height:' + state.songHeight + 'px;--song-head:' + head + 'px"><div class="ruler" style="width:' + (head + width) + 'px"><span style="width:' + head + 'px">BAR / BEAT</span>' + ruler + '</div><div id="song-playhead" aria-hidden="true" style="left:' + (12 + head + state.beat * zoom) + 'px"></div>' +
+      rows.map((row, rowIndex) => '<div class="track-row" data-row-index="' + rowIndex + '" style="min-width:' + (head + width) + 'px"><div class="track-head"><strong>' + escapeHTML(row.name) + '</strong><span>' +
         '<button class="row-record ' + (row.record_armed ? 'active' : '') + '" data-row-index="' + rowIndex + '" aria-label="Arm ' + escapeHTML(row.name) + ' for microphone recording">R</button> ' +
         '<button class="row-mute ' + (row.mute ? 'active' : '') + '" data-row-index="' + rowIndex + '" aria-label="Mute ' + escapeHTML(row.name) + '">M</button> ' +
         '<button class="row-solo ' + (row.solo ? 'active' : '') + '" data-row-index="' + rowIndex + '" aria-label="Solo ' + escapeHTML(row.name) + '">S</button> ' +
@@ -552,7 +634,7 @@
     const timeline = $('.timeline'); timeline.scrollLeft = oldScroll.left; timeline.scrollTop = oldScroll.top;
     timeline.addEventListener('scroll', requestSongWaveforms, { passive: true }); requestSongWaveforms();
     const zoomSong = (value, clientX = timeline.getBoundingClientRect().left + timeline.clientWidth / 2) => {
-      const origin = ($('.track-lane')?.getBoundingClientRect().left ?? timeline.getBoundingClientRect().left + 202) - timeline.getBoundingClientRect().left + timeline.scrollLeft;
+      const origin = ($('.track-lane')?.getBoundingClientRect().left ?? timeline.getBoundingClientRect().left + head + 12) - timeline.getBoundingClientRect().left + timeline.scrollLeft;
       const x = clientX - timeline.getBoundingClientRect().left, beat = Math.max(0, (timeline.scrollLeft + x - origin) / state.songZoom);
       state.songZoom = clamp(value, 11.25, 720); renderSong(); $('.timeline').scrollLeft = beat * state.songZoom - x + origin;
     };
@@ -562,6 +644,7 @@
     const resizeTracks = value => { state.songHeight = clamp(value, 42, 180); timeline.style.setProperty('--song-height', state.songHeight + 'px'); $('#song-track-height').value = state.songHeight; requestSongWaveforms(); };
     on('#song-track-height', 'input', event => resizeTracks(event.target.value));
     on('.song-view-reset', 'click', () => { state.songHeight = 58; state.songZoom = 45; renderSong(); $('.timeline').scrollLeft = 0; });
+    pinchZoom(timeline, (factor, clientX) => zoomSong(state.songZoom * factor, clientX));
     let wheelFrame = null, pendingWheel = null;
     timeline.addEventListener('wheel', event => {
       if (!event.ctrlKey && !event.altKey) return;
@@ -667,6 +750,25 @@
     });
   }
 
+  // Two-finger pinch on touch screens: calls back with a zoom factor and the
+  // pinch centre. Single-pointer gestures are untouched so drags keep working.
+  function pinchZoom(element, onZoom) {
+    const pointers = new Map(); let lastDistance = 0;
+    const distance = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+    element.addEventListener('pointerdown', event => { if (event.pointerType !== 'touch') return; pointers.set(event.pointerId, { x: event.clientX, y: event.clientY }); if (pointers.size === 2) lastDistance = distance(); }, { capture: true });
+    element.addEventListener('pointermove', event => {
+      if (!pointers.has(event.pointerId)) return;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (pointers.size !== 2) return;
+      event.preventDefault(); event.stopPropagation();
+      const current = distance();
+      if (lastDistance > 0 && Math.abs(current - lastDistance) > 6) { const [a, b] = [...pointers.values()]; onZoom(current / lastDistance, (a.x + b.x) / 2); lastDistance = current; }
+    }, { capture: true, passive: false });
+    const end = event => { pointers.delete(event.pointerId); lastDistance = 0; };
+    element.addEventListener('pointerup', end, { capture: true }); element.addEventListener('pointercancel', end, { capture: true });
+    element.addEventListener('touchmove', event => { if (event.touches.length === 2) event.preventDefault(); }, { passive: false });
+  }
+
   function patternMenu(anchor) {
     openMenu(anchor, [
       ...projectStore.project.patterns.map((pattern, index) => ({ label: pattern.name + (index === projectStore.project.selected_pattern ? ' ✓' : ''), action: () => { projectStore.transact('select pattern', project => project.selected_pattern = index); renderWorkspace(state.workspace); } })),
@@ -682,8 +784,9 @@
     const firstStep = state.beatPage * pageBars * 4 * pattern.div, count = Math.min(total - firstStep, pageBars * 4 * pattern.div);
     const visibleSteps = Array.from({ length: count }, (_, index) => firstStep + index);
     const indices = Array.from({ length: 16 }, (_, index) => state.bank * 16 + index).filter(index => !state.loadedOnly || padRecord(index).sample_id);
+    const columns = 'grid-template-columns:' + state.stepLabel + 'px repeat(' + count + ',' + state.stepCell + 'px)';
     shell('Beats', button(pattern.name + ' ▾', 'pattern-menu') + button('− BAR', 'bars-down', pattern.bars <= 1) + '<span class="bars-readout">' + pattern.bars + ' BARS</span>' + button('+ BAR', 'bars-up', pattern.bars >= 64) + '<label>GRID <select id="step-division"><option value="2">1/8</option><option value="3">1/12</option><option value="4">1/16</option><option value="6">1/24</option><option value="8">1/32</option></select></label>' + button(state.loadedOnly ? 'LOADED ✓' : 'LOADED', 'loaded-toggle') + button(state.follow ? 'FOLLOW ✓' : 'FOLLOW', 'follow-toggle') + button('CLEAR', 'clear-beats') + button('‹', 'beats-prev', state.beatPage === 0) + '<span class="bars-readout">VIEW ' + (state.beatPage * pageBars + 1) + '–' + Math.min(pattern.bars, (state.beatPage + 1) * pageBars) + '</span>' + button('›', 'beats-next', firstStep + count >= total),
-      '<div class="step-editor"><div class="step-grid"><div class="step-line step-ruler" style="grid-template-columns:150px repeat(' + count + ',24px)"><label>BAR · BEAT · STEP</label>' + visibleSteps.map(step => '<span class="' + (step % (pattern.div * 4) === 0 ? 'bar-line' : step % pattern.div === 0 ? 'beat-line' : '') + '" title="Bar ' + (Math.floor(step / (pattern.div * 4)) + 1) + ' beat ' + (Math.floor(step / pattern.div) % 4 + 1) + ' step ' + (step % pattern.div + 1) + '">' + (step % pattern.div === 0 ? (Math.floor(step / (pattern.div * 4)) + 1) + '.' + (Math.floor(step / pattern.div) % 4 + 1) : '·') + '</span>').join('') + '</div>' + indices.map(index => '<div class="step-line" style="grid-template-columns:150px repeat(' + count + ',24px)"><label><b>' + padNumber(index) + '</b> ' + escapeHTML(padRecord(index).name) + '</label>' + visibleSteps.map(step => {
+      '<div class="step-editor"><div class="step-grid"><div class="step-line step-ruler" style="' + columns + '"><label>BAR · BEAT · STEP</label>' + visibleSteps.map(step => '<span class="' + (step % (pattern.div * 4) === 0 ? 'bar-line' : step % pattern.div === 0 ? 'beat-line' : '') + '" title="Bar ' + (Math.floor(step / (pattern.div * 4)) + 1) + ' beat ' + (Math.floor(step / pattern.div) % 4 + 1) + ' step ' + (step % pattern.div + 1) + '">' + (step % pattern.div === 0 ? (Math.floor(step / (pattern.div * 4)) + 1) + '.' + (Math.floor(step / pattern.div) % 4 + 1) : '·') + '</span>').join('') + '</div>' + indices.map(index => '<div class="step-line" style="' + columns + '"><label><b>' + padNumber(index) + '</b> ' + escapeHTML(padRecord(index).name) + '</label>' + visibleSteps.map(step => {
         const velocity = pattern.steps[index]?.[step] || 0;
         return '<button class="' + (step % (pattern.div * 4) === 0 ? 'bar-line ' : step % pattern.div === 0 ? 'beat-line ' : '') + (velocity ? 'on' : '') + '" style="--velocity:' + velocity + '" data-pad="' + index + '" data-step="' + step + '" aria-pressed="' + Boolean(velocity) + '" aria-label="Pad ' + padNumber(index) + ' step ' + (step + 1) + '"></button>';
       }).join('') + '</div>').join('') + '</div><p class="sampler-help">Bank ' + 'ABCD'[state.bank] + ' · Click or drag to paint steps. Right-drag erases. Scroll a lit cell to change velocity. Pattern playback follows this pattern’s length and division.</p></div>');
@@ -795,6 +898,7 @@
     if (buffer) {
       const canvas = $('#waveform'); let drag = null;
       const point = event => { const view = sampleWindow(buffer); return view.start + (event.clientX - canvas.getBoundingClientRect().left) / canvas.getBoundingClientRect().width * (view.end - view.start); };
+      pinchZoom(canvas, (factor, clientX) => { drag = null; zoomSample(factor, clamp((clientX - canvas.getBoundingClientRect().left) / canvas.getBoundingClientRect().width, 0, 1)); });
       let wheelFrame = null, pendingWheel = null;
       canvas.addEventListener('wheel', event => {
         event.preventDefault();
@@ -896,7 +1000,7 @@
       const rect = grid.getBoundingClientRect(), start = Math.max(0, Math.floor((event.clientX - rect.left) / zoom * division) / division);
       const pitch = clamp(topPitch - Math.floor((event.clientY - rect.top) / 20), 0, 127);
       addNotes([pitch], start, 1 / division);
-      const engine = await ensureAudio(); engine?.triggerNote(pitch, { pad: state.notePad, velocity: .8, duration: 60 / projectStore.project.bpm / division });
+      const engine = await ensureAudio(); engine?.triggerNote(pitch, { pad: state.notePad, velocity: .8, duration: 60 / projectStore.project.bpm / division, synth: state.notePad === null ? currentInstrument() : null });
     }));
     grid.querySelectorAll('.note').forEach(element => {
       const id = element.dataset.noteId;
@@ -929,46 +1033,123 @@
     });
   }
 
+  // Browser oscillator presets, grouped like a phone instrument picker. Each
+  // entry is a complete patch for the Web Audio synth; nothing here loads
+  // desktop sample layers.
   const synthPresets = {
-    'Midnight Brass': { osc1: 'saw', osc2: 'square', cutoff: 2400, resonance: .28, attack: .025, decay: .32, sustain: .68, release: .65, drive: .18, spread: .42, volume: .42 },
-    'Copper Pluck': { osc1: 'saw', osc2: 'triangle', cutoff: 1150, resonance: .34, attack: .002, decay: .18, sustain: .08, release: .22, drive: .28, spread: .18, volume: .48 },
-    'Velvet Poly': { osc1: 'saw', osc2: 'saw', cutoff: 1750, resonance: .18, attack: .08, decay: .55, sustain: .72, release: 1.25, drive: .12, spread: .76, volume: .38 },
-    'Neon Sub': { osc1: 'sine', osc2: 'square', cutoff: 680, resonance: .16, attack: .004, decay: .3, sustain: .8, release: .32, drive: .4, spread: .04, volume: .5 }
+    'Midnight Brass': { osc1: 'saw', osc2: 'square', osc_mix: .42, osc2_octave: 0, detune: 8, sub: .18, noise: .015, cutoff: 2400, resonance: .28, attack: .025, decay: .32, sustain: .68, release: .65, drive: .18, spread: .42, lfo_rate: .32, lfo_pitch: 2, volume: .42 },
+    'Felt Keys': { osc1: 'triangle', osc2: 'sine', osc_mix: .3, osc2_octave: 0, detune: 3, sub: .1, noise: .005, cutoff: 2600, resonance: .12, attack: .004, decay: .9, sustain: .2, release: .7, drive: .06, spread: .25, lfo_rate: 0, lfo_pitch: 0, volume: .48 },
+    'Glass Keys': { osc1: 'sine', osc2: 'triangle', osc_mix: .35, osc2_octave: 1, detune: 4, sub: 0, noise: 0, cutoff: 5200, resonance: .1, attack: .003, decay: .6, sustain: .3, release: .5, drive: .05, spread: .3, lfo_rate: 0, lfo_pitch: 0, volume: .45 },
+    'Warm Organ': { osc1: 'sine', osc2: 'square', osc_mix: .5, osc2_octave: 1, detune: 2, sub: .3, noise: 0, cutoff: 3200, resonance: .05, attack: .01, decay: .1, sustain: 1, release: .12, drive: .1, spread: .2, lfo_rate: 5.5, lfo_pitch: 1, volume: .4 },
+    'Velvet Poly': { osc1: 'saw', osc2: 'saw', osc_mix: .5, osc2_octave: 0, detune: 12, sub: .08, noise: .01, cutoff: 1750, resonance: .18, attack: .08, decay: .55, sustain: .72, release: 1.25, drive: .12, spread: .76, lfo_rate: .25, lfo_pitch: 2, volume: .38 },
+    'Deep Bass': { osc1: 'saw', osc2: 'sine', osc_mix: .5, osc2_octave: -1, detune: 0, sub: .5, noise: 0, cutoff: 420, resonance: .3, attack: .005, decay: .25, sustain: .7, release: .18, drive: .35, spread: 0, lfo_rate: 0, lfo_pitch: 0, volume: .55 },
+    'Neon Sub': { osc1: 'sine', osc2: 'square', osc_mix: .3, osc2_octave: -1, detune: 0, sub: .4, noise: 0, cutoff: 680, resonance: .16, attack: .004, decay: .3, sustain: .8, release: .32, drive: .4, spread: .04, lfo_rate: 0, lfo_pitch: 0, volume: .5 },
+    'Acid Bass': { osc1: 'saw', osc2: 'saw', osc_mix: .1, osc2_octave: 0, detune: 0, sub: .1, noise: 0, cutoff: 900, resonance: .8, attack: .002, decay: .22, sustain: .15, release: .12, drive: .5, spread: 0, lfo_rate: 0, lfo_pitch: 0, volume: .5 },
+    'Pulse Bass': { osc1: 'pulse', osc2: 'sine', pulse_width: .25, osc_mix: .4, osc2_octave: -1, detune: 0, sub: .3, noise: 0, cutoff: 700, resonance: .25, attack: .003, decay: .3, sustain: .6, release: .15, drive: .25, spread: 0, lfo_rate: 0, lfo_pitch: 0, volume: .5 },
+    'Solar Lead': { osc1: 'saw', osc2: 'square', osc_mix: .45, osc2_octave: 1, detune: 12, sub: 0, noise: 0, cutoff: 3800, resonance: .3, attack: .01, decay: .3, sustain: .8, release: .3, drive: .3, spread: .3, lfo_rate: 5, lfo_pitch: 6, volume: .42 },
+    'Whistle Lead': { osc1: 'sine', osc2: 'triangle', osc_mix: .3, osc2_octave: 2, detune: 5, sub: 0, noise: .01, cutoff: 6000, resonance: .2, attack: .02, decay: .2, sustain: .9, release: .25, drive: .1, spread: .1, lfo_rate: 6, lfo_pitch: 8, volume: .4 },
+    'Copper Pluck': { osc1: 'saw', osc2: 'triangle', osc_mix: .4, osc2_octave: 0, detune: 6, sub: .05, noise: .01, cutoff: 1150, resonance: .34, attack: .002, decay: .18, sustain: .08, release: .22, drive: .28, spread: .18, lfo_rate: 0, lfo_pitch: 0, volume: .48 },
+    'Marimba Pluck': { osc1: 'sine', osc2: 'triangle', osc_mix: .4, osc2_octave: 2, detune: 0, sub: 0, noise: .02, cutoff: 3400, resonance: .2, attack: .001, decay: .28, sustain: 0, release: .3, drive: .1, spread: .2, lfo_rate: 0, lfo_pitch: 0, volume: .5 },
+    'Bell Tone': { osc1: 'sine', osc2: 'sine', osc_mix: .5, osc2_octave: 3, detune: 7, sub: 0, noise: 0, cutoff: 8000, resonance: .1, attack: .001, decay: 1.2, sustain: .05, release: 1.2, drive: 0, spread: .4, lfo_rate: 0, lfo_pitch: 0, volume: .42 },
+    'Aurora Pad': { osc1: 'saw', osc2: 'saw', osc_mix: .5, osc2_octave: 0, detune: 18, sub: .1, noise: .02, cutoff: 1400, resonance: .15, attack: .6, decay: 1, sustain: .8, release: 1.8, drive: .05, spread: .9, lfo_rate: .2, lfo_pitch: 3, volume: .34 },
+    'Choir Pad': { osc1: 'triangle', osc2: 'pulse', pulse_width: .35, osc_mix: .5, osc2_octave: 0, detune: 10, sub: 0, noise: .01, cutoff: 2000, resonance: .2, attack: .4, decay: .8, sustain: .85, release: 1.4, drive: 0, spread: .8, lfo_rate: .3, lfo_pitch: 2, volume: .36 },
+    'Noise Riser': { osc1: 'noise', osc2: 'saw', osc_mix: .3, osc2_octave: 1, detune: 30, sub: 0, noise: .3, cutoff: 5000, resonance: .4, attack: .8, decay: .5, sustain: 1, release: .8, drive: .2, spread: .6, lfo_rate: .5, lfo_pitch: 4, volume: .3 }
   };
+  const presetGroups = {
+    Keys: ['Midnight Brass', 'Felt Keys', 'Glass Keys', 'Warm Organ', 'Velvet Poly'],
+    Bass: ['Deep Bass', 'Neon Sub', 'Acid Bass', 'Pulse Bass'],
+    Leads: ['Solar Lead', 'Whistle Lead'],
+    'Plucks & Bells': ['Copper Pluck', 'Marimba Pluck', 'Bell Tone'],
+    'Pads & FX': ['Aurora Pad', 'Choir Pad', 'Noise Riser']
+  };
+  const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10] };
+  const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+  // Diatonic triads of the chosen key, like a phone's chord strips: tap one to play it.
+  function chordPitches(degree) {
+    const scale = SCALES[state.chordScale] || SCALES.major, base = state.keyboardOctave * 12 + state.chordKey;
+    return [0, 2, 4].map(offset => { const index = degree + offset; return base + scale[index % 7] + 12 * Math.floor(index / 7); }).filter(pitch => pitch <= 127);
+  }
+  function chordLabel(degree) {
+    const scale = SCALES[state.chordScale] || SCALES.major, numerals = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+    const third = (scale[(degree + 2) % 7] - scale[degree] + 12) % 12, fifth = (scale[(degree + 4) % 7] - scale[degree] + 12) % 12;
+    const numeral = numerals[degree]; return fifth === 6 ? numeral.toLowerCase() + '°' : third === 3 ? numeral.toLowerCase() : numeral;
+  }
+  // Live key press/release used by the on-screen keyboard, chord strip and typing keys.
+  function keyDown(pitch) {
+    if (state.heldSynth.has(pitch)) return;
+    state.heldSynth.add(pitch);
+    if (projectStore.project.arp.enabled) startArp(); else noteOn(pitch);
+  }
+  function keyUp(pitch) {
+    if (!state.heldSynth.has(pitch)) return;
+    state.heldSynth.delete(pitch); noteOff(pitch);
+    if (!state.heldSynth.size) stopArp();
+  }
   function renderInstruments() {
-    const synth = projectStore.project.synth, arp = projectStore.project.arp;
+    const synth = currentInstrument(), arp = projectStore.project.arp, independent = Boolean(projectStore.pattern.instrument);
     const ranges = {
       cutoff: [80, 20000, 1], resonance: [0, .95, .01], attack: [.001, 2, .001], decay: [.001, 2, .001],
       sustain: [0, 1, .01], release: [.01, 4, .01], drive: [0, 1, .01], spread: [0, 1, .01],
       volume: [0, 1, .01], osc_mix: [0, 1, .01], detune: [0, 50, 1], sub: [0, 1, .01]
     };
-    shell('Instruments', button('PREVIEW', 'synth-preview') + button('RELEASE ALL', 'synth-panic'),
-      '<div class="instrument-editor"><div class="instrument-toolbar"><label>PRESET<select id="synth-preset">' + (synthPresets[synth.name] ? '' : '<option>' + escapeHTML(synth.name) + '</option>') + Object.keys(synthPresets).map(name => '<option' + (name === synth.name ? ' selected' : '') + '>' + escapeHTML(name) + '</option>').join('') + '</select></label><label>TRACK<select id="synth-track">' + projectStore.project.tracks.map((track, index) => '<option value="' + index + '"' + (index === synth.track ? ' selected' : '') + '>' + escapeHTML(track.name) + '</option>').join('') + '</select></label>' +
+    const base = state.keyboardOctave * 12, keyCount = 25;
+    let whites = 0;
+    const keys = Array.from({ length: keyCount }, (_, index) => {
+      const pitch = base + index, black = [1, 3, 6, 8, 10].includes(pitch % 12);
+      const html = '<button type="button" class="key ' + (black ? 'black' : 'white') + '" data-note="' + pitch + '" aria-label="' + noteName(pitch) + '"' + (black ? ' style="left:calc(var(--white-key) * ' + whites + ' - var(--black-key) / 2)"' : '') + '>' + (pitch % 12 === 0 ? noteName(pitch) : '') + '</button>';
+      if (!black) whites += 1;
+      return html;
+    }).join('');
+    const presetOptions = (synthPresets[synth.name] ? '' : '<option selected>' + escapeHTML(synth.name) + '</option>') + Object.entries(presetGroups).map(([group, names]) => '<optgroup label="' + escapeHTML(group) + '">' + names.map(name => '<option' + (name === synth.name ? ' selected' : '') + '>' + escapeHTML(name) + '</option>').join('') + '</optgroup>').join('');
+    shell('Instruments · ' + projectStore.pattern.name, button('PREVIEW', 'synth-preview') + button('RELEASE ALL', 'synth-panic') + button(independent ? 'PATTERN INSTRUMENT ✓' : 'SHARED INSTRUMENT', 'instrument-scope'),
+      '<div class="instrument-editor"><div class="instrument-toolbar"><label>PRESET<select id="synth-preset">' + presetOptions + '</select></label><label>TRACK<select id="synth-track">' + projectStore.project.tracks.map((track, index) => '<option value="' + index + '"' + (index === synth.track ? ' selected' : '') + '>' + escapeHTML(track.name) + '</option>').join('') + '</select></label>' +
       '<button id="arp-toggle" class="' + (arp.enabled ? 'active' : '') + '">ARP ' + (arp.enabled ? 'ON' : 'OFF') + '</button><label>RATE<select id="arp-rate"><option value=".125">1/32</option><option value=".25">1/16</option><option value=".5">1/8</option><option value="1">1/4</option></select></label><label>MODE<select id="arp-mode"><option>up</option><option>down</option><option>up/down</option><option>random</option></select></label><label>OCTAVES<select id="arp-octaves"><option>1</option><option>2</option><option>3</option><option>4</option></select></label></div>' +
-      '<div class="synth-controls">' + ['osc1', 'osc2'].map(field => '<label>' + field.toUpperCase() + '<select id="' + field + '">' + ['saw', 'square', 'triangle', 'sine'].map(wave => '<option' + (wave === synth[field] ? ' selected' : '') + '>' + wave + '</option>').join('') + '</select></label>').join('') +
-      Object.entries(ranges).map(([field, [min, max, step]]) => '<label>' + field.replace('_', ' ').toUpperCase() + '<input data-synth="' + field + '" type="range" min="' + min + '" max="' + max + '" step="' + step + '" value="' + synth[field] + '"><output>' + synth[field] + '</output></label>').join('') + '</div>' +
-      '<div class="synth-keyboard" id="synth-keyboard">' + Array.from({ length: 25 }, (_, index) => '<button class="' + ([1, 3, 6, 8, 10].includes(index % 12) ? 'black' : '') + '" data-note="' + (48 + index) + '">' + noteName(48 + index) + '</button>').join('') + '</div><p class="sampler-help">Hold keys to play. ARP sequences held notes. Create synth notes in Notes and place the pattern in Song to arrange it.</p></div>');
-    ['osc1', 'osc2'].forEach(field => on('#' + field, 'change', event => projectStore.setSynth({ [field]: event.target.value })));
-    $$('[data-synth]').forEach(control => control.addEventListener('input', act(() => { projectStore.setSynth({ [control.dataset.synth]: Number(control.value) }); control.nextElementSibling.textContent = control.value; })));
-    on('#synth-preset', 'change', event => { const patch = synthPresets[event.target.value]; if (patch) projectStore.setSynth({ ...patch, name: event.target.value }); renderInstruments(); });
-    on('#synth-track', 'change', event => projectStore.setSynth({ track: Number(event.target.value) }));
-    on('#arp-toggle', 'click', () => { state.heldSynth.forEach(note => state.engine?.releaseNote(note)); state.heldSynth.clear(); stopArp(); projectStore.setArp({ enabled: !arp.enabled }); renderInstruments(); });
+      '<div class="chord-strip" role="group" aria-label="Chords in the selected key"><label>KEY<select id="chord-key">' + NOTE_NAMES.map((name, index) => '<option value="' + index + '"' + (index === state.chordKey ? ' selected' : '') + '>' + name + '</option>').join('') + '</select></label><label>SCALE<select id="chord-scale"><option value="major"' + (state.chordScale === 'major' ? ' selected' : '') + '>major</option><option value="minor"' + (state.chordScale === 'minor' ? ' selected' : '') + '>minor</option></select></label><div class="chords">' + Array.from({ length: 7 }, (_, degree) => '<button type="button" class="chord" data-chord="' + degree + '" aria-label="' + chordLabel(degree) + ' chord">' + chordLabel(degree) + '<small>' + NOTE_NAMES[(state.chordKey + (SCALES[state.chordScale] || SCALES.major)[degree]) % 12] + '</small></button>').join('') + '</div></div>' +
+      '<details class="synth-details"' + (isMobile() ? '' : ' open') + '><summary>SOUND DESIGN</summary><div class="synth-controls">' + ['osc1', 'osc2'].map(field => '<label>' + field.toUpperCase() + '<select id="' + field + '">' + ['saw', 'square', 'triangle', 'sine', 'pulse', 'noise'].map(wave => '<option' + (wave === synth[field] ? ' selected' : '') + '>' + wave + '</option>').join('') + '</select></label>').join('') +
+      Object.entries(ranges).map(([field, [min, max, step]]) => '<label>' + field.replace('_', ' ').toUpperCase() + '<input data-synth="' + field + '" type="range" min="' + min + '" max="' + max + '" step="' + step + '" value="' + synth[field] + '"><output>' + synth[field] + '</output></label>').join('') + '</div></details>' +
+      '<div class="keyboard-bar"><button type="button" class="octave-down" ' + (state.keyboardOctave <= 0 ? 'disabled' : '') + '>OCT −</button><span id="octave-label">' + noteName(base) + ' – ' + noteName(base + keyCount - 1) + '</span><button type="button" class="octave-up" ' + (state.keyboardOctave >= 8 ? 'disabled' : '') + '>OCT +</button><span class="keyboard-hint">Slide across keys to glide · multi-touch chords</span></div>' +
+      '<div class="synth-keyboard" id="synth-keyboard" role="group" aria-label="Touch keyboard">' + keys + '</div><p class="sampler-help">Hold keys or chords to play' + (arp.enabled ? '; ARP sequences held notes' : '') + '. Set Record to PERFORM to capture what you play into this pattern while it loops. ' + (independent ? 'This pattern owns its instrument; other patterns keep theirs.' : 'This pattern uses the shared project instrument; choose PATTERN INSTRUMENT to give it its own sound.') + '</p></div>');
+    ['osc1', 'osc2'].forEach(field => on('#' + field, 'change', event => projectStore.setInstrument({ [field]: event.target.value })));
+    $$('[data-synth]').forEach(control => control.addEventListener('input', act(() => { projectStore.setInstrument({ [control.dataset.synth]: Number(control.value) }, 'instrument:' + control.dataset.synth + ':' + projectStore.pattern.id); control.nextElementSibling.textContent = control.value; })));
+    on('#synth-preset', 'change', event => { const patch = synthPresets[event.target.value]; if (patch) projectStore.applyInstrumentPreset(event.target.value, patch); renderInstruments(); });
+    on('#synth-track', 'change', event => projectStore.setInstrument({ track: Number(event.target.value) }));
+    on('.instrument-scope', 'click', () => { projectStore.setPatternInstrumentIndependent(!independent); renderInstruments(); setStatus(independent ? projectStore.pattern.name + ' now plays the shared project instrument.' : projectStore.pattern.name + ' now has its own instrument. Other patterns are unchanged.'); });
+    on('#arp-toggle', 'click', () => { releaseHeld(); projectStore.setArp({ enabled: !arp.enabled }); renderInstruments(); });
     $('#arp-rate').value = String(arp.rate_beats).replace(/^0\./, '.'); $('#arp-mode').value = arp.mode; $('#arp-octaves').value = String(arp.octaves);
     on('#arp-rate', 'change', event => { projectStore.setArp({ rate_beats: Number(event.target.value) }); if (state.arpTimer) { stopArp(); startArp(); } });
     on('#arp-mode', 'change', event => projectStore.setArp({ mode: event.target.value }));
     on('#arp-octaves', 'change', event => projectStore.setArp({ octaves: Number(event.target.value) }));
-    on('.synth-preview', 'click', async () => { const engine = await ensureAudio(); engine?.triggerNote(60, { velocity: .8, duration: .5 }); });
-    on('.synth-panic', 'click', () => { stopArp(); state.heldSynth.forEach(note => state.engine?.releaseNote(note)); state.heldSynth.clear(); setStatus('Held synth voices released.'); });
-    $$('#synth-keyboard button').forEach(key => {
-      const note = Number(key.dataset.note);
-      key.addEventListener('pointerdown', act(async event => {
-        event.preventDefault(); key.setPointerCapture(event.pointerId);
-        state.heldSynth.add(note); const engine = await ensureAudio(); if (!state.heldSynth.has(note) || !engine) return;
-        if (projectStore.project.arp.enabled) startArp(); else engine.triggerNote(note, { velocity: .8 });
-      }));
-      const release = () => { state.heldSynth.delete(note); state.engine?.releaseNote(note); if (!state.heldSynth.size) stopArp(); };
-      key.addEventListener('pointerup', release); key.addEventListener('pointercancel', release);
-      key.addEventListener('keydown', act(async event => { if (event.code === 'Enter' && !event.repeat) { const engine = await ensureAudio(); engine?.triggerNote(note, { duration: .4 }); } }));
+    on('#chord-key', 'change', event => { state.chordKey = Number(event.target.value); renderInstruments(); });
+    on('#chord-scale', 'change', event => { state.chordScale = event.target.value; renderInstruments(); });
+    on('.octave-down', 'click', () => { releaseHeld(); state.keyboardOctave = Math.max(0, state.keyboardOctave - 1); renderInstruments(); });
+    on('.octave-up', 'click', () => { releaseHeld(); state.keyboardOctave = Math.min(8, state.keyboardOctave + 1); renderInstruments(); });
+    on('.synth-preview', 'click', async () => { const engine = await ensureAudio(); engine?.triggerNote(60, { velocity: .8, duration: .5, synth: currentInstrument() }); });
+    on('.synth-panic', 'click', () => { releaseHeld(); setStatus('Held synth voices released.'); });
+    // One pointer per finger: press, glide across keys, lift. Chords hold all their notes until release.
+    const keyboard = $('#synth-keyboard'); const pointers = new Map();
+    const keyAt = event => document.elementFromPoint(event.clientX, event.clientY)?.closest('#synth-keyboard [data-note]');
+    keyboard.addEventListener('pointerdown', act(async event => {
+      const key = event.target.closest('[data-note]'); if (!key || event.button !== 0) return;
+      event.preventDefault(); keyboard.setPointerCapture?.(event.pointerId);
+      const pitch = Number(key.dataset.note); pointers.set(event.pointerId, pitch); key.classList.add('down');
+      await ensureAudio(); if (pointers.get(event.pointerId) === pitch) keyDown(pitch);
+    }));
+    keyboard.addEventListener('pointermove', act(event => {
+      if (!pointers.has(event.pointerId) || event.pointerType === 'mouse' && !(event.buttons & 1)) return;
+      const key = keyAt(event); const pitch = key ? Number(key.dataset.note) : null; const previous = pointers.get(event.pointerId);
+      if (pitch === null || pitch === previous) return;
+      keyboard.querySelector('[data-note="' + previous + '"]')?.classList.remove('down'); key.classList.add('down');
+      pointers.set(event.pointerId, pitch); keyUp(previous); keyDown(pitch);
+    }));
+    const lift = event => { const pitch = pointers.get(event.pointerId); if (pitch === undefined) return; pointers.delete(event.pointerId); keyboard.querySelector('[data-note="' + pitch + '"]')?.classList.remove('down'); keyUp(pitch); };
+    keyboard.addEventListener('pointerup', lift); keyboard.addEventListener('pointercancel', lift); keyboard.addEventListener('lostpointercapture', lift);
+    $$('#synth-keyboard [data-note]').forEach(key => key.addEventListener('keydown', act(async event => { if (event.code === 'Enter' && !event.repeat) { const engine = await ensureAudio(); engine?.triggerNote(Number(key.dataset.note), { duration: .4, synth: currentInstrument() }); } })));
+    $$('.chord').forEach(control => {
+      const pitches = chordPitches(Number(control.dataset.chord));
+      control.addEventListener('pointerdown', act(async event => { if (event.button !== 0) return; event.preventDefault(); control.setPointerCapture?.(event.pointerId); control.classList.add('down'); await ensureAudio(); if (control.classList.contains('down')) pitches.forEach(keyDown); }));
+      const release = () => { control.classList.remove('down'); pitches.forEach(keyUp); };
+      control.addEventListener('pointerup', release); control.addEventListener('pointercancel', release); control.addEventListener('lostpointercapture', release);
+      control.addEventListener('keydown', act(async event => { if (event.code === 'Enter' && !event.repeat) { const engine = await ensureAudio(); pitches.forEach(pitch => engine?.triggerNote(pitch, { duration: .5, synth: currentInstrument() })); } }));
     });
   }
   function startArp() {
@@ -981,7 +1162,9 @@
       if (arp.mode === 'down') sequence.reverse();
       if (arp.mode === 'up/down' && sequence.length > 2) sequence = sequence.concat(sequence.slice(1, -1).reverse());
       const index = arp.mode === 'random' ? Math.floor(Math.random() * sequence.length) : state.arpIndex++ % sequence.length;
-      state.engine?.triggerNote(sequence[index], { velocity: .8, duration: 60 / projectStore.project.bpm * arp.rate_beats * arp.gate });
+      const pitch = sequence[index], gateBeats = arp.rate_beats * arp.gate;
+      state.engine?.triggerNote(pitch, { velocity: .8, duration: 60 / projectStore.project.bpm * gateBeats, synth: currentInstrument() });
+      if (state.performance && state.engine?.playing) recordNote({ pitch, pad: null, velocity: .8, beat: state.engine.localBeatAt() }, gateBeats);
       state.arpTimer = setTimeout(tick, 60000 / projectStore.project.bpm * arp.rate_beats);
     };
     tick();
@@ -1009,76 +1192,105 @@
     })));
   }
 
+  // Audio recording captures uncompressed PCM straight from the audio graph
+  // (see recorder.js). With a Song row armed and the transport stopped, Record
+  // counts in, starts playback and lands the take on beat 1; with the
+  // transport running it punches in at the current position. Without an
+  // armed row the take fills the selected pad. Captured audio is shifted back
+  // by the reported round-trip latency so it lines up with what you heard.
+  function keepRecovery(capture, context) {
+    try {
+      if (!capture?.frames) return;
+      const blob = window.AnharmonicAudio.encodeWav(capture.toAudioBuffer(context));
+      if (blob.size > 44) { state.recoveryRecording = blob; $('#recover-recording').hidden = false; state.dirty = true; }
+    } catch { /* The take could not be encoded at all; nothing to recover. */ }
+  }
   async function toggleRecording() {
-    if (state.recording) { if (state.recording.recorder.state !== 'inactive') state.recording.recorder.stop(); return; }
+    if (state.performance) { stopPerformanceRecording(); return; }
+    if (state.recording) { state.recording.finish(); return; }
     if (state.recordPending) return;
     if (state.recoveryRecording) throw new Error('Use Recover take to download and clear the pending recovery before starting another recording.');
-    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error('Microphone recording needs a supported browser and HTTPS or localhost.');
+    if (state.recordSource === 'performance') return startPerformanceRecording();
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone recording needs a supported browser and HTTPS or localhost.');
+    if (!window.AnharmonicRecorder) throw new Error('The real-time recorder did not load. Reload the studio and try again.');
     const pad = state.selectedPad, row = projectStore.project.rows.find(item => item.record_armed), rowId = row?.id;
     const generation = state.generation;
-    let startBeat = 0;
     state.recordPending = true; $('#record').disabled = true;
-    let stream;
+    let recorder = null, stream = null;
     try {
       const engine = await ensureAudio(); if (!engine) return;
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-      const recorder = new MediaRecorder(stream), chunks = [];
-      const maximumSeconds = Math.min(240, Math.floor(window.AnharmonicAudio.LIMITS.renderSeconds * window.AnharmonicAudio.LIMITS.sampleRate / engine.context.sampleRate) - 1);
-      let recordedBytes = 0, recordTimer;
-      state.recording = { recorder, stream }; $('#record').classList.add('recording'); $('#record').setAttribute('aria-label', 'Stop microphone recording');
-      const cleanup = () => {
+      const context = engine.context, limits = window.AnharmonicAudio.LIMITS;
+      const maximumSeconds = Math.min(240, Math.floor(limits.renderSeconds * limits.sampleRate / context.sampleRate) - 1);
+      recorder = new window.AnharmonicRecorder.PCMRecorder(context, stream, { maxSeconds: maximumSeconds, monitor: state.monitorInput, monitorDestination: context.destination, onLevel: level => { state.inputLevel = level; } });
+      await recorder.prepare();
+      if (generation !== state.generation) { recorder.close(); return; }
+      const project = projectStore.project, spb = 60 / project.bpm;
+      const startsTransport = Boolean(rowId) && !engine.playing;
+      const transportMode = window.AnharmonicAudio.lengthBeats(project, 'song') > 0 ? 'song' : 'pattern';
+      const countInBeats = engine.playing ? 0 : state.countIn * 4;
+      const lead = context.currentTime + .08;
+      for (let index = 0; index < countInBeats; index += 1) engine.click(lead + index * spb, index % 4 === 0);
+      let mode = engine.playing ? engine.mode : null, recordTimer = null, finished = false;
+      const finish = act(async () => {
+        if (finished) return; finished = true;
         clearTimeout(recordTimer);
-        stream.getTracks().forEach(track => track.stop());
-        state.recording = null; $('#record').classList.remove('recording'); $('#record').setAttribute('aria-label', 'Record microphone');
-      };
-      const keepRecovery = () => {
-        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-        if (blob.size) { state.recoveryRecording = blob; $('#recover-recording').hidden = false; state.dirty = true; }
-      };
-      let failed = false;
-      recorder.addEventListener('dataavailable', event => { if (event.data.size) { chunks.push(event.data); recordedBytes += event.data.size; if (recordedBytes >= 32 * 1024 * 1024 && recorder.state === 'recording') recorder.stop(); } });
-      recorder.addEventListener('error', event => { failed = true; cleanup(); keepRecovery(); report(new Error((event.error?.message || 'Microphone recorder failed.') + (state.recoveryRecording ? ' Use Recover take to download the original capture.' : ''))); });
-      recorder.addEventListener('stop', act(async () => {
-        cleanup();
+        const capture = recorder.stop();
+        // Place the take while the transport clock that started it is still known.
+        let startBeat = 0, trimSeconds = 0;
+        if (mode !== null && capture.startTime !== null) {
+          const latency = window.AnharmonicRecorder.roundTripLatency(context);
+          const absolute = engine.beatAt(capture.startTime) - latency / spb;
+          if (absolute < 0) trimSeconds = -absolute * spb;
+          else if (mode === 'pattern') startBeat = absolute % (projectStore.pattern.bars * 4);
+          else {
+            const current = projectStore.project, songEnd = window.AnharmonicAudio.lengthBeats(current, 'song');
+            const loopStart = clamp(current.loop_start, 0, songEnd), loopEnd = Math.max(loopStart + .25, Number(current.loop_end ?? songEnd));
+            startBeat = current.loop_enabled && absolute >= loopEnd ? loopStart + (absolute - loopEnd) % (loopEnd - loopStart) : Math.min(absolute, songEnd);
+          }
+        }
+        recorder.close();
+        state.recording = null; state.inputLevel = 0; $('#record').classList.remove('recording'); $('#record').setAttribute('aria-label', 'Record'); $('#input-meter').value = 0;
         state.recordPending = true; $('#record').disabled = true;
         try {
-        if (failed || generation !== state.generation) { keepRecovery(); return; }
-        const recorded = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-        if (!recorded.size) throw new Error('The microphone produced no audio. Try a longer take.');
-        const buffer = await decodeAudio(recorded, engine.context, true);
-        if (generation !== state.generation) return;
-        checkAudioBudget(buffer);
-        const blob = window.AnharmonicAudio.encodeWav(buffer), name = 'Recording ' + new Date().toISOString().replace(/[:.]/g, '-') + '.wav';
-        const mediaId = projectStore.addMedia({ name, mime: 'audio/wav', duration: buffer.duration, sample_rate: buffer.sampleRate, size: blob.size });
-        state.media.set(mediaId, blob); state.buffers.set(mediaId, buffer);
-        let warning = '';
-        try { await dbMedia(mediaId, blob); } catch { warning = ' Browser storage failed; download Project + audio to keep this take.'; }
-        if (generation !== state.generation) return;
-        if (rowId) {
-          const index = projectStore.project.rows.findIndex(item => item.id === rowId);
-          if (index >= 0) projectStore.transact('record audio clip', project => project.rows[index].clips.push({ id: uid('clip'), kind: 'audio', ref: mediaId, start_beat: startBeat, length_beats: buffer.duration * project.bpm / 60, offset: 0, source_length: buffer.duration, gain: 1, track: project.rows[index].record_track || 0, loop: false, reverse: false, mute: false }));
-          else warning += ' The armed row was removed; the take is in the library.';
-        } else projectStore.assignPad(pad, mediaId, { name: name.replace('.wav', ''), start: 0, end: buffer.duration });
-        state.selectedMedia = mediaId; renderAll(); setStatus('Microphone take captured in ' + (rowId ? 'the armed arrangement row' : 'pad ' + padNumber(pad)) + '.' + warning);
-        } catch (error) { keepRecovery(); throw new Error(error.message + (state.recoveryRecording ? ' Use Recover take to download the original capture.' : '')); }
+          if (generation !== state.generation) { keepRecovery(capture, context); return; }
+          if (!capture.frames || capture.duration - trimSeconds <= 0) throw new Error('The microphone produced no audio. Try a longer take.');
+          const buffer = capture.toAudioBuffer(context, trimSeconds);
+          checkAudioBudget(buffer);
+          const blob = window.AnharmonicAudio.encodeWav(buffer), name = 'Recording ' + new Date().toISOString().replace(/[:.]/g, '-') + '.wav';
+          const mediaId = projectStore.addMedia({ name, mime: 'audio/wav', duration: buffer.duration, sample_rate: buffer.sampleRate, size: blob.size });
+          state.media.set(mediaId, blob); state.buffers.set(mediaId, buffer);
+          let warning = '';
+          try { await dbMedia(mediaId, blob); } catch { warning = ' Browser storage failed; download Project + audio to keep this take.'; }
+          if (generation !== state.generation) return;
+          if (rowId) {
+            const index = projectStore.project.rows.findIndex(item => item.id === rowId);
+            if (index >= 0) projectStore.transact('record audio clip', current => current.rows[index].clips.push({ id: uid('clip'), kind: 'audio', ref: mediaId, start_beat: startBeat, length_beats: buffer.duration * current.bpm / 60, offset: 0, source_length: buffer.duration, gain: 1, track: current.rows[index].record_track || 0, loop: false, reverse: false, mute: false }));
+            else warning += ' The armed row was removed; the take is in the library.';
+          } else projectStore.assignPad(pad, mediaId, { name: name.replace('.wav', ''), start: 0, end: buffer.duration });
+          state.selectedMedia = mediaId; renderAll();
+          setStatus('Take captured in ' + (rowId ? 'the armed arrangement row at beat ' + (startBeat + 1).toFixed(2) : 'pad ' + padNumber(pad)) + ' (' + buffer.duration.toFixed(2) + ' s, ' + buffer.sampleRate + ' Hz, uncompressed).' + warning);
+        } catch (error) { keepRecovery(capture, context); throw new Error(error.message + (state.recoveryRecording ? ' Use Recover take to download the original capture.' : '')); }
         finally { state.recordPending = false; $('#record').disabled = false; }
-      }));
-      // Preserve the selected target across permission prompts, but anchor the
-      // take to the audio clock only when capture actually begins.
-      if (engine.playing) {
-        const project = projectStore.project, beat = Math.max(0, engine.beatAt(engine.context.currentTime));
-        if (engine.mode === 'pattern') startBeat = beat % (projectStore.pattern.bars * 4);
-        else {
-          const songEnd = window.AnharmonicAudio.lengthBeats(project, 'song');
-          const loopStart = clamp(project.loop_start, 0, songEnd), loopEnd = Math.max(loopStart + .25, Number(project.loop_end ?? songEnd));
-          startBeat = project.loop_enabled && beat >= loopEnd ? loopStart + (beat - loopEnd) % (loopEnd - loopStart) : Math.min(beat, songEnd);
-        }
-      }
-      recorder.start(250);
-      recordTimer = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, maximumSeconds * 1000);
-      setStatus('Recording microphone into ' + (row ? row.name : 'pad ' + padNumber(pad)) + '. Press Record or Stop to finish (maximum ' + maximumSeconds + ' seconds).');
+      });
+      recorder.onFull = finish;
+      state.recording = { recorder, finish, setMonitor: enabled => recorder.setMonitor(enabled) };
+      $('#record').classList.add('recording'); $('#record').setAttribute('aria-label', 'Stop recording');
+      const begin = async () => {
+        if (generation !== state.generation || state.recording?.recorder !== recorder || finished) return;
+        try {
+          if (startsTransport) {
+            await engine.start(transportMode); mode = transportMode; state.playing = true; $('#play').textContent = 'Ⅱ';
+            await recorder.start(engine.anchorTime);
+          } else await recorder.start(countInBeats ? lead + countInBeats * spb : null);
+          recordTimer = setTimeout(finish, (maximumSeconds + .5) * 1000);
+          setStatus('Recording ' + (rowId ? 'into ' + row.name + (mode === 'song' ? ' in time with the song' : mode === 'pattern' ? ' with the current pattern as a guide' : '') : 'into pad ' + padNumber(pad)) + '. Press Record or Stop to finish (maximum ' + maximumSeconds + ' seconds).' + (state.monitorInput ? ' Monitoring is on; use headphones to avoid feedback.' : ''));
+        } catch (error) { finished = true; recorder.close(); state.recording = null; $('#record').classList.remove('recording'); $('#record').setAttribute('aria-label', 'Record'); report(error); }
+      };
+      if (countInBeats) { setStatus('Count-in: ' + state.countIn + ' bar' + (state.countIn > 1 ? 's' : '') + '…'); setTimeout(() => act(begin)(), Math.max(0, (lead + countInBeats * spb - context.currentTime - .05) * 1000)); }
+      else await begin();
     } catch (error) {
-      stream?.getTracks().forEach(track => track.stop()); state.recording = null; $('#record').classList.remove('recording'); throw error;
+      recorder?.close(); stream?.getTracks().forEach(track => track.stop()); state.recording = null; $('#record').classList.remove('recording'); throw error;
     } finally { state.recordPending = false; $('#record').disabled = false; }
   }
 
@@ -1088,7 +1300,14 @@
       const selected = tab.dataset.workspace === name;
       tab.classList.toggle('active', selected); tab.setAttribute('aria-selected', String(selected));
     });
+    syncMobileTabs();
     ({ song: renderSong, beats: renderBeats, notes: renderNotes, sampler: renderSampler, instruments: renderInstruments, mix: renderMix }[name] || renderSong)();
+  }
+  function syncMobileTabs() {
+    $$('.mobile-tabs [data-mobile-tab]').forEach(tab => {
+      const selected = tab.dataset.mobileTab === 'pads' ? state.mobileView === 'pads' : state.mobileView !== 'pads' && tab.dataset.mobileTab === state.workspace;
+      tab.setAttribute('aria-pressed', String(selected)); tab.classList.toggle('active', selected);
+    });
   }
   function renderAll() { renderLibrary(); renderPads(); renderWorkspace(state.workspace); }
   function syncControls() {
@@ -1133,21 +1352,78 @@
   }
   function updatePanels() {
     requestSongWaveforms();
-    const mobile = window.matchMedia('(max-width:760px)').matches;
-    if (mobile && state.mobileLayout === false) state.browserOpen = state.padsOpen = false;
+    const mobile = isMobile();
+    if (mobile && state.mobileLayout === false) { state.browserOpen = state.padsOpen = false; state.mobileView = 'stage'; }
+    if (!mobile && state.mobileLayout === true) { state.browserOpen = state.padsOpen = true; state.mobileView = 'stage'; }
     state.mobileLayout = mobile;
+    // Phone geometry: narrower track heads and larger step cells for fingers.
+    const geometry = mobile ? { songHead: 112, stepCell: 30, stepLabel: 88 } : { songHead: 190, stepCell: 24, stepLabel: 150 };
+    const changed = Object.entries(geometry).some(([key, value]) => state[key] !== value);
+    Object.assign(state, geometry);
+    // On phones the secondary transport controls live in a sheet.
+    const extras = $('#transport-extras'), sheet = $('#transport-sheet-body'), bar = $('.transport-bar');
+    if (mobile && extras.parentElement !== sheet) sheet.append(extras);
+    else if (!mobile && extras.parentElement !== bar) { bar.append(extras); if ($('#transport-sheet').open) $('#transport-sheet').close(); }
+    if (mobile) state.mobileView = state.padsOpen ? 'pads' : 'stage'; else state.mobileView = 'stage';
+    document.body.dataset.mobileView = mobile ? state.mobileView : 'stage';
     const browser = state.browserOpen && !state.focused, pads = state.padsOpen && !state.focused;
     $('.main-split').classList.toggle('hide-browser', !browser); $('.main-split').classList.toggle('hide-pads', !pads);
     $('#browser-panel').classList.toggle('open', mobile && browser); $('#pads-panel').classList.toggle('open', mobile && pads);
     $('#focus-toggle').classList.toggle('active', state.focused);
     $('#focus-toggle').setAttribute('aria-pressed', String(state.focused));
+    $('#mobile-library').setAttribute('aria-expanded', String(mobile && browser));
+    $('#mobile-library').classList.toggle('active', mobile && browser);
     $$('[data-toggle]').forEach(toggle => {
       const visible = toggle.dataset.toggle === 'browser' ? browser : pads;
       toggle.classList.toggle('active', visible); toggle.setAttribute('aria-expanded', String(visible));
       toggle.setAttribute('aria-controls', toggle.dataset.toggle + '-panel');
       $('#' + toggle.dataset.toggle + '-panel')?.setAttribute('aria-hidden', String(!visible));
     });
+    syncMobileTabs();
+    if (pads) drawWaveform($('#inspector-waveform'), padBuffer(), currentSelection());
+    if (changed && (state.workspace === 'song' || state.workspace === 'beats')) renderWorkspace(state.workspace);
   }
+  function showMobileView(target) {
+    closeMenu?.(); state.focused = false; state.browserOpen = false;
+    if (target === 'pads') state.padsOpen = true;
+    else { state.padsOpen = false; if (target !== state.workspace) renderWorkspace(target); }
+    updatePanels();
+  }
+  $$('.mobile-tabs [data-mobile-tab]').forEach(tab => tab.addEventListener('click', act(() => showMobileView(tab.dataset.mobileTab))));
+  on('#mobile-library', 'click', () => { state.focused = false; state.browserOpen = !state.browserOpen; updatePanels(); if (state.browserOpen) $('.search').focus({ preventScroll: true }); });
+  on('#transport-more', 'click', () => $('#transport-sheet').showModal());
+  on('#pads-import', 'click', () => $('#audio-file').click());
+  on('#pads-edit', 'click', () => showMobileView('sampler'));
+  // Recording source and options.
+  function syncRecordControls() {
+    const performance = state.recordSource === 'performance';
+    $('#record-source').textContent = performance ? 'PERFORM' : 'MIC';
+    $('#record-source').setAttribute('aria-label', 'Recording source: ' + (performance ? 'pads and keys into the pattern' : 'microphone'));
+    $('#record-source').classList.toggle('active', performance);
+    $('#record').title = performance ? 'Record pads and keys you play into the current pattern' : 'Record microphone or audio input' + (state.countIn ? ' after a ' + state.countIn + ' bar count-in' : '');
+  }
+  function setRecordSource(source) {
+    state.recordSource = source; syncRecordControls();
+    try { localStorage.setItem('anharmonic-record-source', source); } catch { /* session-only */ }
+    setStatus(source === 'performance' ? 'Record now captures pads and keys into the current pattern while it loops.' : 'Record now captures your microphone or audio input as uncompressed audio.');
+  }
+  on('#record-source', 'click', () => { if (state.recording || state.performance) throw new Error('Finish the current take before changing the recording source.'); setRecordSource(state.recordSource === 'mic' ? 'performance' : 'mic'); });
+  on('#record-settings', 'click', event => openMenu(event.currentTarget, [
+    { label: 'Source: microphone / audio input' + (state.recordSource === 'mic' ? ' ✓' : ''), disabled: Boolean(state.recording || state.performance), action: () => setRecordSource('mic') },
+    { label: 'Source: perform pads & keys into pattern' + (state.recordSource === 'performance' ? ' ✓' : ''), disabled: Boolean(state.recording || state.performance), action: () => setRecordSource('performance') },
+    ...[0, 1, 2].map(bars => ({ label: 'Count-in: ' + (bars ? bars + ' bar' + (bars > 1 ? 's' : '') : 'off') + (state.countIn === bars ? ' ✓' : ''), action: () => { state.countIn = bars; syncRecordControls(); try { localStorage.setItem('anharmonic-count-in', String(bars)); } catch { /* session-only */ } } })),
+    { label: 'Monitor input while recording' + (state.monitorInput ? ' ✓' : ''), action: () => { state.monitorInput = !state.monitorInput; state.recording?.setMonitor(state.monitorInput); try { localStorage.setItem('anharmonic-monitor-input', String(state.monitorInput)); } catch { /* session-only */ } setStatus(state.monitorInput ? 'Input monitoring on. Use headphones: a phone speaker will feed back into the microphone.' : 'Input monitoring off.'); } }
+  ]));
+  // Installable app controls.
+  function syncInstall() {
+    const pwa = window.AnharmonicPWA; const button = $('#install-app');
+    button.hidden = !pwa?.canInstall();
+    button.textContent = 'Install';
+  }
+  on('#install-app', 'click', () => window.AnharmonicPWA?.install());
+  document.addEventListener('anharmonic-status', event => { if (typeof event.detail === 'string') setStatus(event.detail); });
+  if (window.AnharmonicPWA) { window.AnharmonicPWA.listeners.add(syncInstall); syncInstall(); }
+  else window.addEventListener('DOMContentLoaded', () => { window.AnharmonicPWA?.listeners.add(syncInstall); syncInstall(); }, { once: true });
   $$('.studio-nav [data-workspace]').forEach(tab => tab.addEventListener('click', act(() => renderWorkspace(tab.dataset.workspace))));
   $$('.pad-bank button').forEach(bank => bank.addEventListener('click', act(() => { state.bank = Number(bank.dataset.bank); state.selectedPad = state.bank * 16; renderPads(); if (state.workspace === 'beats' || state.workspace === 'sampler') renderWorkspace(state.workspace); })));
   $$('[data-toggle],[data-close]').forEach(control => control.addEventListener('click', () => {
@@ -1157,7 +1433,7 @@
   }));
   on('#focus-toggle', 'click', () => { state.focused = !state.focused; updatePanels(); });
   on('#play', 'click', togglePlayback);
-  on('#stop', 'click', () => { if (state.recording?.recorder.state !== 'inactive') state.recording?.recorder.stop(); state.previewSource?.stop(); stopPlayback(); setStatus('Stopped'); });
+  on('#stop', 'click', () => { state.recording?.finish(); state.previewSource?.stop(); stopPlayback(); setStatus('Stopped'); });
   on('#record', 'click', toggleRecording);
   on('#recover-recording', 'click', event => {
     if (!state.recoveryRecording) return;
@@ -1226,7 +1502,12 @@
   on('#theme-toggle', 'click', () => { state.theme = state.theme === 'dark' ? 'light' : 'dark'; applyTheme(); localStorage.setItem('anharmonic-theme', state.theme); });
   on('#appearance-toggle', 'click', () => $('#appearance-dialog').showModal());
   on('#appearance-reset', 'click', () => { state.theme = 'dark'; state.accent = DEFAULT_ACCENT; applyTheme(); localStorage.setItem('anharmonic-theme', state.theme); localStorage.setItem('anharmonic-accent', state.accent); });
-  on('#project-menu', 'click', event => openMenu(event.currentTarget, [['New project', 'new-project'], ['Open project', 'load-project'], ['Download project + audio', 'export-project'], ['Export WAV', 'export-wav'], ['Export desktop JSON', 'export-desktop'], ['Help & shortcuts', 'help-toggle']].map(([label, id]) => ({ label, action: () => $('#' + id).click() }))));
+  on('#project-menu', 'click', event => openMenu(event.currentTarget, [
+    ...[['New project', 'new-project'], ['Open project', 'load-project'], ['Save in this browser', 'save-project'], ['Download project + audio', 'export-project'], ['Export WAV', 'export-wav'], ['Export desktop JSON', 'export-desktop'], ['Appearance', 'appearance-toggle'], ['Help & shortcuts', 'help-toggle']].map(([label, id]) => ({ label, action: () => $('#' + id).click() })),
+    ...(window.AnharmonicPWA?.canInstall() ? [{ label: 'Install as an app', action: () => window.AnharmonicPWA.install() }] : []),
+    ...(window.AnharmonicPWA?.waiting ? [{ label: 'Reload for update', disabled: Boolean(state.recording || state.performance), action: () => { if (state.dirty && !confirm('Reload the studio for the update? Save first to keep unsaved edits.')) return; window.AnharmonicPWA.reloadRequested = true; window.AnharmonicPWA.applyUpdate(); } }] : []),
+    ...(window.AnharmonicPWA?.standalone ? [{ label: 'Installed app · ' + (window.AnharmonicPWA.offlineReady ? 'offline ready' : 'caching for offline'), disabled: true, action: () => {} }] : [])
+  ]));
   function chooseHue(hue) {
     hue = (hue + 360) % 360;
     const channels = state.accent.slice(1).match(/../g).map(value => parseInt(value, 16) / 255), max = Math.max(...channels), min = Math.min(...channels), light = (max + min) / 2;
@@ -1266,11 +1547,11 @@
         event.preventDefault();
         if (state.workspace === 'instruments') {
           state.heldSynth.add(pitch); const engine = await ensureAudio();
-          if (!state.heldSynth.has(pitch)) return;
-          if (projectStore.project.arp.enabled) startArp(); else engine?.triggerNote(pitch, { velocity: .8 });
+          if (!state.heldSynth.has(pitch) || !engine) return;
+          if (projectStore.project.arp.enabled) startArp(); else noteOn(pitch);
         } else {
           const targetPad = state.notePad; state.heldPads.set(event.code, 'note:' + pitch);
-          const engine = await ensureAudio(); if (state.heldPads.get(event.code) === 'note:' + pitch) engine?.triggerNote(pitch, { pad: targetPad, velocity: .8 });
+          const engine = await ensureAudio(); if (engine && state.heldPads.get(event.code) === 'note:' + pitch) noteOn(pitch, targetPad, .8, 'typing');
         }
         return;
       }
@@ -1294,29 +1575,30 @@
   window.addEventListener('keyup', event => {
     const padVal = state.heldPads.get(event.code);
     if (padVal !== undefined) {
-      if (typeof padVal === 'string' && padVal.startsWith('note:')) {
-        const pitch = Number(padVal.slice(5)); state.engine?.releaseNote(pitch);
-      } else releasePad(padVal);
+      if (typeof padVal === 'string' && padVal.startsWith('note:')) noteOff(Number(padVal.slice(5)), 'typing');
+      else releasePad(padVal);
       state.heldPads.delete(event.code);
     }
     const musicalPitch = musicalTypingMap[event.code];
-    if (musicalPitch !== undefined && state.heldSynth.has(musicalPitch)) {
-      state.heldSynth.delete(musicalPitch); state.engine?.releaseNote(musicalPitch);
-      if (!state.heldSynth.size) stopArp();
-    }
+    if (musicalPitch !== undefined && state.heldSynth.has(musicalPitch)) keyUp(musicalPitch);
   });
-  window.addEventListener('blur', () => { lastSpaceTap = -Infinity; state.heldPads.forEach(value => typeof value === 'string' && value.startsWith('note:') ? state.engine?.releaseNote(Number(value.slice(5))) : releasePad(value)); state.heldPads.clear(); state.heldSynth.forEach(note => state.engine?.releaseNote(note)); state.heldSynth.clear(); stopArp(); });
-  window.addEventListener('beforeunload', event => { if (state.dirty || state.recording || state.recordPending || state.loading || state.recoveryRecording) { event.preventDefault(); event.returnValue = ''; } });
+  window.addEventListener('blur', () => { lastSpaceTap = -Infinity; releaseHeld(); });
+  window.addEventListener('beforeunload', event => { if (state.dirty || state.recording || state.recordPending || state.performance || state.loading || state.recoveryRecording) { event.preventDefault(); event.returnValue = ''; } });
   window.addEventListener('resize', () => { requestSongWaveforms(); updatePanels(); syncInspector(); if (state.workspace === 'sampler') drawWaveform($('#waveform'), padBuffer(), currentSelection()); });
   setInterval(() => {
     const meter = state.engine?.meter(), peak = Math.min(1, Number(meter?.peak) || 0);
     $$('.track-meter').forEach(element => element.value = Math.min(1, meter?.tracks?.[Number(element.dataset.track)]?.peak || 0));
     $('#master-meter').value = peak; $('.meter-value').textContent = peak > .00001 ? (20 * Math.log10(peak)).toFixed(1) + ' dB' : '−∞ dB';
+    $('#input-meter').value = state.recording ? Math.min(1, Number(state.inputLevel) || 0) : 0;
   }, 80);
 
   try {
     const noOverlap = localStorage.getItem('anharmonic-no-overlap');
     if (noOverlap !== null) state.noOverlap = noOverlap === 'true';
+    if (localStorage.getItem('anharmonic-record-source') === 'performance') state.recordSource = 'performance';
+    const countIn = Number(localStorage.getItem('anharmonic-count-in'));
+    if ([0, 1, 2].includes(countIn) && localStorage.getItem('anharmonic-count-in') !== null) state.countIn = countIn;
+    state.monitorInput = localStorage.getItem('anharmonic-monitor-input') === 'true';
     state.theme = localStorage.getItem('anharmonic-theme') === 'light' ? 'light' : 'dark';
     const accent = localStorage.getItem('anharmonic-accent');
     if (/^#[0-9a-f]{6}$/i.test(accent || '')) {
@@ -1330,6 +1612,14 @@
     }
   } catch { setStatus('Browser storage is unavailable. Download Project + audio to keep your work.'); }
   state.dirty = false;
-  if (window.matchMedia('(max-width:760px)').matches) state.browserOpen = state.padsOpen = false;
-  syncNoOverlap(); syncControls(); renderAll(); applyTheme(); updatePanels();
+  if (isMobile()) state.browserOpen = state.padsOpen = false;
+  // Home-screen shortcuts and links can open a specific view.
+  try {
+    const params = new URLSearchParams(location.search), view = params.get('view');
+    if (['song', 'beats', 'notes', 'sampler', 'instruments', 'mix'].includes(view)) state.workspace = view;
+    else if (view === 'pads') { state.padsOpen = true; state.mobileView = 'pads'; }
+    if (params.get('record') === '1') setStatus('Ready to record: arm a Song row or select a pad, then press Record.');
+    if (params.has('source') && window.history?.replaceState) history.replaceState(null, '', location.pathname);
+  } catch { /* URL parsing is optional */ }
+  syncNoOverlap(); syncRecordControls(); syncControls(); renderAll(); applyTheme(); updatePanels();
 })();

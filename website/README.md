@@ -40,12 +40,39 @@ audio graph. Empty projects contain no invented library entries or audio clips.
 
 Browser support includes imported audio, 64 pads, sample trim/pitch/pan/gain and
 looping, step and note sequencing, oscillator instruments, arrangement clips,
-up to 128 mixer tracks, microphone recording, real output meters, undo/redo, and WAV
+up to 128 mixer tracks, real-time microphone and performance recording, real output meters, undo/redo, and WAV
 export. Save retains original audio in IndexedDB and metadata in local storage;
 Project + audio is a portable **browser** bundle. Desktop JSON exports metadata
 separately: sounds must be imported/relinked in the desktop library, and browser
 master effects must be recreated there. Never treat a browser bundle as a native
 project JSON or silently replace an unrecognized project with an empty song.
+
+### Installable app (PWA) and phone layout
+
+The studio is an installable progressive web app. `app/manifest.webmanifest` opens it
+standalone from the home screen; `app/sw.js` precaches the app shell so it starts and
+works offline after the first visit. Project data never enters that cache: it stays in
+IndexedDB and local storage. Updates install in the background and apply only when the
+user chooses **Reload for update** in the Project menu, so an update never interrupts a
+recording. Bump `VERSION` in `sw.js` whenever a precached file changes; the site checker
+fails if a studio script or stylesheet is missing from the precache list. Regenerate the
+icons in `assets/pwa/` with `python scripts/render_pwa_icons.py` after changing the mark.
+
+On phones (760 px and narrower) the studio switches to full-screen views under a bottom
+tab bar: Song, Beats, Notes, Keys, Pads, Sample and Mix. Tempo, swing and volume move to
+a transport sheet, the library opens as a bottom sheet, and status messages appear as
+toasts. The Keys view has a touch keyboard with glide and multi-touch chords, octave
+shifting and a chord strip for the selected key. Pinch zooms the Song timeline and the
+sampler waveform.
+
+Recording has two sources. **MIC** captures the microphone or audio input as
+uncompressed PCM through an AudioWorklet, at the device sample rate, with a live input
+meter, optional count-in and optional input monitoring. Arm a Song row to record a clip:
+with the transport stopped, Record counts in and starts the song so the take lands on
+beat 1; while playing, it punches in at the current position. Takes are shifted by the
+browser's reported input and output latency. **PERFORM** records the pads and keys you
+play into the current pattern while it loops; each take is one undo step. Each pattern
+can own an independent instrument, chosen from grouped oscillator presets.
 
 This is not the PySide6 app or bit-identical native DSP. Active native automation,
 plugins, mixer group gain/mute, custom bus routing, sidechains, clip processors and sample-layer synth
@@ -59,7 +86,7 @@ transport and WAV export; their saved settings remain intact. Empty, unassigned
 and neutral groups (gain 1, unmuted) do not change the mix and remain usable.
 
 Automated browser validation uses isolated Chromium, not a desktop/chat window or
-real microphone. Other browser engines and physical recording devices are not
+real microphone; recording checks feed a synthetic oscillator stream. Other browser engines and physical recording devices are not
 certified by those checks. Offline export limits are 128 overlapping voices,
 50,000 scheduled events and 300 seconds including effect tails, PCM16 stereo at
 up to 48 kHz. Long/dense editor documents and decoded audio are bounded without

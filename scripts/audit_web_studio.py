@@ -7,7 +7,6 @@ not a claim of exact desktop DSP parity.
 """
 
 import argparse
-import base64
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import io
@@ -474,33 +473,48 @@ def main():
                     and "recording" not in (page.locator("#record").get_attribute("class") or ""),
                 )
 
-                # Synthetic MediaRecorder also verifies the target is captured before async capture.
-                audio_b64 = base64.b64encode(test_audio).decode("ascii")
+                # A synthetic oscillator stream stands in for the microphone. It
+                # runs through the real-time PCM recorder exactly like a device.
                 page.evaluate(
-                    """data => {
-                    const blob = new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], {type:'audio/wav'});
+                    """() => {
                     window.auditStoppedTracks = 0; window.auditRecorderStarts = 0; window.auditMicrophoneRequests = 0;
                     navigator.mediaDevices.getUserMedia = async () => {
                         window.auditMicrophoneRequests++;
                         await new Promise(resolve => setTimeout(resolve, window.auditPermissionDelay || 0));
-                        return {getTracks: () => [{stop: () => auditStoppedTracks++}]};
+                        const context = auditEngine.context, osc = context.createOscillator(), gain = context.createGain();
+                        const destination = context.createMediaStreamDestination(); gain.gain.value = .3;
+                        osc.connect(gain).connect(destination); osc.start();
+                        destination.stream.getTracks().forEach(track => { const stop = track.stop.bind(track); track.stop = () => { auditStoppedTracks++; stop(); try { osc.stop(); } catch {} }; });
+                        return destination.stream;
                     };
-                    window.MediaRecorder = class extends EventTarget {
-                        constructor(){ super(); this.state = 'inactive'; this.mimeType = 'audio/wav'; }
-                        start(){ this.state = 'recording'; window.auditRecorderStarts++; window.auditCaptureBeat = auditEngine.beatAt(auditEngine.context.currentTime); }
-                        stop(){ this.state = 'inactive'; this.dispatchEvent(new MessageEvent('dataavailable',{data:blob})); this.dispatchEvent(new Event('stop')); }
+                    const start = AnharmonicRecorder.PCMRecorder.prototype.start;
+                    AnharmonicRecorder.PCMRecorder.prototype.start = async function(at = null) {
+                        window.auditRecorder = this; window.auditArmAt = at; window.auditRecorderStarts++;
+                        return start.call(this, at);
                     };
-                }""",
-                    audio_b64,
+                }"""
+                )
+                check(
+                    "record_source_defaults_to_microphone",
+                    page.locator("#record-source").inner_text() == "MIC",
                 )
                 page.locator("#record").click()
                 page.wait_for_function(
-                    "document.querySelector('#record').classList.contains('recording')"
+                    "document.querySelector('#status').textContent.startsWith('Count-in')"
                 )
                 page.locator('[data-bank="2"]').click()
+                page.wait_for_function(
+                    "document.querySelector('#status').textContent.startsWith('Recording into pad')",
+                    timeout=8000,
+                )
+                page.wait_for_timeout(700)
+                check(
+                    "input_meter_shows_live_level",
+                    page.evaluate("document.querySelector('#input-meter').value > 0"),
+                )
                 page.locator("#record").click()
                 page.wait_for_function(
-                    "document.querySelector('#status').textContent.includes('Microphone take captured')"
+                    "document.querySelector('#status').textContent.includes('Take captured')"
                 )
                 check(
                     "recording_preserves_original_pad_target",
@@ -508,6 +522,19 @@ def main():
                     and not model()["pads"][32]["sample_id"],
                 )
                 check("recording_stops_input_tracks", page.evaluate("auditStoppedTracks") == 1)
+                check(
+                    "count_in_is_excluded_from_take",
+                    page.evaluate(
+                        "auditArmAt !== null && auditRecorder.capture.startTime >= auditArmAt - 1e-6"
+                    ),
+                )
+                take = model()["media"][-1]
+                check(
+                    "take_is_uncompressed_at_device_rate",
+                    take["mime"] == "audio/wav"
+                    and take["sample_rate"] == page.evaluate("auditEngine.context.sampleRate")
+                    and 0.3 < take["duration"] < 3,
+                )
 
                 workspace("song")
                 page.locator('.row-record[data-row-index="1"]').click()
@@ -522,42 +549,53 @@ def main():
                 page.locator("#record").click()
                 page.locator('.row-record[data-row-index="2"]').click()
                 page.wait_for_function(
-                    "document.querySelector('#record').classList.contains('recording')"
+                    "document.querySelector('#status').textContent.startsWith('Recording into')"
                 )
+                page.wait_for_timeout(500)
                 page.locator("#record").click()
                 page.wait_for_function(
-                    "document.querySelector('#status').textContent.includes('Microphone take captured')"
+                    "document.querySelector('#status').textContent.includes('Take captured')"
                 )
+                recorded_clip = model()["rows"][1]["clips"][-1]
+                check("recording_places_armed_row_clip", recorded_clip["kind"] == "audio")
                 check(
-                    "recording_places_armed_row_clip",
-                    model()["rows"][1]["clips"][-1]["kind"] == "audio",
-                )
-                check(
-                    "recording_source_length_is_seconds",
-                    abs(model()["rows"][1]["clips"][-1]["source_length"] - 0.5) < 0.01,
+                    "recording_source_length_matches_clip_length",
+                    abs(
+                        recorded_clip["source_length"]
+                        - recorded_clip["length_beats"] * 60 / model()["bpm"]
+                    )
+                    < 0.001,
                 )
                 check("recording_releases_each_stream", page.evaluate("auditStoppedTracks") == 2)
-                recorded_clip = model()["rows"][1]["clips"][-1]
-                captured_beat = page.evaluate("window.auditCaptureBeat")
+                captured_beat = page.evaluate(
+                    "auditEngine.beatAt(auditRecorder.capture.startTime) - AnharmonicRecorder.roundTripLatency(auditEngine.context) * auditEngine.tempo / 60"
+                )
                 check(
                     "recording_permission_delay_advances_transport",
                     captured_beat - page.evaluate("window.auditRequestedBeat") > 0.5,
                 )
                 check(
-                    "recording_anchors_at_actual_capture_start",
-                    abs(recorded_clip["start_beat"] - captured_beat) < 0.05,
+                    "recording_anchors_at_latency_compensated_capture_start",
+                    abs(recorded_clip["start_beat"] - captured_beat) < 0.02,
                 )
                 check("permission_delay_keeps_original_armed_row", not model()["rows"][2]["clips"])
                 page.locator("#stop").click()
                 page.evaluate("window.auditPermissionDelay = 0")
 
+                # A take that cannot be added to the project is kept for recovery.
                 page.evaluate(
-                    "() => {window.auditDecode = AudioContext.prototype.decodeAudioData; AudioContext.prototype.decodeAudioData = async () => {throw new Error('Audit decode failure');};}"
+                    "() => {window.auditAddMedia = AnharmonicProject.ProjectStore.prototype.addMedia; AnharmonicProject.ProjectStore.prototype.addMedia = () => {throw new Error('Audit storage failure');};}"
                 )
                 page.locator("#record").click()
                 page.wait_for_function(
-                    "document.querySelector('#record').classList.contains('recording')"
+                    "document.querySelector('#status').textContent.startsWith('Recording into')",
+                    timeout=8000,
                 )
+                check(
+                    "armed_row_record_starts_song_after_count_in",
+                    page.evaluate("auditEngine.playing && auditEngine.mode === 'song'"),
+                )
+                page.wait_for_timeout(400)
                 page.locator("#record").click()
                 page.wait_for_function(
                     "document.querySelector('#status').textContent.includes('Recover take')"
@@ -566,6 +604,7 @@ def main():
                     "failed_recording_offers_original_take",
                     page.locator("#recover-recording").is_visible(),
                 )
+                page.locator("#stop").click()
                 requests_before_retry = page.evaluate("window.auditMicrophoneRequests")
                 captures_before_retry = page.evaluate("window.auditRecorderStarts")
                 page.locator("#record").click()
@@ -584,10 +623,11 @@ def main():
                     ).click()
                 recovery_audio = args.output / "microphone-recovery.wav"
                 recovered.value.save_as(recovery_audio)
-                check(
-                    "recording_recovery_preserves_original_bytes",
-                    recovery_audio.read_bytes() == test_audio,
-                )
+                with wave.open(str(recovery_audio), "rb") as recovered_wav:
+                    check(
+                        "recording_recovery_is_complete_wav",
+                        recovered_wav.getnframes() > recovered_wav.getframerate() * 0.2,
+                    )
                 page.locator("#record").click()
                 page.wait_for_function(
                     "document.querySelector('#status').textContent.includes('before starting another recording')"
@@ -604,8 +644,46 @@ def main():
                     not page.locator("#recover-recording").is_visible(),
                 )
                 page.evaluate(
-                    "() => {AudioContext.prototype.decodeAudioData = window.auditDecode;}"
+                    "() => {AnharmonicProject.ProjectStore.prototype.addMedia = window.auditAddMedia;}"
                 )
+
+                # PERFORM records played pads into the looping pattern as one undo step.
+                page.locator("#playback-mode").select_option("pattern")
+                page.locator("#record-source").click()
+                check(
+                    "record_source_switches_to_performance",
+                    page.locator("#record-source").inner_text() == "PERFORM",
+                )
+                workspace("beats")
+                page.evaluate(
+                    "window.auditStore.transact('clear', p => { p.patterns[p.selected_pattern].steps = {}; })"
+                )
+                page.locator("#record").click()
+                page.wait_for_function(
+                    "auditEngine.playing && document.querySelector('#record').classList.contains('recording')"
+                )
+                page.locator('.pad-bank button[data-bank="1"]').click()
+                for _ in range(3):
+                    page.locator('.pad[data-pad="16"]').click()
+                    page.wait_for_timeout(350)
+                page.locator("#record").click()
+                recorded_steps = model()["patterns"][model()["selected_pattern"]]["steps"].get(
+                    "16", {}
+                )
+                check("performance_records_pad_hits_as_steps", len(recorded_steps) >= 2)
+                check(
+                    "performance_take_is_one_undo_step",
+                    page.evaluate(
+                        "(() => { const key = auditStore.history.at(-1)?.mergeKey; return Boolean(key) && auditStore.history.filter(entry => entry.mergeKey === key).length === 1; })()"
+                    ),
+                )
+                page.locator("#undo-project").click()
+                check(
+                    "performance_take_undoes_together",
+                    not model()["patterns"][model()["selected_pattern"]]["steps"].get("16"),
+                )
+                page.locator("#stop").click()
+                page.locator("#record-source").click()
 
                 with page.expect_download() as original_audio:
                     page.locator("#download-sound").click()
@@ -838,7 +916,38 @@ def main():
                         window.mobileEngine = this; return original.apply(this, args);
                     };
                 }""")
-                mobile.locator('[data-workspace="instruments"]').tap()
+                check(
+                    "mobile_bottom_tabs_replace_desktop_tabs",
+                    mobile.locator(".mobile-tabs").is_visible()
+                    and not mobile.locator(".studio-nav").is_visible()
+                    and mobile.locator(".mobile-tabs [data-mobile-tab]").count() == 7,
+                )
+                check(
+                    "mobile_layout_has_no_horizontal_page_scroll",
+                    mobile.evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
+                )
+                mobile.locator('[data-mobile-tab="pads"]').tap()
+                pad_box = mobile.locator("#pad-grid .pad").first.bounding_box()
+                check(
+                    "mobile_pads_view_is_full_width",
+                    mobile.locator("#pads-panel").is_visible()
+                    and not mobile.locator("#stage").is_visible()
+                    and pad_box["width"] >= 70,
+                )
+                mobile.locator('[data-mobile-tab="instruments"]').tap()
+                check(
+                    "mobile_keys_view_shows_keyboard_and_chords",
+                    mobile.locator("#synth-keyboard").is_visible()
+                    and mobile.locator(".chord").count() == 7
+                    and mobile.locator("#synth-keyboard .key.white").first.bounding_box()["width"]
+                    >= 44,
+                )
+                mobile.locator("#transport-more").tap()
+                check(
+                    "mobile_transport_sheet_holds_tempo_controls",
+                    mobile.locator("#transport-sheet #tempo").is_visible(),
+                )
+                mobile.locator('#transport-sheet [aria-label="Close transport controls"]').tap()
                 mobile.locator(".synth-preview").tap()
                 mobile.wait_for_function("window.mobileEngine?.voices.size > 0")
                 check(

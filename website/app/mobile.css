@@ -122,3 +122,68 @@
 /* Preserve contrast for any user-picked accent, including black and white. */
 #no-overlap[aria-pressed="true"]{color:var(--on-accent)}
 @media(max-width:760px){.project-name{width:105px;min-width:105px}.project-actions #undo-project,.project-actions #redo-project{font-size:0;min-width:36px}.project-actions #undo-project::before{content:'↶';font-size:18px}.project-actions #redo-project::before{content:'↷';font-size:18px}}
+
+/* Phone shell: full-screen views under a bottom tab bar, GarageBand-style. */
+@media (max-width: 760px) {
+  :root { --tabbar: 58px; }
+  button.mobile-only { display: inline-flex !important; align-items: center; justify-content: center; }
+  .inspector-mobile-actions.mobile-only { display: flex !important; gap: 6px; margin-top: 10px; }
+  .inspector-mobile-actions button { flex: 1; min-height: 42px; }
+  .studio-nav, .project-bar .logo span, #appearance-toggle, .meters, .keyboard-hint, .zoom-controls span { display: none !important; }
+  html, body { overflow: hidden; height: 100dvh; }
+  * { -webkit-tap-highlight-color: transparent; }
+  button, .pad, .clip, .note, .key, .chord { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+  .project-bar { height: auto; min-height: 52px; padding: max(6px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left)); gap: 6px; overflow: hidden; flex-wrap: nowrap; }
+  .project-name { flex: 1 1 auto; min-width: 0; width: auto; order: 0; }
+  .project-actions { gap: 4px; margin-left: 0; }
+  .project-actions button { padding: 6px 7px; }
+  #project-menu { font-size: 0; min-width: 40px; }
+  #project-menu::before { content: '☰'; font-size: 16px; }
+  #mobile-library { font-size: 0; min-width: 40px; }
+  #mobile-library::before { content: '♫'; font-size: 16px; }
+  #mobile-library.active { color: var(--accent-ink); border-color: var(--accent); }
+  .transport-bar { height: 54px; min-height: 54px; gap: 6px; padding: 6px max(8px, env(safe-area-inset-right)) 6px max(8px, env(safe-area-inset-left)); overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; }
+  .transport { width: 44px; min-width: 44px; height: 42px; font-size: 16px; }
+  #record-source, #record-settings, #no-overlap, #transport-more { font-size: 9px; padding: 0 7px; min-height: 42px; }
+  #record-settings, #transport-more { font-size: 15px; min-width: 36px; }
+  #no-overlap { font-size: 0; }
+  #no-overlap::before { content: 'NO OVERLAP'; font-size: 9px; }
+  .input-level meter { width: 24px; }
+  #counter { font-size: 12px; padding: 6px; }
+  .main-split, .main-split.hide-browser, .main-split.hide-pads, .main-split.hide-browser.hide-pads { display: block; height: calc(100dvh - 52px - 54px - var(--tabbar) - env(safe-area-inset-bottom)); min-height: 0; }
+  body[data-mobile-view="stage"] .pads-panel, body[data-mobile-view="stage"] .pads-panel.open { display: none !important; }
+  body[data-mobile-view="pads"] .stage { display: none !important; }
+  body[data-mobile-view="pads"] .pads-panel.open, body[data-mobile-view="pads"] .main-split.hide-pads .pads-panel.open { display: flex; visibility: visible; height: 100%; max-height: none; border: 0; }
+  .stage { height: 100%; min-height: 0; }
+  .browser-panel.open, .main-split.hide-browser .browser-panel.open { position: fixed; left: 0; right: 0; bottom: calc(var(--tabbar) + env(safe-area-inset-bottom)); height: min(70dvh, 560px); max-height: none; z-index: 30; border: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; box-shadow: 0 -12px 30px #0008; display: flex; visibility: visible; }
+  .mobile-tabs { display: flex; position: fixed; left: 0; right: 0; bottom: 0; height: calc(var(--tabbar) + env(safe-area-inset-bottom)); padding: 4px max(4px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left)); background: var(--bg2); border-top: 1px solid var(--line); z-index: 31; }
+  .mobile-tabs button { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: 0; background: transparent; color: var(--dim); font: 9px 'DM Mono', monospace; letter-spacing: .2px; padding: 2px 0; border-radius: 8px; min-height: 48px; }
+  .mobile-tabs button i { font-style: normal; font-size: 17px; line-height: 1; }
+  .mobile-tabs button[aria-pressed="true"] { color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .status-bar { display: flex; position: fixed; left: 8px; right: 8px; bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 8px); height: auto; min-height: 0; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--bg2) 94%, transparent); backdrop-filter: blur(8px); opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 29; font-size: 11px; line-height: 1.45; padding: 8px 10px; }
+  .status-bar.show { opacity: 1; }
+  body[data-mobile-view="pads"] .pad-grid { grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 8px; max-width: none; }
+  body[data-mobile-view="pads"] .pad { aspect-ratio: 1; min-height: 0; font-size: 11px; }
+  body[data-mobile-view="pads"] .pad-inspector { flex: 1; overflow: auto; max-width: none; }
+  .synth-keyboard, .instrument-editor .synth-keyboard { --white-key: 58px; --black-key: 38px; height: 200px; }
+  .chord { min-height: 56px; }
+  .chords { min-width: 0; }
+  .synth-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .instrument-toolbar label, .instrument-toolbar select, .chord-strip select { min-width: 0; }
+  .instrument-editor { padding: 10px; }
+  dialog.sheet { position: fixed; inset: auto 0 0 0; margin: 0; max-width: none; width: 100%; border-radius: 14px 14px 0 0; padding: 14px 14px calc(14px + env(safe-area-inset-bottom)); max-height: 80dvh; }
+  .track-head { padding: 4px; gap: 3px; }
+  .track-head strong { max-width: 58px; font-size: 10px; }
+  .track-head button { padding: 3px; font-size: 9px; min-height: 28px; }
+  .step-line label { font-size: 9px; padding: 4px; }
+  .step-line button { height: 30px; }
+  .pads-panel .panel-header, .browser-panel .panel-header { height: 44px; }
+  .pad-bank button { min-width: 40px; }
+}
+@media (max-width: 760px) and (orientation: landscape) and (max-height: 520px) {
+  .transport-bar { height: 46px; min-height: 46px; }
+  .main-split, .main-split.hide-browser, .main-split.hide-pads, .main-split.hide-browser.hide-pads { height: calc(100dvh - 52px - 46px - var(--tabbar) - env(safe-area-inset-bottom)); }
+  .synth-keyboard, .instrument-editor .synth-keyboard { height: 140px; }
+}
+/* Pinch zooms the Song timeline on phones; keep only the compact zoom buttons. */
+@media (max-width: 760px) { .zoom-controls label { display: none !important; } .zoom-controls { padding: 6px 8px; } .stage-toolbar { padding: 6px 8px; } }

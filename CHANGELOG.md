@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-02 — installable phone studio (web)
+
+The browser studio at `app/studio.html` is now an installable app that works like a
+phone music studio. These are web changes; the desktop packages are unaffected.
+
+- Install to the home screen on iPhone, iPad and Android, or as a desktop app. The
+  studio opens full screen and keeps working offline; projects stay on the device.
+- Phone layout with a bottom tab bar, full-screen pads, a touch keyboard with glide,
+  multi-touch chords and a chord strip, a transport sheet and a library sheet. Pinch
+  zooms the Song timeline and sampler waveform.
+- Real-time recording replaces compressed MediaRecorder capture: uncompressed audio at
+  the device rate, input meter, count-in, optional monitoring and latency-compensated
+  placement. Arming a Song row and pressing Record counts in and starts the song.
+- Performance recording captures pads and keys into the looping pattern, one undo step
+  per take.
+- Each pattern can own its instrument; 17 grouped oscillator presets.
+- Fix an empty pad waveform drawing as a solid block and the Song playhead sitting
+  slightly left of the lanes.
+
+Physical iOS and Android devices and real microphones were not tested in CI; the
+browser checks use Chromium with a synthetic input stream.
+
 ## 2026-09-27 — recording and instrument workflow (next candidate)
 
 These changes are available in source on `main`. The paid download catalog still
