@@ -99,7 +99,7 @@ def main():
                 )
                 check(
                     "workspace_tabs_expose_selected_state",
-                    page.locator('[role="tablist"] [role="tab"]').count() == 6
+                    page.locator('[role="tablist"] [role="tab"]').count() == 7
                     and page.locator('[role="tab"][aria-selected="true"]').count() == 1
                     and page.locator('[role="tab"][aria-selected="true"]').get_attribute(
                         "data-workspace"
@@ -867,7 +867,7 @@ def main():
                 second.wait_for_function(
                     "document.querySelector('#status').textContent.startsWith('Project loaded.')"
                 )
-                for name in ("song", "beats", "notes", "sampler", "instruments", "mix"):
+                for name in ("song", "beats", "notes", "sampler", "instruments", "vocal", "mix"):
                     second.locator(f'[data-workspace="{name}"]').click()
                 check(
                     "imported_names_cannot_inject_html",
@@ -946,6 +946,237 @@ def main():
                 )
                 fresh.close()
 
+                # Vocal: a synthetic singer, 35 cents flat on A3, stands in for the
+                # microphone. Record a take over the beat, tune it, keep the original.
+                vocal_context = browser.new_context(
+                    viewport={"width": 1400, "height": 900}, accept_downloads=True
+                )
+                vocal = vocal_context.new_page()
+                vocal.on("pageerror", lambda error: report["browser_errors"].append(str(error)))
+                vocal.goto(url)
+                vocal.wait_for_selector("#pad-grid .pad")
+                vocal.evaluate("""() => {
+                    const notify = AnharmonicProject.ProjectStore.prototype.notify;
+                    AnharmonicProject.ProjectStore.prototype.notify = function(...args) { window.vocalStore = this; window.vocalDocument = this.toJSON(); return notify.apply(this, args); };
+                    const resume = AnharmonicAudio.AudioEngine.prototype.resume;
+                    AnharmonicAudio.AudioEngine.prototype.resume = function(...args) { window.vocalEngine = this; return resume.apply(this, args); };
+                    window.vocalStreams = 0;
+                    navigator.mediaDevices.getUserMedia = async () => {
+                        const context = vocalEngine.context, voice = context.createOscillator(), overtone = context.createOscillator(), gain = context.createGain(), destination = context.createMediaStreamDestination();
+                        voice.frequency.value = 220 * Math.pow(2, -0.35 / 12); overtone.frequency.value = 2 * voice.frequency.value; gain.gain.value = .25;
+                        voice.connect(gain); overtone.connect(gain); gain.connect(destination); voice.start(); overtone.start();
+                        destination.stream.getTracks().forEach(track => { const stop = track.stop.bind(track); track.stop = () => { vocalStreams++; stop(); try { voice.stop(); overtone.stop(); } catch {} }; });
+                        return destination.stream;
+                    };
+                }""")
+
+                def vocal_model():
+                    return vocal.evaluate("window.vocalDocument")
+
+                vocal.locator('[data-workspace="vocal"]').click()
+                check(
+                    "vocal_tab_opens_recording_deck",
+                    vocal.locator(".vocal-record").is_visible()
+                    and vocal.locator("[data-monitor]").count() == 3
+                    and vocal.locator("[data-vocal]").count() == 12
+                    and vocal.locator("#vocal-note").inner_text() == "—",
+                )
+                vocal.locator('[data-monitor="tuned"]').click()
+                vocal.locator("#vocal-input").click()
+                vocal.wait_for_function(
+                    "document.querySelector('#vocal-note').textContent === 'A3'", timeout=8000
+                )
+                tuner_cents = vocal.evaluate(
+                    "parseInt(document.querySelector('#vocal-cents').textContent)"
+                )
+                check(
+                    "vocal_tuner_reads_live_pitch_and_target",
+                    -45 <= tuner_cents <= -25
+                    and vocal.locator("#vocal-target").inner_text() == "→ A3",
+                )
+                check(
+                    "tuned_monitor_saves_desktop_setting",
+                    vocal_model()["vocal_record"]["corrected_monitor"] is True,
+                )
+                vocal.locator("#vocal-input").click()
+                check(
+                    "vocal_input_off_releases_microphone",
+                    vocal.evaluate("vocalStreams") == 1
+                    and vocal.locator("#vocal-input").get_attribute("aria-pressed") == "false",
+                )
+                vocal.locator(".vocal-record").click()
+                vocal.wait_for_function(
+                    "document.querySelector('#status').textContent.startsWith('Recording into Vocals')",
+                    timeout=8000,
+                )
+                check(
+                    "vocal_take_plays_the_beat_while_recording",
+                    vocal.evaluate("vocalEngine.playing"),
+                )
+                vocal.wait_for_timeout(2500)
+                vocal.locator(".vocal-record").click()
+                vocal.wait_for_function(
+                    "document.querySelector('#status').textContent.startsWith('Vocal take recorded')"
+                )
+                document = vocal_model()
+                vocal_row = next(row for row in document["rows"] if row["name"] == "Vocals")
+                take_clip = vocal_row["clips"][0]
+                check(
+                    "vocal_take_lands_on_vocals_row_and_track",
+                    len(vocal_row["clips"]) == 1
+                    and take_clip["kind"] == "audio"
+                    and document["tracks"][vocal_row["record_track"]]["name"] == "Vocals"
+                    and document["vocal_record"]["playlist_row"]
+                    == document["rows"].index(vocal_row)
+                    and document["vocal_record"]["mixer_track"] == vocal_row["record_track"],
+                )
+                check(
+                    "first_vocal_take_lays_beat_under_it",
+                    any(
+                        clip["kind"] == "pattern" and clip["start_beat"] == 0
+                        for row in document["rows"]
+                        for clip in row["clips"]
+                    )
+                    and vocal.locator("#playback-mode").input_value() == "song",
+                )
+                check(
+                    "ending_vocal_take_stops_transport",
+                    not vocal.evaluate("vocalEngine.playing")
+                    and vocal.evaluate("vocalStreams") == 2,
+                )
+                vocal.wait_for_function(
+                    "document.querySelector('#vocal-summary').textContent.includes('Detected key A minor')",
+                    timeout=10000,
+                )
+                vocal.locator("#vocal-use-key").click()
+                check(
+                    "detected_key_applies",
+                    vocal_model()["vocal"]["key"] == "A"
+                    and vocal_model()["vocal"]["scale"] == "minor",
+                )
+                vocal.locator('[data-vocal-style="hard"]').click()
+                check(
+                    "hard_tune_style_sets_tuning",
+                    {
+                        key: vocal_model()["vocal"][key]
+                        for key in ("enabled", "strength", "retune_ms", "humanize")
+                    }
+                    == {"enabled": True, "strength": 1, "retune_ms": 0, "humanize": 0},
+                )
+                history_before = vocal.evaluate("vocalStore.history.length")
+                for value in ("2", "3"):
+                    vocal.locator('[data-vocal="output_db"]').evaluate(
+                        "(element, value) => { element.value = value; element.dispatchEvent(new Event('input', {bubbles: true})); }",
+                        value,
+                    )
+                check(
+                    "vocal_slider_drag_is_one_undo_step",
+                    vocal_model()["vocal"]["output_db"] == 3
+                    and vocal.evaluate("vocalStore.history.length") == history_before + 1,
+                )
+                vocal.locator('.vocal-play[data-which="tuned"]').click()
+                vocal.wait_for_function(
+                    "document.querySelector('.vocal-play[data-which=\"tuned\"]').classList.contains('active')",
+                    timeout=20000,
+                )
+                vocal.locator(".vocal-ab").click()
+                vocal.wait_for_function(
+                    "document.querySelector('.vocal-play[data-which=\"dry\"]').classList.contains('active')"
+                )
+                check("vocal_ab_switches_to_original", True)
+                vocal.screenshot(path=str(args.output / "web-studio-vocal.png"))
+                vocal.locator(".vocal-stop").click()
+                vocal.locator(".vocal-apply").click()
+                vocal.wait_for_function(
+                    "document.querySelector('.vocal-take strong').textContent.includes('TUNED')",
+                    timeout=20000,
+                )
+                document = vocal_model()
+                tuned_clip = next(row for row in document["rows"] if row["name"] == "Vocals")[
+                    "clips"
+                ][0]
+                tuned_media = next(
+                    item for item in document["media"] if item["id"] == tuned_clip["ref"]
+                )
+                check(
+                    "apply_swaps_take_and_keeps_original",
+                    tuned_clip["id"] == take_clip["id"]
+                    and tuned_media["vocal_source"] == take_clip["ref"]
+                    and any(item["id"] == take_clip["ref"] for item in document["media"]),
+                )
+                with vocal.expect_download() as tuned_download:
+                    vocal.locator(".vocal-take-menu").click()
+                    vocal.get_by_role("menuitem", name="Download take audio", exact=True).click()
+                tuned_path = args.output / "tuned-vocal.wav"
+                tuned_download.value.save_as(tuned_path)
+                with wave.open(str(tuned_path), "rb") as tuned_wav:
+                    rate, channels = tuned_wav.getframerate(), tuned_wav.getnchannels()
+                    frames = tuned_wav.readframes(tuned_wav.getnframes())
+                    left = struct.unpack("<" + "h" * (len(frames) // 2), frames)[::channels]
+                # Strongest partial near A3 (Goertzel scan); the voice's loud
+                # second harmonic makes zero-crossing counts unreliable.
+                middle = left[len(left) // 4 : len(left) // 4 + rate]
+
+                def power(frequency):
+                    coefficient = 2 * math.cos(2 * math.pi * frequency / rate)
+                    previous = before = 0.0
+                    for sample in middle:
+                        previous, before = sample + coefficient * previous - before, previous
+                    return previous * previous + before * before - coefficient * previous * before
+
+                tuned_hz = max((200 + step * 0.25 for step in range(161)), key=power)
+                check(
+                    "applied_take_is_on_pitch",
+                    abs(1200 * math.log2(tuned_hz / 220)) < 8,
+                )
+                report["vocal_tuned_hz"] = round(tuned_hz, 2)
+                vocal.locator("#undo-project").click()
+                check(
+                    "undo_restores_dry_take",
+                    next(row for row in vocal_model()["rows"] if row["name"] == "Vocals")["clips"][
+                        0
+                    ]["ref"]
+                    == take_clip["ref"],
+                )
+                vocal.locator("#redo-project").click()
+                vocal.locator(".vocal-revert").click()
+                check(
+                    "revert_to_dry_restores_original",
+                    next(row for row in vocal_model()["rows"] if row["name"] == "Vocals")["clips"][
+                        0
+                    ]["ref"]
+                    == take_clip["ref"],
+                )
+                media_count = len(vocal_model()["media"])
+                vocal.locator(".vocal-apply").click()
+                vocal.wait_for_function(
+                    "document.querySelector('.vocal-take strong').textContent.includes('TUNED')",
+                    timeout=20000,
+                )
+                check(
+                    "reapplying_same_settings_reuses_tuned_copy",
+                    len(vocal_model()["media"]) == media_count
+                    and next(row for row in vocal_model()["rows"] if row["name"] == "Vocals")[
+                        "clips"
+                    ][0]["ref"]
+                    == tuned_media["id"],
+                )
+                vocal.locator('.vocal-play[data-which="dry"]').click()
+                vocal.wait_for_function(
+                    "document.querySelector('.vocal-play[data-which=\"dry\"]').classList.contains('active')"
+                )
+                vocal.on("dialog", lambda dialog: dialog.accept())
+                vocal.locator("#new-project").evaluate("element => element.click()")
+                vocal.wait_for_function(
+                    "document.querySelector('#status').textContent.startsWith('New project')"
+                )
+                check(
+                    "new_project_resets_vocal_deck",
+                    vocal.locator(".vocal-take").count() == 0
+                    and vocal.locator(".vocal-play.active").count() == 0,
+                )
+                vocal_context.close()
+
                 mobile_context = browser.new_context(
                     viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True
                 )
@@ -974,7 +1205,7 @@ def main():
                     "mobile_bottom_tabs_replace_desktop_tabs",
                     mobile.locator(".mobile-tabs").is_visible()
                     and not mobile.locator(".studio-nav").is_visible()
-                    and mobile.locator(".mobile-tabs [data-mobile-tab]").count() == 7,
+                    and mobile.locator(".mobile-tabs [data-mobile-tab]").count() == 8,
                 )
                 check(
                     "mobile_layout_has_no_horizontal_page_scroll",
@@ -996,6 +1227,18 @@ def main():
                     and mobile.locator("#synth-keyboard .key.white").first.bounding_box()["width"]
                     >= 44,
                 )
+                mobile.locator('[data-mobile-tab="vocal"]').tap()
+                take_box = mobile.locator(".vocal-takes").bounding_box()
+                check(
+                    "mobile_vocal_view_fits_the_phone",
+                    mobile.locator(".vocal-record").is_visible()
+                    and mobile.locator("#vocal-pitch").bounding_box()["width"] >= 300
+                    and take_box["height"] >= 30
+                    and mobile.evaluate(
+                        "document.documentElement.scrollWidth <= window.innerWidth"
+                    ),
+                )
+                mobile.locator('[data-mobile-tab="instruments"]').tap()
                 mobile.locator("#transport-more").tap()
                 check(
                     "mobile_transport_sheet_holds_tempo_controls",

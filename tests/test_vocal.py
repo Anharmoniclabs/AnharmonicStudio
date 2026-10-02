@@ -184,6 +184,29 @@ def test_hard_tune_moves_an_out_of_key_pitch_to_the_target_note():
     assert np.nanmedian(after.detected_midi[voiced_after]) == pytest.approx(67, abs=0.25)
 
 
+@pytest.mark.parametrize(
+    "frequency,target", [(215.598, 220.0), (369.994, 391.995), (112.57, 110.0)]
+)
+def test_hard_tune_corrects_a_held_note_longer_than_a_grain(frequency, target):
+    # Grains must stay phase-continuous: re-centring each grain on its own
+    # output position used to cancel the shift on notes held longer than about half a second.
+    sr = 48_000
+    t = np.arange(sr * 3) / sr
+    source = (
+        0.25 * np.sin(2 * np.pi * frequency * t) + 0.12 * np.sin(4 * np.pi * frequency * t)
+    ).astype(np.float32)
+    key, scale = ("A", "minor") if target in (220.0, 110.0) else ("C", "major")
+    rendered, _ = render_autotune(
+        source, VocalSettings(key=key, scale=scale, retune_ms=0, humanize=0), sr
+    )
+    middle = rendered[sr // 2 : sr * 5 // 2, 0].astype(np.float64)
+    spectrum = np.abs(np.fft.rfft(middle * np.hanning(len(middle)), sr * 8))
+    freqs = np.fft.rfftfreq(sr * 8, 1 / sr)
+    band = (freqs > frequency * 0.8) & (freqs < frequency * 1.25)
+    peak = freqs[band][np.argmax(spectrum[band])]
+    assert abs(1200 * np.log2(peak / target)) < 2
+
+
 def test_key_detection_reports_a_supported_scale():
     settings = VocalSettings(key="C", scale="chromatic", low_note=48, high_note=84)
     analysis = analyze_pitch(_tone(440.0), settings)

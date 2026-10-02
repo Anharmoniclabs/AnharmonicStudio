@@ -432,6 +432,35 @@
       return track.id;
     }
     setRow(row, changes) { number(row, 0, 0, this.document.rows.length - 1, true); this.transact('edit arrangement row', document => { document.rows[row] = { ...document.rows[row], ...changes }; }); }
+    // The Vocal workspace records into a "Vocals" song row on its own mixer
+    // track, like the desktop vocal deck's playlist_row/mixer_track defaults.
+    vocalRowIndex() {
+      const rows = this.document.rows, saved = this.document.vocal_record?.playlist_row;
+      const named = rows.findIndex(row => /^vocals?$/i.test(row.name.trim()));
+      return named >= 0 ? named : (Number.isInteger(saved) && rows[saved] && rows[saved].name === 'Vocals' ? saved : -1);
+    }
+    ensureVocalRow() {
+      const existing = this.vocalRowIndex();
+      if (existing >= 0) {
+        // Keep the row's own routing, and keep the desktop vocal_record indices in step with it.
+        const row = this.document.rows[existing], record = this.document.vocal_record || {};
+        if (record.playlist_row !== existing || record.mixer_track !== row.record_track) this.transact('link vocal row', document => { document.vocal_record = { ...(document.vocal_record || {}), playlist_row: existing, mixer_track: row.record_track }; });
+        return row.id;
+      }
+      const id = uid('row');
+      this.transact('add vocal row', document => {
+        let track = document.tracks.findIndex(item => /^vocals?$/i.test(String(item.name).trim()));
+        if (track < 0 && document.tracks.length < MAX_TRACKS) {
+          const added = defaultTracks(document.tracks.length + 1).at(-1);
+          added.id = uid('mixer'); added.name = 'Vocals'; document.tracks.push(added); track = document.tracks.length - 1;
+        }
+        if (track < 0) track = Math.min(3, document.tracks.length - 1);
+        document.rows.push({ id, name: 'Vocals', mute: false, solo: false, record_armed: false, clips: [], record_source: 'audio', record_track: track });
+        document.vocal_record = { ...(document.vocal_record || {}), playlist_row: document.rows.length - 1, mixer_track: track };
+      });
+      return id;
+    }
+    setVocal(changes, mergeKey = null) { this.transact('edit vocal settings', document => { document.vocal = { ...document.vocal, ...changes }; }, mergeKey); }
     setSynth(changes) { this.transact('edit synth patch', document => { document.synth = { ...document.synth, ...changes }; }); }
     // The selected pattern's live instrument: an ID from project.instruments, or null for the shared synth.
     get selectedInstrument() { return this.pattern.selected_instrument ?? null; }
