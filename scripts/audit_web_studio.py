@@ -1147,6 +1147,34 @@ def main():
                     ]["ref"]
                     == take_clip["ref"],
                 )
+                media_count = len(vocal_model()["media"])
+                vocal.locator(".vocal-apply").click()
+                vocal.wait_for_function(
+                    "document.querySelector('.vocal-take strong').textContent.includes('TUNED')",
+                    timeout=20000,
+                )
+                check(
+                    "reapplying_same_settings_reuses_tuned_copy",
+                    len(vocal_model()["media"]) == media_count
+                    and next(row for row in vocal_model()["rows"] if row["name"] == "Vocals")[
+                        "clips"
+                    ][0]["ref"]
+                    == tuned_media["id"],
+                )
+                vocal.locator('.vocal-play[data-which="dry"]').click()
+                vocal.wait_for_function(
+                    "document.querySelector('.vocal-play[data-which=\"dry\"]').classList.contains('active')"
+                )
+                vocal.on("dialog", lambda dialog: dialog.accept())
+                vocal.locator("#new-project").evaluate("element => element.click()")
+                vocal.wait_for_function(
+                    "document.querySelector('#status').textContent.startsWith('New project')"
+                )
+                check(
+                    "new_project_resets_vocal_deck",
+                    vocal.locator(".vocal-take").count() == 0
+                    and vocal.locator(".vocal-play.active").count() == 0,
+                )
                 vocal_context.close()
 
                 mobile_context = browser.new_context(

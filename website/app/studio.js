@@ -29,7 +29,7 @@
     mobileView: 'stage', songHead: 190, stepCell: 24, stepLabel: 150,
     noteInstrument: null, prismQuery: '', prismCategory: '', prismSound: '',
     // Vocal: selected take, cached pitch analyses and render, audition, and live input/monitoring.
-    vocalTake: null, vocalAnalysis: new Map(), vocalRender: null, vocalPlaying: null, vocalFrame: 0, vocalMonitor: 'off', vocalInput: null, vocalNode: null, vocalRefresh: null
+    vocalTake: null, vocalAnalysis: new Map(), vocalRender: null, vocalPlaying: null, vocalFrame: 0, vocalMonitor: 'off', vocalInput: null, vocalInputPending: null, vocalNode: null, vocalRefresh: null
   };
   // A new project: empty arrangement, with the official Trap kit on bank A.
   function starterProject() {
@@ -193,7 +193,7 @@
     $('.audio-ready').textContent = 'AUDIO ACTIVE';
     const generation = state.generation;
     for (const id of mediaIds()) {
-      if (state.buffers.has(id)) continue;
+      if (state.buffers.has(id) || spareTake(id)) continue;
       const factory = factoryBuffer(id, state.engine.context);
       if (factory) { state.buffers.set(id, factory); if (!state.media.has(id)) state.media.set(id, factoryBlob(id)); continue; }
       const blob = state.media.get(id) || await dbMedia(id);
@@ -425,7 +425,7 @@
       for (const id of mediaIds(project)) if (!nextMedia.has(id)) throw new Error('Portable project is missing audio "' + id + '".');
     }
     if (generation !== state.generation || revision !== state.revision) throw new Error('Project load cancelled because the session changed.');
-    stopPlayback(); state.generation += 1;
+    stopPlayback(); resetVocal(); state.generation += 1;
     state.media = nextMedia; state.buffers = nextBuffers; state.selections.clear();
     state.selectedMedia = null; projectStore.load(project);
     state.selectedPad = clamp(project.selected_pad, 0, 63); state.bank = Math.floor(state.selectedPad / 16);
@@ -1421,26 +1421,39 @@
     return buffer;
   }
   async function analyzeTake(clip) {
-    const source = drySource(clip), key = analysisKey(source);
-    if (state.vocalAnalysis.has(key)) return state.vocalAnalysis.get(key);
+    const source = drySource(clip), key = analysisKey(source), cache = state.vocalAnalysis;
+    if (cache.has(key)) return cache.get(key);
     const pending = vocalBuffer(source).then(buffer => vocalTask('analyze', buffer, vocalSettings(), value => vocalProgress('Analysing', value)).then(result => ({ ...result, duration: buffer.duration })));
-    state.vocalAnalysis.set(key, pending);
-    try { const result = await pending; state.vocalAnalysis.set(key, result); return result; }
-    catch (error) { state.vocalAnalysis.delete(key); throw error; }
+    cache.set(key, pending);
+    try { const result = await pending; if (cache.get(key) === pending) cache.set(key, result); return result; }
+    catch (error) { if (cache.get(key) === pending) cache.delete(key); throw error; }
     finally { vocalProgress('', null); }
   }
   // Renders the selected take's dry source with the current settings (cached until a setting changes).
   async function renderTake(clip) {
-    const source = drySource(clip), settings = vocalSettings(), key = source + '|' + JSON.stringify(settings);
+    const source = drySource(clip), settings = { ...vocalSettings() }, key = source + '|' + JSON.stringify(settings), generation = state.generation, cache = state.vocalAnalysis;
     if (state.vocalRender?.key === key) return state.vocalRender;
     const dry = await vocalBuffer(source), engine = state.engine;
     const result = await vocalTask('render', dry, settings, value => vocalProgress('Tuning', value)).finally(() => vocalProgress('', null));
     const buffer = engine.context.createBuffer(result.channels.length, result.channels[0].length, dry.sampleRate);
     result.channels.forEach((channel, index) => buffer.copyToChannel ? buffer.copyToChannel(channel, index) : buffer.getChannelData(index).set(channel));
-    state.vocalAnalysis.set(analysisKey(source, settings), { analysis: result.analysis, key: result.key, duration: dry.duration });
-    state.vocalRender = { key, source, buffer };
+    if (generation !== state.generation) throw new Error('The project changed while the take was being tuned.');
+    cache.set(analysisKey(source, settings), { analysis: result.analysis, key: result.key, duration: dry.duration });
+    state.vocalRender = { key, source, buffer, settings };
     return state.vocalRender;
   }
+  // A project swap ends auditions and live input and drops cached analyses and renders.
+  function resetVocal() {
+    stopVocalAudition(); stopVocalInput();
+    state.vocalAnalysis = new Map(); state.vocalRender = null; state.vocalTake = null; clearTimeout(state.vocalRefresh);
+  }
+  // Tuned copies no clip or pad uses (after Revert or Undo) stay in the library and
+  // IndexedDB but are not kept decoded, so they never count against the audio budget.
+  function spareTake(id, project = projectStore.project) {
+    if (!project.media.find(item => item.id === id)?.vocal_source) return false;
+    return !project.pads.some(pad => pad.sample_id === id) && !project.rows.some(row => row.clips.some(clip => clip.ref === id));
+  }
+  function releaseSpareTakes() { for (const id of [...state.buffers.keys()]) if (spareTake(id)) state.buffers.delete(id); }
   function stopVocalAudition() {
     const playing = state.vocalPlaying; state.vocalPlaying = null;
     if (playing) { try { playing.source.stop(); } catch { /* already ended */ } playing.source.disconnect(); }
@@ -1522,11 +1535,17 @@
   }
   // Standalone input for the tuner and tuned monitoring while not recording.
   async function startVocalInput() {
-    if (state.vocalInput || state.recording) return;
+    if (state.vocalInput || state.vocalInputPending || state.recording) return;
+    const token = {}; state.vocalInputPending = token;
+    try { await openVocalInput(token); } finally { if (state.vocalInputPending === token) state.vocalInputPending = null; syncVocalInput(); }
+  }
+  async function openVocalInput(token) {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone input needs a supported browser and HTTPS or localhost.');
     const engine = await ensureAudio(); if (!engine) return;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
     const context = engine.context, node = await autotuneNode(context, state.vocalMonitor);
+    // Turned off, switched away or recording started while permission or the worklet was pending.
+    if (state.vocalInputPending !== token || state.workspace !== 'vocal' || state.recording) { stream.getTracks().forEach(track => track.stop()); try { node?.disconnect(); } catch { /* unused */ } return; }
     if (!node) { stream.getTracks().forEach(track => track.stop()); throw new Error('Live tuning needs AudioWorklet support in this browser.'); }
     const source = context.createMediaStreamSource(stream), gain = context.createGain();
     source.connect(node); node.connect(gain); gain.connect(context.destination);
@@ -1534,6 +1553,7 @@
     state.vocalNode = node; syncVocalInput();
   }
   function stopVocalInput() {
+    state.vocalInputPending = null;
     const input = state.vocalInput; state.vocalInput = null;
     if (!input) return;
     try { input.node.port.postMessage({ type: 'stop' }); } catch { /* closed */ }
@@ -1543,7 +1563,7 @@
     vocalTuner(null); syncVocalInput();
   }
   function syncVocalInput() {
-    const live = Boolean(state.vocalInput || (state.recording && state.vocalNode));
+    const live = Boolean(state.vocalInput || state.vocalInputPending || (state.recording && state.vocalNode));
     const toggle = $('#vocal-input'); if (toggle) { toggle.textContent = live ? 'INPUT ON' : 'INPUT OFF'; toggle.classList.toggle('active', live); toggle.setAttribute('aria-pressed', String(live)); }
     $$('[data-monitor]').forEach(control => { const active = control.dataset.monitor === state.vocalMonitor; control.classList.toggle('active', active); control.setAttribute('aria-pressed', String(active)); });
   }
@@ -1603,7 +1623,7 @@
     const takeFor = () => { const current = selectedTake(); if (!current) throw new Error('Record or choose a take first.'); return current; };
     on('.vocal-record', 'click', () => { if (state.recordSource === 'performance' && !state.recording) setRecordSource('mic'); return toggleRecording(); });
     $$('[data-monitor]').forEach(control => control.addEventListener('click', act(() => setVocalMonitor(control.dataset.monitor))));
-    on('#vocal-input', 'click', () => state.vocalInput ? stopVocalInput() : startVocalInput());
+    on('#vocal-input', 'click', () => state.vocalInput || state.vocalInputPending ? stopVocalInput() : startVocalInput());
     $$('.vocal-take').forEach(control => control.addEventListener('click', act(async () => { stopVocalAudition(); state.vocalTake = control.dataset.take; renderVocal(); await analyzeTake(takeFor()); drawVocalPitch(); syncVocalSummary(); })));
     $$('.vocal-play').forEach(control => control.addEventListener('click', act(async () => {
       const current = takeFor();
@@ -1622,13 +1642,21 @@
       if (state.recording) throw new Error('Finish recording before applying Autotune.');
       if (state.playing) stopPlayback();
       const render = await renderTake(current); if (generation !== state.generation) return;
-      checkAudioBudget(render.buffer);
+      const used = render.settings, existing = projectStore.project.media.find(item => item.vocal_source === render.source && JSON.stringify(item.vocal_render) === JSON.stringify(used) && state.media.has(item.id));
+      const swap = (project, mediaId) => { for (const row of project.rows) for (const item of row.clips) if (item.id === current.id) item.ref = mediaId; };
+      if (existing) {
+        state.buffers.set(existing.id, render.buffer);
+        projectStore.transact('apply vocal autotune', project => swap(project, existing.id)); releaseSpareTakes();
+        stopVocalAudition(); renderVocal(); requestSongWaveforms();
+        setStatus('Autotune applied: the take plays its tuned copy again. Undo or Revert to dry brings back the original.'); return;
+      }
+      releaseSpareTakes(); checkAudioBudget(render.buffer, state.buffers, vocalMedia(current.ref)?.vocal_source ? current.ref : null);
       const blob = window.AnharmonicAudio.encodeWav(render.buffer), original = vocalMedia(render.source), mediaId = uid('sample');
-      const name = (original?.name || 'Vocal take').replace(/\.wav$/i, '').replace(/ \(tuned[^)]*\)$/, '') + ' (tuned ' + s.key + ' ' + s.scale + ').wav';
+      const name = (original?.name || 'Vocal take').replace(/\.wav$/i, '').replace(/ \(tuned[^)]*\)$/, '') + ' (tuned ' + used.key + ' ' + used.scale + ').wav';
       state.media.set(mediaId, blob); state.buffers.set(mediaId, render.buffer);
       projectStore.transact('apply vocal autotune', project => {
-        project.media.push({ id: mediaId, name, mime: 'audio/wav', duration: render.buffer.duration, sample_rate: render.buffer.sampleRate, size: blob.size, vocal_source: render.source, vocal_render: { ...project.vocal } });
-        for (const row of project.rows) for (const item of row.clips) if (item.id === current.id) item.ref = mediaId;
+        project.media.push({ id: mediaId, name, mime: 'audio/wav', duration: render.buffer.duration, sample_rate: render.buffer.sampleRate, size: blob.size, vocal_source: render.source, vocal_render: { ...used } });
+        swap(project, mediaId);
       });
       let warning = ''; try { await dbMedia(mediaId, blob); } catch { warning = ' Browser storage failed; download Project + audio to keep it.'; }
       stopVocalAudition(); renderVocal(); requestSongWaveforms();
@@ -1637,7 +1665,7 @@
     on('.vocal-revert', 'click', () => {
       const current = takeFor(), source = drySource(current); if (source === current.ref) return;
       projectStore.transact('revert vocal take', project => { for (const row of project.rows) for (const item of row.clips) if (item.id === current.id) item.ref = source; });
-      stopVocalAudition(); renderVocal(); setStatus('Take reverted to the dry recording.');
+      releaseSpareTakes(); stopVocalAudition(); renderVocal(); setStatus('Take reverted to the dry recording.');
     });
     on('.vocal-take-menu', 'click', event => {
       const current = takeFor(), rowIndex = projectStore.vocalRowIndex();
@@ -1959,7 +1987,7 @@
   on('.project-name', 'change', event => projectStore.transact('project name', project => project.name = event.target.value.trim() || 'Untitled project'));
   on('#save-project', 'click', saveProject); on('#export-project', 'click', exportProject); on('#export-wav', 'click', exportWav);
   on('#export-desktop', 'click', () => { const project = projectDocument(); download(safeFilename(project.name) + '-desktop.json', JSON.stringify(project, null, 2), 'application/json'); setStatus('Desktop project metadata downloaded. Relink audio files and recreate browser master effects in the native app.'); });
-  on('#new-project', 'click', () => { if (!canReplace()) return; stopPlayback(); state.generation++; state.selectedMedia = null; state.media = new Map(); state.buffers = new Map(); state.selections.clear(); state.selectedPad = state.bank = 0; state.notePad = state.noteInstrument = null; projectStore.load(starterProject()); state.dirty = false; syncControls(); renderAll(); if (state.engine) ensureAudio().catch(report); setStatus('New project with the Anharmonic Trap kit on bank A. Load more official kits from the library. Your previous saved session is retained until you Save.'); });
+  on('#new-project', 'click', () => { if (!canReplace()) return; stopPlayback(); resetVocal(); state.generation++; state.selectedMedia = null; state.media = new Map(); state.buffers = new Map(); state.selections.clear(); state.selectedPad = state.bank = 0; state.notePad = state.noteInstrument = null; projectStore.load(starterProject()); state.dirty = false; syncControls(); renderAll(); if (state.engine) ensureAudio().catch(report); setStatus('New project with the Anharmonic Trap kit on bank A. Load more official kits from the library. Your previous saved session is retained until you Save.'); });
   on('#undo-project', 'click', () => { if (projectStore.undo()) { syncControls(); renderAll(); } });
   on('#redo-project', 'click', () => { if (projectStore.redo()) { syncControls(); renderAll(); } });
   on('#load-project', 'click', () => $('#project-file').click());

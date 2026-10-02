@@ -441,7 +441,12 @@
     }
     ensureVocalRow() {
       const existing = this.vocalRowIndex();
-      if (existing >= 0) return this.document.rows[existing].id;
+      if (existing >= 0) {
+        // Keep the row's own routing, and keep the desktop vocal_record indices in step with it.
+        const row = this.document.rows[existing], record = this.document.vocal_record || {};
+        if (record.playlist_row !== existing || record.mixer_track !== row.record_track) this.transact('link vocal row', document => { document.vocal_record = { ...(document.vocal_record || {}), playlist_row: existing, mixer_track: row.record_track }; });
+        return row.id;
+      }
       const id = uid('row');
       this.transact('add vocal row', document => {
         let track = document.tracks.findIndex(item => /^vocals?$/i.test(String(item.name).trim()));
