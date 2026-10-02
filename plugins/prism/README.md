@@ -44,6 +44,13 @@ Turning arp on/off releases existing voices. MIDI sustain and ±2 semitone bend
 are supported. This release uses original oscillator synthesis and presets;
 commercial sample libraries are not included.
 
+## Web studio
+
+The installable web studio runs Prism without the VST3: its engine, arp, motion,
+macros and effects are ported to an AudioWorklet (`website/app/instrument-dsp.js`),
+and tests require the voice engine to match `Engine.h` sample for sample. Insert
+Prism in the web Instruments workspace; projects keep the desktop parameter format.
+
 ## Studio and piano roll
 
 In **Instruments**, choose **Prism** and **Insert instrument** for the current

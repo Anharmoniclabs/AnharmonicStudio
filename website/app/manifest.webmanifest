@@ -1,0 +1,28 @@
+{
+  "id": "./studio.html",
+  "name": "Anharmonic Studio",
+  "short_name": "Anharmonic",
+  "description": "Record, sample, sequence, play instruments, arrange and mix on your phone, tablet or desktop. Works offline once installed; projects and audio stay on your device.",
+  "start_url": "./studio.html?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#101722",
+  "theme_color": "#101722",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["music", "productivity", "entertainment"],
+  "icons": [
+    { "src": "../assets/pwa/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "../assets/pwa/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "../assets/pwa/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "../assets/mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Record", "short_name": "Record", "description": "Open the studio ready to record", "url": "./studio.html?source=pwa&view=song&record=1", "icons": [{ "src": "../assets/pwa/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Pads", "short_name": "Pads", "description": "Open the performance pads", "url": "./studio.html?source=pwa&view=pads", "icons": [{ "src": "../assets/pwa/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Keys", "short_name": "Keys", "description": "Open the touch keyboard", "url": "./studio.html?source=pwa&view=instruments", "icons": [{ "src": "../assets/pwa/icon-192.png", "sizes": "192x192" }] }
+  ],
+  "prefer_related_applications": false
+}

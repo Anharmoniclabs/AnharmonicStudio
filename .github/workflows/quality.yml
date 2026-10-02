@@ -28,6 +28,7 @@ jobs:
       - name: Validate website and browser project regressions
         run: |
           python scripts/check_website.py
+          python scripts/build_web_instruments.py --check
           node --test tests/web/*.test.cjs
       - name: Install isolated browser test tools
         run: |
@@ -39,6 +40,8 @@ jobs:
         run: python tests/web/audio-engine.browser.py --output /tmp/anharmonic-web-checks/audio-report.json
       - name: Check held-note release during focus changes and audio startup
         run: python tests/web/keyboard-lifecycle.browser.py
+      - name: Check the Native/Prism AudioWorklet against the verified desktop DSP
+        run: python tests/web/instrument-worklet.browser.py
       - name: Check waveform zoom and double-Space transport
         run: python scripts/audit_web_zoom.py --output /tmp/anharmonic-web-checks/zoom
       - name: Preserve browser evidence

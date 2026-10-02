@@ -38,3 +38,9 @@ test('mobile side panels are bounded and independently scrollable', () => {
 test('primary mobile controls keep usable touch height', () => {
   assert.match(css, /\.project-actions button,[\s\S]*\.pad-bank button\s*\{[\s\S]*min-height:\s*40px/);
 });
+
+test('phone tab bar is hidden on desktop and shown at phone width', () => {
+  const base = fs.readFileSync(path.join(root, 'studio.css'), 'utf8');
+  assert.match(base, /\.mobile-tabs\{display:none\}/);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.mobile-tabs \{ display: flex;/);
+});

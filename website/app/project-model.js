@@ -8,6 +8,11 @@
   const MAX_TRACKS = 128;
   const MAX_DOCUMENT_BYTES = 32 * 1024 * 1024;
   const MAX_HISTORY_BYTES = 32 * 1024 * 1024;
+  const MAX_INSTRUMENTS = 127;
+  // Prism is hosted as a VST3 on the desktop; the browser runs its port instead.
+  const PRISM_PLUGIN_NAME = 'Anharmonic Prism';
+  const PRISM_PLUGIN_PATH = 'Anharmonic Prism.vst3';
+  const isPrismPlugin = plugin => Boolean(plugin) && (plugin.plugin_name === PRISM_PLUGIN_NAME || /(^|[\\/])Anharmonic Prism\.vst3$/i.test(String(plugin.path || '')));
   const uid = prefix => `${prefix || 'id'}-${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
   const clone = value => JSON.parse(JSON.stringify(value));
 
@@ -31,7 +36,21 @@
   }
 
   function defaultSynth() {
-    return { name: 'Midnight Brass', osc1: 'saw', osc2: 'square', osc_mix: .42, osc2_octave: 0, detune: 8, sub: .18, noise: .015, attack: .025, decay: .32, sustain: .68, release: .65, cutoff: 2400, resonance: .28, drive: .18, spread: .42, lfo_rate: .32, lfo_pitch: 2, volume: .42, track: 2 };
+    return { name: 'Midnight Brass', osc1: 'saw', osc2: 'square', osc_mix: .42, osc2_octave: 0, detune: 8, pulse_width: .5, sub: .18, noise: .015, attack: .025, decay: .32, sustain: .68, release: .65, cutoff: 2400, resonance: .28, filter_env: .38, drive: .18, spread: .42, lfo_rate: .32, lfo_pitch: 2, lfo_filter: .08, volume: .42, track: 2 };
+  }
+
+  const SYNTH_RANGES = trackCount => ({
+    osc_mix: [.42, 0, 1], osc2_octave: [0, -4, 4, true], detune: [8, 0, 1200], sub: [.18, 0, 1], noise: [.015, 0, 1],
+    attack: [.025, 0, 60], decay: [.32, 0, 60], sustain: [.68, 0, 1], release: [.65, 0, 60], cutoff: [2400, 20, 24000], resonance: [.28, 0, 1],
+    drive: [.18, 0, 1], spread: [.42, 0, 1], lfo_rate: [.32, 0, 100], lfo_pitch: [2, 0, 1200], volume: [.42, 0, 2], track: [2, 0, trackCount - 1, true],
+    filter_env: [.38, 0, 1], lfo_filter: [.08, 0, 1], pulse_width: [.5, .01, .99]
+  });
+  const WAVES = ['saw', 'sawtooth', 'square', 'sine', 'triangle', 'pulse', 'noise'];
+  function normalizeSynth(source, base, trackCount, name) {
+    const result = numericFields({ ...base, ...object(source ?? {}, name) }, SYNTH_RANGES(trackCount));
+    for (const key of ['osc1', 'osc2']) result[key] = choice(result[key], 'saw', WAVES);
+    result.name = string(result.name, base.name, 200);
+    return result;
   }
 
   // `vocal` is the desktop project's canonical key.  `vocal_settings` was
@@ -62,7 +81,7 @@
       format_version: FORMAT_VERSION, name, bpm: 110, swing: 0, master: 0.82,
       pads: defaultPads(), patterns: [pattern], selected_pattern: 0, current_pattern: pattern.id,
       tracks: defaultTracks(), synth: defaultSynth(), arp: defaultArp(), rows: defaultRows(), automation: [], vocal: defaultVocal(), vocal_record: {}, loop_start: 0, loop_end: 8,
-      media: []
+      media: [], instruments: []
     };
   }
 
@@ -123,6 +142,11 @@
     const result = string(value, fallback, 128);
     if (!result.trim() || result.trim() !== result) throw new Error('Project IDs must not have surrounding whitespace');
     return result;
+  }
+  function identities(value, name, limit) {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value) || value.length > limit) throw new Error(`Invalid ${name}`);
+    return [...new Set(value.map(item => identity(item, null)).filter(Boolean))];
   }
   function choice(value, fallback, choices) {
     const result = value === undefined ? fallback : value;
@@ -218,9 +242,15 @@
     normalized.patterns = unique(patterns.map((pattern, index) => ({
       ...pattern, id: identity(pattern.id, uid('pattern')), name: string(pattern.name, `pattern ${index + 1}`),
       bars: number(pattern.bars, 1, 1, 256, true), div: number(pattern.div, 4, 1, 32, true), steps: normalizeSteps(pattern.steps),
+      // A pattern may carry its own browser oscillator instrument; patterns
+      // without one play the shared project synth exactly as before.
+      ...(pattern.instrument === undefined || pattern.instrument === null ? { instrument: undefined } : { instrument: normalizeSynth(pattern.instrument, base.synth, trackCount, 'pattern instrument') }),
       notes: unique(records(pattern.notes, 'notes', 100000).map(note => ({ ...note, id: identity(note.id, uid('note')),
         pitch: number(note.pitch, 60, 0, 127, true), start: number(note.start, 0, 0, 1000000), duration: number(note.duration, .25, Number.MIN_VALUE, 4096), velocity: number(note.velocity, .8, Number.MIN_VALUE, 1),
-        pad: note.pad === undefined || note.pad === null ? null : number(note.pad, 0, 0, PAD_COUNT - 1, true) })), 'note')
+        pad: note.pad === undefined || note.pad === null ? null : number(note.pad, 0, 0, PAD_COUNT - 1, true),
+        instrument: note.instrument === undefined || note.instrument === null ? null : identity(note.instrument, null) })), 'note'),
+      instrument_ids: identities(pattern.instrument_ids, 'pattern instruments', MAX_INSTRUMENTS + 1),
+      selected_instrument: pattern.selected_instrument === undefined || pattern.selected_instrument === null ? null : identity(pattern.selected_instrument, null)
     })), 'pattern');
     normalized.tracks = suppliedTracks.map((track, index) => {
       if (source.format_version === FORMAT_VERSION && !track.id) throw new Error('Mixer track ID required in project format 6');
@@ -239,12 +269,35 @@
     unique(normalized.tracks, 'mixer track');
     normalized.media = unique(records(source.media, 'media', 10000).map(media => ({ ...media, id: identity(media.id, uid('sample')), name: string(media.name, 'Untitled sample'), mime: string(media.mime, 'audio/wav', 128),
       duration: number(media.duration, 0, 0, 1000000), sample_rate: number(media.sample_rate, 0, 0, 384000, true), size: number(media.size, 0, 0, Number.MAX_SAFE_INTEGER, true) })), 'media');
-    normalized.synth = numericFields({ ...base.synth, ...object(source.synth ?? {}, 'synth') }, {
-      osc_mix: [.42, 0, 1], osc2_octave: [0, -4, 4, true], detune: [8, 0, 1200], sub: [.18, 0, 1], noise: [.015, 0, 1],
-      attack: [.025, 0, 60], decay: [.32, 0, 60], sustain: [.68, 0, 1], release: [.65, 0, 60], cutoff: [2400, 20, 24000], resonance: [.28, 0, 1],
-      drive: [.18, 0, 1], spread: [.42, 0, 1], lfo_rate: [.32, 0, 100], lfo_pitch: [2, 0, 1200], volume: [.42, 0, 2], track: [2, 0, trackCount - 1, true]
-    });
-    for (const key of ['osc1', 'osc2']) normalized.synth[key] = choice(normalized.synth[key], 'saw', ['saw', 'sawtooth', 'square', 'sine', 'triangle', 'pulse', 'noise']);
+    normalized.patterns.forEach(pattern => { if (pattern.instrument === undefined) delete pattern.instrument; });
+    normalized.synth = normalizeSynth(source.synth, base.synth, trackCount, 'synth');
+    // Desktop-compatible additional instruments (Native instances, and Prism when
+    // `instrument_plugins` hosts Prism for that ID). Notes refer to them by ID.
+    normalized.instruments = unique(records(source.instruments, 'instruments', MAX_INSTRUMENTS).map(instrument => {
+      const id = identity(instrument.id, null);
+      if (!id || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error('Instrument IDs must contain 1–128 letters, digits, _ or -');
+      const midi = instrument.midi_channel === undefined || instrument.midi_channel === null ? null : number(instrument.midi_channel, 0, 0, 15, true);
+      return { ...instrument, id, name: string(instrument.name, 'Instrument', 200) || 'Instrument', patch: normalizeSynth(instrument.patch, base.synth, trackCount, 'instrument patch'), midi_channel: midi };
+    }), 'instrument');
+    const instrumentIds = new Set(normalized.instruments.map(item => item.id));
+    if (source.instrument_plugins !== undefined) {
+      object(source.instrument_plugins, 'instrument plugins');
+      normalized.instrument_plugins = {};
+      for (const [id, spec] of Object.entries(source.instrument_plugins)) {
+        if (!instrumentIds.has(id)) throw new Error('Hosted instrument plugin refers to an unknown instrument');
+        object(spec, 'instrument plugin'); const parameters = object(spec.parameters ?? {}, 'plugin parameters');
+        for (const value of Object.values(parameters)) number(value, 0, 0, 1);
+        normalized.instrument_plugins[id] = { ...spec, path: string(spec.path, ''), plugin_name: string(spec.plugin_name, '', 512), parameters: { ...parameters }, state: string(spec.state, '', 2800000), bypass: boolean(spec.bypass) };
+      }
+    }
+    for (const pattern of normalized.patterns) {
+      for (const note of pattern.notes) {
+        if (note.instrument !== null && note.pad !== null) throw new Error('A note can target a pad or an instrument, not both');
+        if (note.instrument !== null && !instrumentIds.has(note.instrument)) throw new Error('A note refers to a missing instrument');
+      }
+      pattern.instrument_ids = pattern.instrument_ids.filter(id => instrumentIds.has(id));
+      if (pattern.selected_instrument !== null && !instrumentIds.has(pattern.selected_instrument)) pattern.selected_instrument = null;
+    }
     normalized.arp = numericFields({ ...base.arp, ...object(source.arp ?? {}, 'arp') }, { rate_beats: [.25, 1 / 128, 16], octaves: [1, 1, 8, true], gate: [.72, .01, 1] });
     normalized.arp.enabled = boolean(normalized.arp.enabled);
     normalized.arp.mode = choice(normalized.arp.mode, 'up', ['up', 'down', 'up/down', 'random']);
@@ -291,7 +344,9 @@
     get pattern() { return this.document.patterns[this.document.selected_pattern]; }
     subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
     notify() { this.listeners.forEach(listener => listener(this.document)); }
-    transact(label, change) {
+    // `mergeKey` coalesces consecutive edits into one undo step, so a recorded
+    // performance or a fader sweep undoes as a single action.
+    transact(label, change, mergeKey = null) {
       const before = clone(this.document);
       const next = clone(this.document);
       change(next);
@@ -302,8 +357,13 @@
       const afterJSON = JSON.stringify(after);
       if (beforeJSON === afterJSON) return;
       this.document = after;
+      const last = this.history.at(-1);
+      if (mergeKey && last && last.mergeKey === mergeKey) {
+        last.after = clone(after); last.bytes = 2 * (JSON.stringify(last.before).length + afterJSON.length);
+        this.future = []; this.notify(); return;
+      }
       const bytes = 2 * (beforeJSON.length + afterJSON.length);
-      this.history.push({ label, before, after: clone(after), bytes });
+      this.history.push({ label, before, after: clone(after), bytes, mergeKey });
       let historyBytes = this.history.reduce((total, entry) => total + entry.bytes, 0);
       while (this.history.length > 80 || historyBytes > MAX_HISTORY_BYTES) historyBytes -= this.history.shift().bytes;
       this.future = [];
@@ -350,17 +410,17 @@
         if (!Object.keys(row).length) delete document.patterns[document.selected_pattern].steps[pad];
       });
     }
-    setStep(pad, step, velocity) {
+    setStep(pad, step, velocity, mergeKey = null) {
       number(pad, 0, 0, PAD_COUNT - 1, true);
       number(step, 0, 0, 32767, true);
       if (velocity !== null && velocity !== undefined) number(velocity, 1, 0, 1);
-      this.transact('edit step', document => {
+      this.transact(mergeKey ? 'record steps' : 'edit step', document => {
         const pattern = document.patterns[document.selected_pattern];
         const row = pattern.steps[pad] || (pattern.steps[pad] = {});
         if (velocity === null || velocity === undefined || velocity <= 0) delete row[step];
         else row[step] = Math.max(.01, Math.min(1, Number(velocity) || 1));
         if (!Object.keys(row).length) delete pattern.steps[pad];
-      });
+      }, mergeKey);
     }
     setPad(pad, changes) { number(pad, 0, 0, PAD_COUNT - 1, true); this.transact('edit pad', document => { document.pads[pad] = { ...document.pads[pad], ...changes }; }); }
     setTrack(track, changes) { number(track, 0, 0, this.document.tracks.length - 1, true); this.transact('edit mixer track', document => { document.tracks[track] = { ...document.tracks[track], ...changes }; }); }
@@ -373,6 +433,61 @@
     }
     setRow(row, changes) { number(row, 0, 0, this.document.rows.length - 1, true); this.transact('edit arrangement row', document => { document.rows[row] = { ...document.rows[row], ...changes }; }); }
     setSynth(changes) { this.transact('edit synth patch', document => { document.synth = { ...document.synth, ...changes }; }); }
+    // The selected pattern's live instrument: an ID from project.instruments, or null for the shared synth.
+    get selectedInstrument() { return this.pattern.selected_instrument ?? null; }
+    instrumentInfo(id) {
+      if (id === null || id === undefined) return { id: null, kind: 'native', name: 'Studio synth', patch: this.document.synth };
+      const instrument = this.document.instruments.find(item => item.id === id);
+      if (!instrument) return null;
+      const plugin = this.document.instrument_plugins?.[id];
+      return { id, kind: plugin ? (isPrismPlugin(plugin) ? 'prism' : 'plugin') : 'native', name: instrument.name, patch: instrument.patch, plugin };
+    }
+    // Mirrors the desktop "Insert instrument": a new independent Native or Prism instance on the selected pattern.
+    insertInstrument(kind, parameters = null) {
+      if (!['native', 'prism'].includes(kind)) throw new Error('Choose Native or Prism');
+      if (this.document.instruments.length >= MAX_INSTRUMENTS) throw new Error('A project supports at most ' + MAX_INSTRUMENTS + ' additional instruments');
+      const id = uid('inst').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 128);
+      this.transact('insert ' + kind + ' instrument', document => {
+        const pattern = document.patterns[document.selected_pattern];
+        const name = pattern.name.slice(0, 140) + ' · ' + (kind === 'prism' ? 'Prism' : 'Native') + ' ' + (pattern.instrument_ids.length + 1);
+        document.instruments.push({ id, name, patch: { ...defaultSynth(), track: document.synth.track }, midi_channel: null });
+        if (pattern.selected_instrument && !pattern.instrument_ids.includes(pattern.selected_instrument)) pattern.instrument_ids.push(pattern.selected_instrument);
+        pattern.instrument_ids.push(id); pattern.selected_instrument = id;
+        if (kind === 'prism') {
+          document.instrument_plugins = document.instrument_plugins || {};
+          document.instrument_plugins[id] = { path: PRISM_PLUGIN_PATH, plugin_name: PRISM_PLUGIN_NAME, parameters: parameters || {}, state: '', bypass: false };
+        }
+      });
+      return id;
+    }
+    selectInstrument(id) {
+      if (id !== null && !this.document.instruments.some(item => item.id === id)) throw new Error('Unknown instrument');
+      this.transact('select instrument', document => {
+        const pattern = document.patterns[document.selected_pattern];
+        if (id !== null && !pattern.instrument_ids.includes(id)) pattern.instrument_ids.push(id);
+        pattern.selected_instrument = id;
+      });
+    }
+    // Native patch edits: the shared synth when `id` is null, else that instance.
+    setInstrumentPatch(id, changes, mergeKey = null) {
+      this.transact('edit instrument', document => {
+        if (id === null) { document.synth = { ...document.synth, ...changes }; return; }
+        const instrument = document.instruments.find(item => item.id === id);
+        if (!instrument) throw new Error('Unknown instrument');
+        instrument.patch = { ...instrument.patch, ...changes };
+      }, mergeKey);
+    }
+    renameInstrument(id, name) {
+      this.transact('rename instrument', document => { const instrument = document.instruments.find(item => item.id === id); if (instrument) instrument.name = string(name, instrument.name, 200).trim() || instrument.name; });
+    }
+    // Prism state is stored exactly like the desktop host: normalized values keyed by parameter index.
+    setPrismParameters(id, parameters, mergeKey = null) {
+      this.transact('edit Prism', document => {
+        const plugin = document.instrument_plugins?.[id];
+        if (!plugin || !isPrismPlugin(plugin)) throw new Error('This instrument is not Prism');
+        plugin.parameters = { ...plugin.parameters, ...parameters };
+      }, mergeKey);
+    }
     setArp(changes) { this.transact('edit arpeggiator', document => { document.arp = { ...document.arp, ...changes }; }); }
     addMedia(metadata) {
       const media = { id: metadata.id || uid('sample'), name: metadata.name || 'Untitled sample', mime: metadata.mime || 'audio/wav', duration: Number(metadata.duration) || 0, sample_rate: Number(metadata.sample_rate) || 0, size: Number(metadata.size) || 0 };
@@ -393,5 +508,5 @@
     load(document) { this.document = normalize(document); this.history = []; this.future = []; this.notify(); }
   }
 
-  window.AnharmonicProject = Object.freeze({ FORMAT_VERSION, PAD_COUNT, TRACK_COUNT, MAX_TRACKS, defaultProject, normalize, ProjectStore });
+  window.AnharmonicProject = Object.freeze({ FORMAT_VERSION, PAD_COUNT, TRACK_COUNT, MAX_TRACKS, MAX_INSTRUMENTS, PRISM_PLUGIN_NAME, defaultProject, defaultSynth, normalize, isPrismPlugin, ProjectStore });
 })();

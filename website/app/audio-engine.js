@@ -13,6 +13,41 @@
   const audible = (items, item) => !item?.mute && (!items.some(candidate => candidate.solo) || Boolean(item?.solo));
   const db = value => 10 ** (clamp(value, -60, 24, 0) / 20);
 
+  // Native and Prism run in an AudioWorklet (instrument-worklet.js) using the
+  // exact desktop voice algorithm. The module URL is resolved next to this script.
+  let workletURL = null;
+  try {
+    const base = (typeof document !== 'undefined' && document.currentScript && document.currentScript.src) || (typeof location !== 'undefined' ? location.href : '');
+    workletURL = new URL('instrument-worklet.js', base).href;
+  } catch { workletURL = null; }
+  const workletLoads = new WeakMap();
+  function loadInstrumentWorklet(context) {
+    if (!context?.audioWorklet || typeof AudioWorkletNode !== 'function' || !workletURL) return Promise.resolve(false);
+    let pending = workletLoads.get(context);
+    if (!pending) { pending = context.audioWorklet.addModule(workletURL).then(() => true, () => false); workletLoads.set(context, pending); }
+    return pending;
+  }
+  const isPrismPlugin = plugin => Boolean(plugin) && (plugin.plugin_name === 'Anharmonic Prism' || /(^|[\\/])Anharmonic Prism\.vst3$/i.test(String(plugin.path || '')));
+  // Resolve which instrument a synth note plays: the shared synth, a Native instance or Prism.
+  function instrumentSpec(project, instrumentId, legacyPatch = null, patternId = '') {
+    if (instrumentId === null || instrumentId === undefined) {
+      if (legacyPatch) return { key: 'pattern:' + patternId, kind: 'native', patch: legacyPatch, track: finite(legacyPatch.track, 2) };
+      return { key: 'synth', kind: 'native', patch: project.synth || {}, track: finite(project.synth?.track, 2) };
+    }
+    const instrument = (project.instruments || []).find(item => item.id === instrumentId);
+    if (!instrument) throw new Error(`A note refers to a missing instrument: ${instrumentId}`);
+    const plugin = project.instrument_plugins?.[instrumentId], track = finite(instrument.patch?.track, 2);
+    if (plugin) {
+      if (!isPrismPlugin(plugin)) throw new Error(`${instrument.name} uses a desktop plugin the browser cannot host. Render it to audio in the desktop app.`);
+      const dsp = (typeof window !== 'undefined' ? window : globalThis).AnharmonicDSP;
+      if (!dsp) throw new Error('The Prism engine did not load. Reload the studio.');
+      return { key: 'prism:' + instrumentId, kind: 'prism', values: Array.from(dsp.prismValuesFromParameters(plugin.parameters || {})), track, bypass: Boolean(plugin.bypass) };
+    }
+    return { key: 'native:' + instrumentId, kind: 'native', patch: instrument.patch || {}, track };
+  }
+  const specSignature = spec => spec.kind === 'prism' ? spec.values.join(',') : JSON.stringify(spec.patch);
+  const specRelease = spec => spec.kind === 'prism' ? Math.max(spec.values[11], spec.values[43]) + (spec.values[29] > 0 || spec.values[26] > 0 ? 2 : .05) : clamp(spec.patch.release, .005, 60, .65);
+
   function lengthBeats(project, mode = 'pattern') {
     if (mode !== 'song') return patternLength(selectedPattern(project));
     return (project.rows || []).reduce((end, row) => Math.max(end, ...(row.clips || []).map(clip => finite(clip.start_beat) + finite(clip.length_beats))), 0);
@@ -53,7 +88,7 @@
         for (const note of pattern.notes || []) {
           const start = finite(note.start); const beat = base + start;
           if (start < 0 || start >= length || finite(note.duration, .25) <= 0 || finite(note.velocity, .8) <= 0 || beat + EPSILON < from || beat >= Math.min(to, end) - EPSILON) continue;
-          append({ kind: 'note', pitch: clamp(note.pitch, 0, 127, 60), pad: note.pad ?? null, beat, velocity: clamp(note.velocity, 0, 1, .8), durationBeats: Math.min(finite(note.duration, .25), length - start, end - beat), gain, row, sequence, clipId: row ? sequence : null });
+          append({ kind: 'note', pitch: clamp(note.pitch, 0, 127, 60), pad: note.pad ?? null, beat, velocity: clamp(note.velocity, 0, 1, .8), durationBeats: Math.min(finite(note.duration, .25), length - start, end - beat), gain, row, sequence, clipId: row ? sequence : null, synth: pattern.instrument || null, instrument: note.instrument ?? null, patternId: pattern.id });
         }
       }
     };
@@ -103,6 +138,7 @@
     const unsupported = [];
     if ((project.automation || []).some(lane => lane.enabled !== false && lane.points?.length)) unsupported.push('automation');
     if (Object.values(project.plugins || {}).some(plugin => plugin && !plugin.bypass)) unsupported.push('native plugins');
+    if (Object.values(project.instrument_plugins || {}).some(plugin => plugin && !plugin.bypass && !isPrismPlugin(plugin))) unsupported.push('third-party instrument plugins');
     if (Object.values(project.pro_daw?.plugin_chains || {}).some(chain => Array.isArray(chain) && chain.some(plugin => !plugin.bypass))) unsupported.push('native insert chains');
     const workflow = project.workflow || {}; const routing = workflow.routing || {};
     const groups = workflow.groups || [];
@@ -246,6 +282,7 @@
         bus.sendDelay.gain.value = clamp(fx.send_delay, 0, 1); bus.sendReverb.gain.value = clamp(fx.send_reverb, 0, 1);
       });
     };
+    graph.instruments = new Map(); graph.offlineInstruments = new Map();
     graph.disconnect = () => nodes.forEach(node => { try { node.disconnect(); } catch { /* already disconnected */ } });
     graph.sync(project);
     return graph;
@@ -260,7 +297,28 @@
       this.voices = new Set(); this.retiringVoices = new Set(); this.reverseBuffers = new WeakMap(); this.loopBuffers = new WeakMap(); this.noiseBuffers = new WeakMap(); this.metronome = false; this.rendering = false;
       this.preparedBudget = null;
       this.anchorTime = 0; this.anchorBeat = 0; this.cursor = 0; this.tempo = 110; this.project = null; this.lastPosition = -1;
+      this.skipOnce = []; this.workletReady = new WeakMap(); this.noteSerial = 0;
     }
+
+    // A hit played live while recording is already sounding; the step or
+    // note it wrote must not retrigger when the scheduler reaches it in the
+    // same pass. Each entry suppresses one matching scheduled event.
+    suppressRecordedEvent({ kind, pad = null, pitch = null, beat, window = .25 }) {
+      if (this.skipOnce.length > 512) this.skipOnce.shift();
+      this.skipOnce.push({ kind, pad, pitch, beat: finite(beat), window: Math.max(1e-6, finite(window, .25)) });
+    }
+    consumeSuppressed(event, localBeat) {
+      for (let index = 0; index < this.skipOnce.length; index += 1) {
+        const entry = this.skipOnce[index];
+        if (entry.kind !== event.kind) continue;
+        if (event.kind === 'pad' && entry.pad !== event.pad) continue;
+        if (event.kind === 'note' && (entry.pitch !== event.pitch || entry.pad !== (event.pad ?? null))) continue;
+        if (Math.abs(localBeat - entry.beat) <= entry.window) { this.skipOnce.splice(index, 1); return true; }
+      }
+      return false;
+    }
+    // The beat position inside the pattern or song at an audio-clock time.
+    localBeatAt(time = this.context?.currentTime || 0) { return this.positionBeat(Math.max(0, this.beatAt(time))); }
 
     async resume() {
       if (!this.context) {
@@ -268,8 +326,11 @@
         if (!Context) throw new Error('Web Audio is unavailable in this browser.');
         this.context = new Context({ latencyHint: 'interactive' }); this.graph = makeGraph(this.context, this.getProject());
       }
+      // Load the instrument module even while the context is still suspended.
+      const context = this.context, worklet = loadInstrumentWorklet(context).then(ready => { this.workletReady.set(context, ready); return ready; });
       if (this.context.state === 'suspended') await this.context.resume();
       if (this.context.state !== 'running') throw new Error('Audio could not start. Enable audio for this site and try again.');
+      await worklet;
       this.sync();
       return this.context;
     }
@@ -281,6 +342,7 @@
         try { requireSupportedProject(project); } catch (error) { this.lastError = error; this.stop(); this.onError(error); return; }
       }
       this.graph?.sync(project);
+      if (this.graph) this.refreshInstruments(project, this.graph);
       if (this.playing && (this.project !== project || this.tempo !== project.bpm)) {
         const time = this.context.currentTime + .008; const beat = this.beatAt(time);
         const changedTempo = this.tempo !== project.bpm;
@@ -486,7 +548,7 @@
     releasePad(index) { for (const voice of [...this.voices, ...this.retiringVoices]) if (voice.live && voice.pad === index && voice.gate) voice.stop(); }
 
     synthVoice(pitch, opts, context, graph, pool, offline = false) {
-      const project = opts.project || this.getProject(); const patch = project.synth || {};
+      const project = opts.project || this.getProject(); const patch = opts.synth || project.synth || {};
       if (!audible(project.tracks, project.tracks[patch.track || 0])) return null;
       if (patch.sample_source || patch.sample_layer) throw new Error('This instrument uses desktop sample layers. Choose a browser oscillator preset or render this instrument to audio in the desktop app.');
       const when = Math.max(0, finite(opts.when, context.currentTime)); const duration = clamp(opts.duration, .001, 60, 30);
@@ -549,10 +611,78 @@
       return voice;
     }
 
+    // One AudioWorklet node per instrument instance, created on first use.
+    instrumentNode(spec, context, graph) {
+      let entry = graph.instruments.get(spec.key);
+      if (!entry) {
+        const node = new AudioWorkletNode(context, 'anharmonic-instrument', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2],
+          processorOptions: { kind: spec.kind, patch: spec.patch, values: spec.values, bpm: clamp(this.getProject().bpm, 20, 400, 120) } });
+        node.connect(this.output(spec.track, graph)); graph.nodes.push(node);
+        entry = { node, kind: spec.kind, signature: specSignature(spec), track: spec.track, bpm: this.getProject().bpm };
+        graph.instruments.set(spec.key, entry);
+      }
+      return entry;
+    }
+    // Push edited patches, tempo and routing to live instrument nodes.
+    refreshInstruments(project, graph) {
+      if (!graph?.instruments?.size) return;
+      for (const [key, entry] of graph.instruments) {
+        let spec;
+        try {
+          if (key.startsWith('pattern:')) { const pattern = project.patterns.find(item => item.id === key.slice(8)); if (!pattern?.instrument) continue; spec = instrumentSpec(project, null, pattern.instrument, pattern.id); }
+          else spec = instrumentSpec(project, key.startsWith('prism:') ? key.slice(6) : key.startsWith('native:') ? key.slice(7) : null);
+        } catch { continue; }
+        const signature = specSignature(spec);
+        if (signature !== entry.signature) { entry.node.port.postMessage(spec.kind === 'prism' ? { type: 'values', values: spec.values } : { type: 'patch', patch: spec.patch }); entry.signature = signature; }
+        if (entry.kind === 'prism' && entry.bpm !== project.bpm) { entry.node.port.postMessage({ type: 'tempo', bpm: project.bpm }); entry.bpm = project.bpm; }
+        if (entry.track !== spec.track) { try { entry.node.disconnect(); } catch { /* not connected */ } entry.node.connect(this.output(spec.track, graph)); entry.track = spec.track; }
+      }
+    }
+    // A Native/Prism note. Live notes post timed events; offline exports collect them for the node's options.
+    instrumentVoice(pitch, opts, context, graph, pool, offline = false) {
+      const project = opts.project || this.getProject();
+      const spec = instrumentSpec(project, opts.instrument ?? null, opts.instrument ? null : opts.synth, opts.patternId || opts.sequence || '');
+      if (!audible(project.tracks, project.tracks[spec.track || 0]) || spec.bypass) return null;
+      if (spec.kind === 'native' && (spec.patch.sample_source || spec.patch.sample_layer)) throw new Error('This instrument uses desktop sample layers. Choose a Native preset or render this instrument to audio in the desktop app.');
+      if (!this.workletReady.get(context)) {
+        if (spec.kind === 'native' && !opts.instrument) return this.synthVoice(pitch, { ...opts, synth: spec.patch }, context, graph, pool, offline);
+        throw new Error('Native and Prism instruments need AudioWorklet support. Update this browser to play them.');
+      }
+      const when = Math.max(0, finite(opts.when, context.currentTime)), duration = opts.duration === undefined ? undefined : clamp(opts.duration, .001, 600, .25);
+      const velocity = clamp(clamp(opts.velocity, 0, 1, .8) * clamp(opts.gain, 0, 4, 1), 0, 1, .8), id = ++this.noteSerial, release = specRelease(spec);
+      const events = [{ type: 'on', note: pitch, velocity, id, time: when }];
+      if (duration !== undefined) events.push({ type: 'off', note: pitch, id, time: when + duration });
+      let node = null;
+      if (offline) {
+        let entry = graph.offlineInstruments.get(spec.key);
+        if (!entry) { entry = { spec, events: [] }; graph.offlineInstruments.set(spec.key, entry); }
+        for (const event of events) entry.events.push({ ...event, frame: Math.round(event.time * context.sampleRate) });
+      } else { node = this.instrumentNode(spec, context, graph).node; node.port.postMessage({ type: 'events', events }); }
+      const voice = { when, end: when + (duration ?? 600) + release, pitch, pad: null, row: opts.row, clipId: opts.clipId, gate: true, sequence: opts.sequence || 'live', instrumentKey: spec.key,
+        retime: time => { node?.port.postMessage({ type: 'retime', id, note: pitch, time }); voice.end = time + release; },
+        stop: (time = context.currentTime, immediate = false, maxRelease = Infinity) => {
+          const at = Math.max(context.currentTime, finite(time)); if (at >= voice.end) return;
+          const fade = immediate ? .003 : Number.isFinite(maxRelease) ? Math.max(.002, maxRelease) : 0;
+          node?.port.postMessage({ type: 'stop', id, note: pitch, time: at, fade });
+          voice.end = Math.min(voice.end, at + (fade || release)); if (voice.end <= context.currentTime) pool.delete(voice);
+        }
+      };
+      this.registerVoice(voice, pool, offline);
+      return voice;
+    }
+    startOfflineInstruments(context, graph, project) {
+      for (const [, entry] of graph.offlineInstruments) {
+        const spec = entry.spec;
+        const node = new AudioWorkletNode(context, 'anharmonic-instrument', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2],
+          processorOptions: { kind: spec.kind, patch: spec.patch, values: spec.values, bpm: clamp(project.bpm, 20, 400, 120), events: entry.events.sort((a, b) => a.frame - b.frame) } });
+        node.connect(this.output(spec.track, graph)); graph.nodes.push(node);
+      }
+    }
+
     triggerNote(pitch, opts = {}) {
       if (!this.context) throw new Error('Start audio before triggering a note.');
       this.sync(); this.beginLiveTrigger();
-      const voice = opts.pad !== null && opts.pad !== undefined ? this.padVoice(opts.pad, { ...opts, pitch }, this.context, this.graph, this.voices) : this.synthVoice(pitch, opts, this.context, this.graph, this.voices);
+      const voice = opts.pad !== null && opts.pad !== undefined ? this.padVoice(opts.pad, { ...opts, pitch }, this.context, this.graph, this.voices) : this.instrumentVoice(pitch, opts, this.context, this.graph, this.voices);
       if (voice) voice.live = true;
       return voice;
     }
@@ -560,9 +690,9 @@
 
     schedule(event, when, project, context, graph, pool, offline = false) {
       const spb = secondsPerBeat(project);
-      const opts = { when, project, velocity: event.velocity, gain: event.gain, duration: event.durationBeats * spb, row: event.row, sequence: event.sequence, clipId: event.clipId };
+      const opts = { when, project, velocity: event.velocity, gain: event.gain, duration: event.durationBeats * spb, row: event.row, sequence: event.sequence, clipId: event.clipId, synth: event.synth || null };
       if (event.kind === 'pad') return this.padVoice(event.pad, opts, context, graph, pool, offline);
-      if (event.kind === 'note') return event.pad === null ? this.synthVoice(event.pitch, opts, context, graph, pool, offline) : this.padVoice(event.pad, { ...opts, pitch: event.pitch }, context, graph, pool, offline);
+      if (event.kind === 'note') return event.pad === null ? this.instrumentVoice(event.pitch, { ...opts, instrument: event.instrument, patternId: event.patternId }, context, graph, pool, offline) : this.padVoice(event.pad, { ...opts, pitch: event.pitch }, context, graph, pool, offline);
       const clip = event.clip;
       if (!audible(project.tracks, project.tracks[clip.track || 0])) return null;
       const buffer = this.sample(clip.ref); const start = finite(clip.offset); const end = clip.source_length > 0 ? start + clip.source_length : buffer.duration;
@@ -611,7 +741,10 @@
         if (!pattern) continue;
         for (const event of collectEvents({ ...project, patterns: [pattern], selected_pattern: 0 }, 'pattern', 0, patternLength(pattern))) {
           if (event.pad !== null) { const pad = project.pads[event.pad]; if (!pad) throw new Error(`Unknown pad: ${event.pad}`); if (pad.sample_id && audible(project.tracks, project.tracks[pad.track || 0])) this.sample(pad.sample_id); }
-          else if (project.synth?.sample_source || project.synth?.sample_layer) throw new Error('This instrument uses desktop sample layers. Render it to audio in the desktop app before browser playback.');
+          else {
+            const spec = instrumentSpec(project, event.instrument, event.synth, event.patternId);
+            if (spec.kind === 'native' && (spec.patch.sample_source || spec.patch.sample_layer)) throw new Error('This instrument uses desktop sample layers. Render it to audio in the desktop app before browser playback.');
+          }
         }
       }
       return end;
@@ -638,6 +771,7 @@
           const to = Math.min(horizon, regionEnd); const offset = from - localFrom;
           if (looping && from >= loopEnd && Math.abs(localFrom - loopStart) < EPSILON) this.resumeClips(localFrom, this.timeAt(from), project, this.timeAt(regionEnd));
           for (const event of collectEvents(project, this.mode, localFrom, to - offset, 4096)) {
+            if (this.skipOnce.length && event.sequence && this.consumeSuppressed(event, event.beat)) continue;
             const voice = this.schedule(event, this.timeAt(event.beat + offset), project, this.context, this.graph, this.voices);
             if (voice && (voice.gate || event.kind === 'audio')) voice.endBeat = Math.min(regionEnd, event.beat + offset + (event.durationBeats ?? event.clip.length_beats));
             if (looping && voice) voice.stop(this.timeAt(regionEnd), true);
@@ -700,7 +834,7 @@
 
     stop() {
       window.clearInterval(this.timer); this.timer = null; this.playing = false;
-      this.cancelVoices(); this.paused = false; this.pausedBeat = 0; this.cursor = 0; this.lastPosition = -1;
+      this.cancelVoices(); this.paused = false; this.pausedBeat = 0; this.cursor = 0; this.lastPosition = -1; this.skipOnce = [];
       // Disconnect delay/reverb tails as well as source nodes. Rebuild the
       // graph to keep stopped playback silent without closing the context.
       if (this.context && this.graph) { this.graph.disconnect(); this.graph = makeGraph(this.context, this.getProject()); }
@@ -746,14 +880,17 @@
         }
         preparedPCMBytes(events, project, id => buffers.get(id));
         const context = new Context(2, Math.ceil(duration * sampleRate), sampleRate); graph = makeGraph(context, project);
+        if (events.some(event => event.kind === 'note' && event.pad === null)) renderer.workletReady.set(context, await loadInstrumentWorklet(context));
         for (let index = 0; index < events.length; index += 1) {
           renderer.schedule(events[index], events[index].beat * secondsPerBeat(project), project, context, graph, pool, true);
           if (index % 512 === 511) await new Promise(resolve => window.setTimeout(resolve, 0));
         }
+        renderer.startOfflineInstruments(context, graph, project);
         return encodeWav(await context.startRendering());
       } finally { graph?.disconnect(); pool.clear(); this.rendering = false; }
     }
   }
 
-  window.AnharmonicAudio = Object.freeze({ AudioEngine, collectEvents, lengthBeats, swingOffset, encodeWav, requireSupportedProject, preparedPCMBytes, LIMITS });
+  window.AnharmonicAudio = Object.freeze({ AudioEngine, collectEvents, lengthBeats, swingOffset, encodeWav, requireSupportedProject, preparedPCMBytes, instrumentSpec, isPrismPlugin, LIMITS,
+    setInstrumentWorkletURL: url => { workletURL = url; } });
 })();
