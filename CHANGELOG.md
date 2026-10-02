@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-02 — Record follows the workspace; phone audio fixes (web)
+
+- Record now works like the desktop: in Beats, Notes, Keys/Instruments and Pads
+  it captures the pads and keys you play into the current pattern (count-in,
+  then the pattern loops) and never opens the microphone. The Vocal tab records
+  your voice; in Song, arm a track (R) to record audio onto it; the Sampler
+  samples the microphone into the selected pad. The label beside Record shows
+  where the take goes, replacing the MIC/PERFORM switch.
+- iPhone and iPad: the studio declares a media playback session, so the
+  silent switch no longer mutes it (older iOS keeps a silent media loop
+  instead). While the microphone is open the session allows recording, and
+  the audio engine resumes after iOS interrupts it (a call, Siri, or opening
+  the microphone).
+
+Checked in headless Chromium, including an emulated iPhone; not yet tested on a
+physical phone.
+
 ## 2026-10-02 — Vocal tab with Autotune in the web studio
 
 - New Vocal workspace (desktop tab and phone tab): record dry takes over the beat

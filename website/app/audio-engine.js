@@ -328,7 +328,8 @@
       }
       // Load the instrument module even while the context is still suspended.
       const context = this.context, worklet = loadInstrumentWorklet(context).then(ready => { this.workletReady.set(context, ready); return ready; });
-      if (this.context.state === 'suspended') await this.context.resume();
+      // iOS also reports 'interrupted' after a call, Siri or opening the microphone.
+      if (this.context.state !== 'running') await this.context.resume();
       if (this.context.state !== 'running') throw new Error('Audio could not start. Enable audio for this site and try again.');
       await worklet;
       this.sync();
