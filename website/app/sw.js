@@ -7,7 +7,7 @@
  * localStorage, never in this cache. */
 'use strict';
 
-const VERSION = '2026-10-02-4';
+const VERSION = '2026-10-03-mobile-1';
 const CACHE = 'anharmonic-studio-shell-' + VERSION;
 const SHELL = [
   './',
@@ -30,6 +30,7 @@ const SHELL = [
   'autotune-worklet.js',
   'mobile-compat.js',
   'pwa.js',
+  'viewport.js',
   'studio.js',
   'manifest.webmanifest',
   '../assets/mark.svg',

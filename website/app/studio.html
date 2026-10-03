@@ -27,6 +27,7 @@
   <script src="vocal-dsp.js" defer></script>
   <script src="mobile-compat.js" defer></script>
   <script src="pwa.js" defer></script>
+  <script src="viewport.js" defer></script>
   <script src="studio.js" defer></script>
 </head>
 <body data-mobile-view="stage">
@@ -60,6 +61,6 @@
   <input id="project-file" type="file" accept="application/json,.json" hidden>
   <dialog id="appearance-dialog" aria-labelledby="appearance-title"><h2 id="appearance-title">Appearance</h2><p>Choose light/dark and any accent. The accent also tints the shell surfaces so the full interface follows your customization.</p><div class="appearance-controls"><div id="accent-wheel" role="slider" tabindex="0" aria-label="Accent hue wheel" aria-valuemin="0" aria-valuemax="359" aria-valuenow="218"><span aria-hidden="true"></span></div><button id="theme-toggle">Light</button><label>Accent <input id="accent-picker" type="color" value="#4d8dff"></label><button id="appearance-reset">Reset dark blue</button></div><form method="dialog"><button>Done</button></form></dialog>
   <dialog id="install-dialog" aria-labelledby="install-title"><h2 id="install-title">Install Anharmonic Studio</h2><p id="install-steps">Use your browser menu to add this studio to your home screen.</p><p>Installed, the studio opens full screen without browser bars, keeps working offline, and stores projects and audio on this device. Microphone recording still asks for permission the first time.</p><form method="dialog"><button>Close</button></form></dialog>
-  <dialog id="transport-sheet" aria-labelledby="transport-sheet-title" class="sheet"><div class="sheet-head"><h2 id="transport-sheet-title">Transport</h2><form method="dialog"><button aria-label="Close transport controls">×</button></form></div><div class="sheet-body" id="transport-sheet-body"></div></dialog>
+  <dialog id="transport-sheet" aria-labelledby="transport-sheet-title" class="sheet"><div class="sheet-head"><h2 id="transport-sheet-title">Transport</h2><form method="dialog"><button aria-label="Close transport controls">×</button></form></div><div class="sheet-body" id="transport-sheet-body"></div><button id="landscape-mode" class="landscape-action" type="button">Landscape / full screen</button><p class="landscape-help">Turn your phone sideways for more room. If rotation stays locked, turn off Portrait Orientation Lock in Control Center.</p></dialog>
 </body>
 </html>

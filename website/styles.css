@@ -57,3 +57,37 @@
 .installer-notice ul{padding-left:22px;margin:12px 0}.installer-notice li+li{margin-top:8px}
 .installer-notice a,.installer-reminder a,.faq-list p a{text-decoration:underline;text-underline-offset:3px}
 .price-card .installer-reminder{font-size:13px;line-height:1.6;border-top:1px solid #9b8550;padding-top:14px;margin:16px 0 12px}
+
+/* The free web studio is reachable before desktop downloads on phones. */
+.web-app-note { font-size: 14px; line-height: 1.6; color: var(--muted); margin-top: 18px; }
+@media (max-width: 760px) {
+  .wrap { width: auto; margin-left: max(18px, env(safe-area-inset-left)); margin-right: max(18px, env(safe-area-inset-right)); }
+  .site-header { gap: 12px; flex-wrap: wrap; padding-top: max(16px, env(safe-area-inset-top)); }
+  .brand { min-width: 0; flex: 1; }
+  .brand-lockup { width: min(190px, 100%); height: auto; }
+  .nav-cta { min-height: 44px; font-size: 14px; padding: 10px 12px; }
+  .hero-actions { flex-wrap: wrap; gap: 18px; }
+  .hero-actions .button, .hero-actions .text-link { min-height: 44px; display: inline-flex; align-items: center; }
+  .hero-description { font-size: 16px; }
+  .tour-tabs { overflow-x: auto; scrollbar-width: thin; }
+  .tour-tabs button { min-height: 44px; flex-shrink: 0; font-size: 14px; }
+  .platform-options strong { font-size: 14px; }
+  .faq-list summary { min-height: 44px; }
+  footer { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
+}
+@media (max-width: 760px) {
+  .hero { grid-template-columns: minmax(0, 1fr); }
+  .hero > *, .hero-copy > *, .hero-visual > * { min-width: 0; }
+  .hero-visual { overflow: clip; }
+  .hero-note { align-items: flex-start; }
+  .film-heading { gap: 8px; font-size: 9px; flex-wrap: wrap; }
+  .sound-bars { min-width: 0; overflow: hidden; }
+  .hero h1 { font-size: clamp(48px, 15vw, 78px); }
+}
+@media (max-width: 760px) {
+  .site-footer > div { flex-wrap: wrap; gap: 12px 20px; }
+  .site-footer > div a { min-height: 44px; display: inline-flex; align-items: center; font-size: 14px; }
+}

@@ -115,12 +115,14 @@ recording. Bump `VERSION` in `sw.js` whenever a precached file changes; the site
 fails if a studio script or stylesheet is missing from the precache list. Regenerate the
 icons in `assets/pwa/` with `python scripts/render_pwa_icons.py` after changing the mark.
 
-On phones (760 px and narrower) the studio switches to full-screen views under a bottom
+On phones (760 px and narrower, plus touch landscape screens up to 1100 × 600 CSS pixels) the studio switches to full-screen views under a bottom
 tab bar: Song, Beats, Notes, Keys, Pads, Sample and Mix. Tempo, swing and volume move to
 a transport sheet, the library opens as a bottom sheet, and status messages appear as
-toasts. The Keys view has a touch keyboard with glide and multi-touch chords, octave
+toasts. The shell follows the visual viewport and safe areas rather than fixed toolbar-height arithmetic. In landscape, pads use eight columns with a separately scrolling inspector. Project-menu Undo/Redo remain available on narrow phones. The Keys view has a touch keyboard with glide and multi-touch chords, octave
 shifting and a chord strip for the selected key. Pinch zooms the Song timeline and the
 sampler waveform.
+
+The manifest requests landscape on installed browsers that support it. The Transport sheet and Project menu offer **Landscape / full screen**. An installed app makes one best-effort orientation request on the first tap; fullscreen is requested only by the explicit button. iPhone Safari or OS rotation policy may refuse either request, so portrait remains usable with a dismissible rotate tip. No CSS rotation is applied to the editor: pointer, waveform and piano-roll coordinates stay accurate. This is progressive enhancement, not a promise to override iPhone orientation lock.
 
 Recording has two sources. **MIC** captures the microphone or audio input as
 uncompressed PCM through an AudioWorklet, at the device sample rate, with a live input

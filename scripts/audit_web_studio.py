@@ -1199,13 +1199,17 @@ def main():
                 check(
                     "mobile_no_overlap_defaults_on", toggle.get_attribute("aria-pressed") == "true"
                 )
+                mobile.locator("#transport-more").tap()
                 bounds = toggle.bounding_box()
                 check(
-                    "mobile_no_overlap_visible_without_scrolling",
+                    "mobile_no_overlap_reachable_in_transport_sheet",
                     bounds["x"] >= 0
                     and bounds["x"] + bounds["width"] <= 390
                     and bounds["height"] >= 40,
                 )
+                mobile.locator(
+                    '#transport-sheet button[aria-label="Close transport controls"]'
+                ).tap()
                 mobile.evaluate("""() => {
                     const original = AnharmonicAudio.AudioEngine.prototype.resume;
                     AnharmonicAudio.AudioEngine.prototype.resume = function(...args) {
@@ -1262,6 +1266,7 @@ def main():
                     "mobile_toggle_reaches_audio_engine",
                     mobile.evaluate("mobileEngine.singleTrigger"),
                 )
+                mobile.locator("#transport-more").tap()
                 toggle.tap()
                 check(
                     "mobile_overlap_can_be_enabled",
@@ -1274,6 +1279,7 @@ def main():
                     "mobile_overlap_preference_survives_reload",
                     toggle.get_attribute("aria-pressed") == "false",
                 )
+                mobile.locator("#transport-more").tap()
                 toggle.tap()
                 mobile.screenshot(path=str(args.output / "mobile-no-overlap.png"), full_page=True)
                 mobile_context.close()

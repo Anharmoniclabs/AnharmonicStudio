@@ -1,5 +1,5 @@
 /* Mobile-only hardening loaded after studio.css. Keep desktop layout untouched. */
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-width: 1100px) and (max-height: 600px) and (pointer: coarse) {
   html,
   body {
     min-height: 100dvh;
@@ -105,7 +105,8 @@
   }
 }
 
-@media (max-width: 760px) and (orientation: landscape) and (max-height: 520px) {
+
+@media (max-width: 1100px) and (orientation: landscape) and (max-height: 600px) and (pointer: coarse) {
   .browser-panel.open,
   .pads-panel.open {
     max-height: 45dvh;
@@ -121,10 +122,10 @@
 
 /* Preserve contrast for any user-picked accent, including black and white. */
 #no-overlap[aria-pressed="true"]{color:var(--on-accent)}
-@media(max-width:760px){.project-name{width:105px;min-width:105px}.project-actions #undo-project,.project-actions #redo-project{font-size:0;min-width:36px}.project-actions #undo-project::before{content:'↶';font-size:18px}.project-actions #redo-project::before{content:'↷';font-size:18px}}
+@media(max-width:760px), (max-width:1100px) and (max-height:600px) and (pointer:coarse){.project-name{width:105px;min-width:105px}.project-actions #undo-project,.project-actions #redo-project{font-size:0;min-width:36px}.project-actions #undo-project::before{content:'↶';font-size:18px}.project-actions #redo-project::before{content:'↷';font-size:18px}}
 
 /* Phone shell: full-screen views under a bottom tab bar, GarageBand-style. */
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-width: 1100px) and (max-height: 600px) and (pointer: coarse) {
   :root { --tabbar: 58px; }
   button.mobile-only { display: inline-flex !important; align-items: center; justify-content: center; }
   .inspector-mobile-actions.mobile-only { display: flex !important; gap: 6px; margin-top: 10px; }
@@ -180,15 +181,15 @@
   .pads-panel .panel-header, .browser-panel .panel-header { height: 44px; }
   .pad-bank button { min-width: 40px; }
 }
-@media (max-width: 760px) and (orientation: landscape) and (max-height: 520px) {
+@media (max-width: 1100px) and (orientation: landscape) and (max-height: 600px) and (pointer: coarse) {
   .transport-bar { height: 46px; min-height: 46px; }
   .main-split, .main-split.hide-browser, .main-split.hide-pads, .main-split.hide-browser.hide-pads { height: calc(100dvh - 52px - 46px - var(--tabbar) - env(safe-area-inset-bottom)); }
   .synth-keyboard, .instrument-editor .synth-keyboard { height: 140px; }
 }
 /* Pinch zooms the Song timeline on phones; keep only the compact zoom buttons. */
-@media (max-width: 760px) { .zoom-controls label { display: none !important; } .zoom-controls { padding: 6px 8px; } .stage-toolbar { padding: 6px 8px; } }
+@media (max-width: 760px), (max-width: 1100px) and (max-height: 600px) and (pointer: coarse) { .zoom-controls label { display: none !important; } .zoom-controls { padding: 6px 8px; } .stage-toolbar { padding: 6px 8px; } }
 /* Keys view on phones: keyboard and chords first, sound browser and editor below. */
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-width: 1100px) and (max-height: 600px) and (pointer: coarse) {
   .instrument-editor { display: flex; flex-direction: column; }
   .instrument-editor > * { flex-shrink: 0; }
   .instrument-editor > .chord-strip { order: -3; margin-top: 0; }
@@ -197,3 +198,75 @@
   .prism-perform { display: grid; grid-template-columns: 1fr 1fr; }
   .prism-perform strong { grid-column: 1 / -1; }
 }
+
+/* Measured toolbar geometry replaces fixed height arithmetic in both phone
+   orientations, including the notch, Safari address bar and soft keyboard. */
+.orientation-hint { display: none; }
+.landscape-action { min-height: 44px; padding: 10px 14px; margin-top: 14px; }
+.landscape-help { color: var(--dim); font-size: 14px; line-height: 1.5; }
+@media (max-width: 760px), (max-width: 1100px) and (max-height: 600px) and (pointer: coarse) {
+  :root { --tabbar: 60px; }
+  html { height: var(--studio-height, 100dvh); min-height: 0; }
+  body { display: flex; flex-direction: column; height: var(--studio-height, 100dvh); min-height: 0; overflow: hidden; }
+  .project-bar, .transport-bar { flex: 0 0 auto; }
+  .project-bar { overflow-x: auto; scrollbar-width: none; }
+  .project-name { font-size: 16px; min-width: 72px; }
+  .project-actions button { min-height: 44px; }
+  .transport-bar { height: 56px; min-height: 56px; }
+  .transport, #record-source, #record-settings, #no-overlap, #transport-more { min-height: 44px; flex-shrink: 0; }
+  .main-split, .main-split.hide-browser, .main-split.hide-pads, .main-split.hide-browser.hide-pads {
+    flex: 1 1 0; height: auto; min-height: 0; min-width: 0;
+    padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
+  }
+  .stage { min-height: 0; height: 100%; overflow: auto; -webkit-overflow-scrolling: touch; }
+  .mobile-tabs { position: relative; flex: 0 0 auto; height: calc(var(--tabbar) + env(safe-area-inset-bottom)); }
+  .mobile-tabs button { font: 12px system-ui, sans-serif; min-height: 44px; gap: 4px; }
+  .mobile-tabs button i { font-size: 18px; }
+  .browser-panel.open, .main-split.hide-browser .browser-panel.open { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); height: min(70dvh, calc(var(--studio-height, 100dvh) - 120px)); }
+  .browser-actions button, .browser-footer button, .panel-header button, .pad-bank button { min-height: 44px; }
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]), select, textarea { font-size: 16px; }
+  .search { min-height: 44px; }
+  dialog, dialog.sheet { max-height: calc(var(--studio-height, 100dvh) - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow: auto; }
+  .app-menu { max-height: calc(var(--studio-height, 100dvh) - 70px); overflow: auto; max-width: calc(100vw - 16px); }
+  .app-menu button { min-height: 44px; font-size: 14px; }
+  body[data-mobile-view="pads"] .pads-panel.open { flex-direction: column; overflow: auto; }
+  body[data-mobile-view="pads"] .pad-grid { flex: 0 0 auto; }
+  body[data-mobile-view="pads"] .pad-inspector { flex: 0 0 auto; }
+  body[data-mobile-view="pads"] .pad { min-height: 44px; }
+  .orientation-hint:not([hidden]) { display: flex; align-items: center; gap: 8px; position: fixed; z-index: 28; bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 8px); left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); padding: 6px 8px 6px 12px; border: 1px solid var(--line); background: var(--bg2); color: var(--fg); border-radius: 10px; box-shadow: 0 6px 20px #0005; font: 13px/1.4 system-ui, sans-serif; }
+  .orientation-hint button { margin-left: auto; min-width: 44px; min-height: 44px; font-size: 22px; }
+  .orientation-hint[hidden] { display: none; }
+  .track-head button { min-height: 36px; min-width: 30px; }
+  .synth-keyboard, .pad-grid { touch-action: none; }
+}
+@media (max-width: 400px) {
+  .project-actions #undo-project, .project-actions #redo-project { display: none; }
+  .project-actions #install-app { font-size: 0; min-width: 44px; }
+  .project-actions #install-app::before { content: '+'; font-size: 22px; }
+  .mobile-tabs button { font-size: 11px; }
+}
+@media (max-width: 1100px) and (max-height: 600px) and (orientation: landscape) and (pointer: coarse) {
+  :root { --tabbar: 48px; }
+  .project-bar { min-height: 44px; padding-top: max(2px, env(safe-area-inset-top)); padding-bottom: 2px; }
+  .project-bar .project-actions button { padding-top: 2px; padding-bottom: 2px; }
+  .transport-bar { min-height: 48px; height: 48px; padding-top: 2px; padding-bottom: 2px; }
+  .mobile-tabs { padding-top: 2px; padding-bottom: calc(2px + env(safe-area-inset-bottom)); }
+  .mobile-tabs button { flex-direction: row; gap: 6px; }
+  body[data-mobile-view="pads"] .pads-panel.open { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 32%); grid-template-rows: 44px minmax(0, 1fr); }
+  body[data-mobile-view="pads"] .pads-panel > .panel-header { grid-column: 1 / -1; }
+  body[data-mobile-view="pads"] .pad-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); align-content: start; overflow: auto; }
+  body[data-mobile-view="pads"] .pad { aspect-ratio: auto; height: clamp(54px, 17dvh, 90px); }
+  body[data-mobile-view="pads"] .pad-inspector { min-height: 0; overflow: auto; }
+  .synth-keyboard, .instrument-editor .synth-keyboard { height: 144px; }
+  .instrument-editor { padding-top: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { .status-bar { transition: none; } }
+@media (max-width: 760px), (max-width: 1100px) and (max-height: 600px) and (pointer: coarse) {
+  .transport-bar .input-level { display: none; }
+  #transport-more { position: sticky; right: 0; margin-left: auto; background: var(--bg2); }
+  .transport-bar #counter { margin-left: auto; }
+  .sheet #no-overlap { font-size: 14px; }
+  .sheet #no-overlap::before { content: none; }
+  #record-source { max-width: 110px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+}
+@media (max-width: 400px) { .transport-bar #counter { display: none; } #record-source { max-width: 72px; } }

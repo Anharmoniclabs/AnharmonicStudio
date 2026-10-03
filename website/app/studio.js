@@ -37,7 +37,7 @@
     const trap = window.AnharmonicKits?.KITS.find(kit => kit.id === 'trap');
     return trap ? applyKit(document, trap, 0) : document;
   }
-  const isMobile = () => window.matchMedia('(max-width:760px)').matches;
+  const isMobile = () => window.matchMedia('(max-width:760px), (max-width:1100px) and (max-height:600px) and (pointer:coarse)').matches;
   // The selected pattern's live instrument (null = shared Studio synth) and its description.
   const liveInstrument = () => projectStore.selectedInstrument;
   const liveInfo = () => projectStore.instrumentInfo(liveInstrument()) || projectStore.instrumentInfo(null);
@@ -1911,6 +1911,9 @@
     Object.assign(state, geometry);
     // On phones the secondary transport controls live in a sheet.
     const extras = $('#transport-extras'), sheet = $('#transport-sheet-body'), bar = $('.transport-bar');
+    const overlap = $('#no-overlap');
+    if (mobile && overlap.parentElement !== extras) extras.prepend(overlap);
+    else if (!mobile && overlap.parentElement !== bar) bar.insertBefore(overlap, $('#counter'));
     if (mobile && extras.parentElement !== sheet) sheet.append(extras);
     else if (!mobile && extras.parentElement !== bar) { bar.append(extras); if ($('#transport-sheet').open) $('#transport-sheet').close(); }
     if (mobile) state.mobileView = state.padsOpen ? 'pads' : 'stage'; else state.mobileView = 'stage';
@@ -2069,7 +2072,7 @@
   on('#appearance-toggle', 'click', () => $('#appearance-dialog').showModal());
   on('#appearance-reset', 'click', () => { state.theme = 'dark'; state.accent = DEFAULT_ACCENT; applyTheme(); localStorage.setItem('anharmonic-theme', state.theme); localStorage.setItem('anharmonic-accent', state.accent); });
   on('#project-menu', 'click', event => openMenu(event.currentTarget, [
-    ...[['New project', 'new-project'], ['Open project', 'load-project'], ['Save in this browser', 'save-project'], ['Download project + audio', 'export-project'], ['Export WAV', 'export-wav'], ['Export desktop JSON', 'export-desktop'], ['Appearance', 'appearance-toggle'], ['Help & shortcuts', 'help-toggle']].map(([label, id]) => ({ label, action: () => $('#' + id).click() })),
+    ...[['New project', 'new-project'], ['Open project', 'load-project'], ['Save in this browser', 'save-project'], ['Download project + audio', 'export-project'], ['Export WAV', 'export-wav'], ['Export desktop JSON', 'export-desktop'], ['Undo', 'undo-project'], ['Redo', 'redo-project'], ['Appearance', 'appearance-toggle'], ['Landscape / full screen', 'landscape-mode'], ['Help & shortcuts', 'help-toggle']].map(([label, id]) => ({ label, disabled: Boolean($('#' + id).disabled), action: () => $('#' + id).click() })),
     ...(window.AnharmonicPWA?.canInstall() ? [{ label: 'Install as an app', action: () => window.AnharmonicPWA.install() }] : []),
     ...(window.AnharmonicPWA?.waiting ? [{ label: 'Reload for update', disabled: Boolean(state.recording || state.performance), action: () => { if (state.dirty && !confirm('Reload the studio for the update? Save first to keep unsaved edits.')) return; window.AnharmonicPWA.reloadRequested = true; window.AnharmonicPWA.applyUpdate(); } }] : []),
     ...(window.AnharmonicPWA?.standalone ? [{ label: 'Installed app · ' + (window.AnharmonicPWA.offlineReady ? 'offline ready' : 'caching for offline'), disabled: true, action: () => {} }] : [])
