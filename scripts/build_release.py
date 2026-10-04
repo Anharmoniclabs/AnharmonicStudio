@@ -80,6 +80,7 @@ def check(executable, directory, report):
     if (
         not checks.get("subprocess_export")
         or not checks.get("native_output_callback")
+        or not checks.get("quick_workspace_navigation")
         or checks.get("native_core_abi") != 1
     ):
         raise RuntimeError(f"Self-check did not report a successful export: {result.stdout}")
@@ -116,6 +117,7 @@ def make_spec(stage, native, ffmpeg, ffprobe, pitch_engine=None):
     windows, mac = sys.platform == "win32", sys.platform == "darwin"
     binaries = [(str(native), ".native"), (str(ffmpeg), "tools"), (str(ffprobe), "tools")]
     datas = [(str(ROOT / "assets"), "assets"), (str(ROOT / "mpclab/native"), "mpclab/native")]
+    datas.append((str(ROOT / "mpclab/ui/qml"), "mpclab/ui/qml"))
     datas.extend(
         (str(ROOT / "mpclab" / name), "mpclab")
         for name in ("prism_expansion.json", "prism_arps.json", "prism_parameters.json")

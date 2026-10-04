@@ -26,7 +26,7 @@ def _studio():
 def test_navigation_never_reparents_live_editors():
     studio, tabs, pages = _studio()
     try:
-        expected_parents = {index: studio.docks[index] for index in range(8)}
+        expected_parents = {index: studio.docks[index].viewport() for index in range(8)}
         for index in (0, 1, 2, 3, 6, 4, 7, 5, 0, 2, 1):
             studio.select(index)
             QApplication.processEvents()
@@ -42,17 +42,17 @@ def test_sampler_chop_workspace_survives_repeated_resize_and_mode_switches():
     studio, tabs, pages = _studio()
     try:
         sampler = pages[0]
-        sampler_parent = studio.docks[0]
+        sampler_parent = studio.docks[0].viewport()
         for width in (1680, 1180, 900, 1440, 760, 1280):
             studio.resize(width, 820)
             for index in (2, 1, 3, 6, 0):
                 studio.select(index)
             QApplication.processEvents()
             assert sampler.parent() is sampler_parent
-            assert studio.stack.indexOf(sampler_parent) >= 0
+            assert studio.stack.indexOf(studio.docks[0]) >= 0
 
         studio.select(0)
-        assert studio.stack.currentWidget() is sampler_parent
+        assert studio.stack.currentWidget() is studio.docks[0]
         assert sampler.isVisibleTo(studio)
     finally:
         studio.deleteLater()
@@ -88,7 +88,29 @@ def test_activate_cycle_has_exactly_one_owner_per_editor():
         studio.activate(True)
         QApplication.processEvents()
         for index, page in enumerate(pages):
-            assert page.parent() is studio.docks[index]
+            assert page.parent() is studio.docks[index].viewport()
     finally:
+        studio.deleteLater()
+        tabs.deleteLater()
+
+
+def test_narrow_navigation_reveals_selection_and_keeps_tools_reachable():
+    studio, tabs, _pages = _studio()
+    try:
+        studio.resize(480, 500)
+        studio.show()
+        QApplication.processEvents()
+        for index in (3, 4, 0, 2):
+            studio.select(index)
+            QApplication.processEvents()
+            quick = studio.quick_navigation
+            assert quick.ready and quick.isVisible()
+            assert quick.rootObject().property("selectedPage") == index
+            assert quick.rootObject().property("compact")
+            assert studio.rect().contains(
+                studio.more_button.mapTo(studio, studio.more_button.rect().center())
+            )
+    finally:
+        studio.close()
         studio.deleteLater()
         tabs.deleteLater()

@@ -78,6 +78,7 @@ htmlcov/
 credentials.json
 secrets.json
 workflow-bindings.json
+hardware-profile.json
 .DS_Store
 Thumbs.db
 .idea/
@@ -90,3 +91,6 @@ Thumbs.db
 
 # Locally built first-party plugin binaries
 /plugins/bundled/
+
+# Original factory audio is release source, unlike private songs and recordings.
+!/assets/drums/trap-foundry/**/*.wav

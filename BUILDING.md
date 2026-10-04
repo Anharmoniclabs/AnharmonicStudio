@@ -182,6 +182,19 @@ an isolated library and disposable projects, not valuable recordings.
 
 ## 5. Run and configure your developer build
 
+The desktop probes CPU count, memory (where available), display scale and usable
+screen geometry before constructing its widgets. The local, ignored
+`hardware-profile.json` in the session data directory records that snapshot.
+No hardware identifiers or network requests are involved. Qt logical pixels
+preserve OS scaling; compact controls, optional side panels and scrollable
+editors keep small displays operable. Dialogs follow the active window's screen.
+
+The original Trap Foundry WAVs ship under `assets/drums/trap-foundry` and are
+automatically indexed by the desktop. The library IDs use pack-relative paths,
+so moving the checkout does not break references. Rebuild with
+`uv run --no-sync python scripts/build_trap_foundry.py`; verify with
+`uv run --no-sync python -m pytest -q tests/test_trap_foundry.py`.
+
 ```sh
 uv run --no-sync python -m mpclab --data-dir /path/to/developer-session
 ```

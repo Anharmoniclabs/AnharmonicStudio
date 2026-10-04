@@ -109,12 +109,12 @@ class SynthVisualizer(WindowClient, QWidget):
         p.drawText(
             QRectF(wave.left(), outer.top() + 4, wave.width(), 16),
             Qt.AlignLeft | Qt.AlignVCenter,
-            f"OSCILLOSCOPE  ·  {PATCH_CHARACTER.get(patch.name, PATCH_CHARACTER['Custom'])}",
+            f"OSCILLATOR SHAPE  ·  {PATCH_CHARACTER.get(patch.name, PATCH_CHARACTER['Custom'])}",
         )
         p.drawText(
             QRectF(filt.left(), outer.top() + 4, filt.width(), 16),
             Qt.AlignLeft | Qt.AlignVCenter,
-            f"FILTER RESPONSE  ·  {patch.cutoff:.0f} Hz",
+            f"FILTER MODEL  ·  {patch.cutoff:.0f} Hz",
         )
 
         p.setPen(QPen(q("fg", 20), 1))

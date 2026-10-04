@@ -38,6 +38,7 @@ class Clip:
     comp_id: str | None = None  # persisted link back to a project vocal comp
 
     render_recipe: dict | None = None
+    root_note: int | None = None  # known source pitch from a bundled pack manifest
 
     @property
     def label(self) -> str:

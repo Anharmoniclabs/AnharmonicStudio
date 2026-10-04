@@ -3,7 +3,7 @@
 import numpy as np
 from .model import Pattern
 
-KITS = ("Pocket", "Circuit", "Midnight")
+KITS = ("Pocket", "Circuit", "Midnight", "Trap Foundry")
 INSTRUMENTS = ("Kick", "Snare", "Closed hat", "Clap", "Open hat", "Tom", "Rim", "Shaker")
 
 
@@ -38,6 +38,35 @@ def drum_sound(kit, instrument, sr=48000):
 
 
 def install_kit(library, kit):
+    if kit == 3:
+        from .runtime_paths import RESOURCE_ROOT
+
+        library._scan_pack(
+            RESOURCE_ROOT / "assets/drums/trap-foundry",
+            "Anharmonic Trap Foundry",
+            identity="anharmonic-trap-foundry-v1",
+        )
+        choices = (
+            "AH_Kicks_02",
+            "AH_Snares_04",
+            "AH_ClosedHats_04",
+            "AH_Claps_02",
+            "AH_OpenHats_02",
+            "AH_Percussion_05",
+            "AH_Percussion_01",
+            "AH_Percussion_02",
+        )
+        clips = [
+            next(
+                c
+                for c in library.clips.values()
+                if c.pack == "Anharmonic Trap Foundry" and c.name.startswith(prefix)
+            )
+            for prefix in choices
+        ]
+        for clip in clips:
+            library.audio(clip.id)
+        return clips
     clips = []
     for index, instrument in enumerate(INSTRUMENTS):
         name = f"Anharmonic {KITS[kit]} {instrument}"
@@ -58,6 +87,7 @@ def install_kit(library, kit):
 
 def groove(kit, offset):
     pattern = Pattern(name=f"{KITS[kit]} groove", bars=2, div=4)
+    kit = min(kit, 2)
     kick = ((0, 6, 10, 16, 23, 26), tuple(range(0, 32, 4)), (0, 7, 14, 16, 22, 27))[kit]
     rhythms = (
         kick,

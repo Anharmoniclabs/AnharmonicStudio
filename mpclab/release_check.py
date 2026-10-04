@@ -242,6 +242,13 @@ def main(report=None):
             patch.object(main_window, "QSettings", IsolatedSettings),
         ):
             window = main_window.MainWindow(root, restore_session=False)
+            navigation = window.studio.quick_navigation
+            if not navigation.ready:
+                raise RuntimeError(
+                    "Bundled Qt Quick workspace failed to load: "
+                    + "\n".join(error.toString() for error in navigation.errors())
+                )
+            result["quick_workspace_navigation"] = True
             controller = attach_application_features(window)
             result["production_commands"] = validate_production_features(window, controller)
             result["production_feature_controls"] = True

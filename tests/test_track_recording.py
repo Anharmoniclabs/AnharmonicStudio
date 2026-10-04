@@ -246,6 +246,11 @@ def test_row_arm_button_does_not_toggle_mute_solo_or_add_history(window):
 def test_track_selection_and_recording_preserve_visible_pads(window):
     window.show()
     window.show_tab(2)
+    QApplication.processEvents()
+    # Compact displays start with the pad sidebar collapsed. This regression
+    # concerns an explicitly opened pad panel surviving recording/navigation.
+    if window.pad_side.isHidden():
+        window.toggle_pads()
     window.select_pad(5)
     QApplication.processEvents()
     assert window.pads.isVisible()

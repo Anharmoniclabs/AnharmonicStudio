@@ -1,0 +1,586 @@
+{
+  "name": "Anharmonic Trap Foundry",
+  "id": "anharmonic-trap-foundry-v1",
+  "version": 1,
+  "license": "CC0-1.0",
+  "sample_rate": 48000,
+  "bit_depth": 24,
+  "sounds": [
+    {
+      "file": "808/AH_808_01_Velvet_C1.wav",
+      "category": "808",
+      "root_midi": 24,
+      "frames": 182400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "c98778cf52981825011c725fe963017469c5e2626609caada924f3c1ea069f76"
+    },
+    {
+      "file": "808/AH_808_02_Afterhours_C1.wav",
+      "category": "808",
+      "root_midi": 24,
+      "frames": 182400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "9425121063de61d3b55a4afeb021481ef3f6127dce4a7ca788c6c130e8204444"
+    },
+    {
+      "file": "808/AH_808_03_Rubber_C1.wav",
+      "category": "808",
+      "root_midi": 24,
+      "frames": 182400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "8b4a141a2ec934a933f72466bbe73c9ed8f907d41c50a928f7221c61fabb9bb9"
+    },
+    {
+      "file": "808/AH_808_04_Furnace_C1.wav",
+      "category": "808",
+      "root_midi": 24,
+      "frames": 182400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "b18924f238b8b0b977263bdbb738aca68ceb8209cb5d487cb620ecc2cb7668ec"
+    },
+    {
+      "file": "808/AH_808_05_Voltage_C1.wav",
+      "category": "808",
+      "root_midi": 24,
+      "frames": 182400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "d3607a410c62b1b3083436d9a228450342c24223458c2352775c06678a3d93a9"
+    },
+    {
+      "file": "808/AH_808_06_Razor_C1.wav",
+      "category": "808",
+      "root_midi": 24,
+      "frames": 182400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "1bc144942ed91d57bc9d193c1ad59eeabeb2e664ec3aea041baaa597698c1cc3"
+    },
+    {
+      "file": "808/AH_808_07_Chrome_C2.wav",
+      "category": "808",
+      "root_midi": 36,
+      "frames": 182400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "1423062221c125d6d86d558e32490afc227ab4dcd860d454518ff1272de9ef82"
+    },
+    {
+      "file": "808/AH_808_08_Orbit_C2.wav",
+      "category": "808",
+      "root_midi": 36,
+      "frames": 182400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "5addbc52eec81233cc7cf4c5b7fbd8fa2ed62b3b4b690a3f3eaf395c858cf62f"
+    },
+    {
+      "file": "808/AH_808_09_Pressure_C2.wav",
+      "category": "808",
+      "root_midi": 36,
+      "frames": 182400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "5fd9f5a3a0427a1605c371432c1daa503bf12c3d4bc88a89e42a4018398f4299"
+    },
+    {
+      "file": "808/AH_808_10_Grit_C2.wav",
+      "category": "808",
+      "root_midi": 36,
+      "frames": 182400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "4930f5e35c992b0a5a2eb529bdb53a8ea565b393e93a4f00c39e34e844c0633c"
+    },
+    {
+      "file": "808/AH_808_11_Molten_C2.wav",
+      "category": "808",
+      "root_midi": 36,
+      "frames": 182400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "fa62d9d2b373d97b01e7560e72df431055d10b37832a79914fc027e253b1a523"
+    },
+    {
+      "file": "808/AH_808_12_Crush_C2.wav",
+      "category": "808",
+      "root_midi": 36,
+      "frames": 182400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "47c0064f0d7ddd57c4c1977c9310c782327e405afe5da69c2d99a3d497402615"
+    },
+    {
+      "file": "Kicks/AH_Kicks_01_Anchor.wav",
+      "category": "Kicks",
+      "root_midi": null,
+      "frames": 38400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "89b32f119cab5b4ca7361ed8fe2fc336cdedbc25161768a1976ca4f6011ed915"
+    },
+    {
+      "file": "Kicks/AH_Kicks_02_Knock.wav",
+      "category": "Kicks",
+      "root_midi": null,
+      "frames": 38400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "59d494079d94142046f05e2ba027084cf8e9aaeaefae132ed36cf12eb3e92f63"
+    },
+    {
+      "file": "Kicks/AH_Kicks_03_Pocket.wav",
+      "category": "Kicks",
+      "root_midi": null,
+      "frames": 38400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "08c025b69b4b8eca974c1d564423aa18d10424e61deb9b6d6e011a1b61f58d6b"
+    },
+    {
+      "file": "Kicks/AH_Kicks_04_Concrete.wav",
+      "category": "Kicks",
+      "root_midi": null,
+      "frames": 38400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "cb6e928a9f9bd759068d23ffe88728bc20392f52cb0ae4fe9f4e6a273cb1d5de"
+    },
+    {
+      "file": "Kicks/AH_Kicks_05_Bullet.wav",
+      "category": "Kicks",
+      "root_midi": null,
+      "frames": 38400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "cd6521dadce880fbcf645cfa16480568d4a5e49b571e8874d80c59df2a30f417"
+    },
+    {
+      "file": "Kicks/AH_Kicks_06_Floor.wav",
+      "category": "Kicks",
+      "root_midi": null,
+      "frames": 38400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "8e2e2972051f95897606197a740a9c30e60bf18dd7e9601c1662120444866715"
+    },
+    {
+      "file": "Kicks/AH_Kicks_07_Impact.wav",
+      "category": "Kicks",
+      "root_midi": null,
+      "frames": 38400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "bfa5cf61fe2f7776151fc41f0dde29cbd8b405a4243171ce5ea40587cf8ed880"
+    },
+    {
+      "file": "Kicks/AH_Kicks_08_Hammer.wav",
+      "category": "Kicks",
+      "root_midi": null,
+      "frames": 38400,
+      "channels": 1,
+      "peak_dbfs": -1.5,
+      "sha256": "cf17c884cc964f42399ae58f0492b4bc37a58aed5b1efc7fd89fb1a2a3fc0734"
+    },
+    {
+      "file": "Snares/AH_Snares_01_Crack.wav",
+      "category": "Snares",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "fbd3d47c9e20ce6b60bbbc360adbf8b95504259a44e42484f82d2b351ceb7142"
+    },
+    {
+      "file": "Snares/AH_Snares_02_Drywall.wav",
+      "category": "Snares",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "16bdb9b61f047a4eaccb928d5d125de6b2a87610a548c23fe46fb40b28505188"
+    },
+    {
+      "file": "Snares/AH_Snares_03_Paper.wav",
+      "category": "Snares",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "e885c32a46ed75f2deefdaecc732eb5d01cdbac9c62c2444e099d20c67ff8cd5"
+    },
+    {
+      "file": "Snares/AH_Snares_04_Snap.wav",
+      "category": "Snares",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "fe55b1ad3eb23c14c7c4c8beedcee1ad5ff623e56143cff8edf09cab54c5a447"
+    },
+    {
+      "file": "Snares/AH_Snares_05_Steel.wav",
+      "category": "Snares",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "aa363c0839170ef0f4194b2b50dbf5a4184735eecedd543e6c76e89f72abfc4f"
+    },
+    {
+      "file": "Snares/AH_Snares_06_Rattle.wav",
+      "category": "Snares",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "f95bd9fbb05e4a5c46a5e1d48a5b2c041d5ea4cf38d06f9aa8255f5e6c46cf36"
+    },
+    {
+      "file": "Snares/AH_Snares_07_Grain.wav",
+      "category": "Snares",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "173b27d3edcb943d979fad678df79ce00e0ce7d899b55008fc3ecb708336e2e0"
+    },
+    {
+      "file": "Snares/AH_Snares_08_Whip.wav",
+      "category": "Snares",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "c4a5ffa225c2fe13b24e2762592f3ffe8ec6483f0a553d4042dd16f31a5b344b"
+    },
+    {
+      "file": "Claps/AH_Claps_01_Close.wav",
+      "category": "Claps",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "8b97b1ccc3407024e4d8c691ba9209fcbda4b34261a420c372aa3c80ca3a7363"
+    },
+    {
+      "file": "Claps/AH_Claps_02_Stack.wav",
+      "category": "Claps",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "7fbd6eee38df1dfe5a442559eef922c65b78facf6c124a26f7c0c55f5bf7f04b"
+    },
+    {
+      "file": "Claps/AH_Claps_03_Alley.wav",
+      "category": "Claps",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "c7490ffd4ca76b4ed7e9a320f90d77739fdb1c853d8db42f29d0a01ce9d52f30"
+    },
+    {
+      "file": "Claps/AH_Claps_04_Wide.wav",
+      "category": "Claps",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "c7dafdf212c8e7c0b2e9573679df6cb35d85c7a9f02d73f49ded55b735f5702e"
+    },
+    {
+      "file": "Claps/AH_Claps_05_Dust.wav",
+      "category": "Claps",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "21c30d6a8b8fb153572a24eacc8a3a640b9e2cffe42321ac3feb03773766a723"
+    },
+    {
+      "file": "Claps/AH_Claps_06_Chamber.wav",
+      "category": "Claps",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "bf45dcec199b4529ef32efdc6f3974c502704a41e220dcf2c90ae4bb8ec58f13"
+    },
+    {
+      "file": "Closed Hats/AH_ClosedHats_01_Pin.wav",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "cdf9eade00ea3de8c4988cec1f8cdd0598df28fe9c316df5de6c41cbcbf9a0c3"
+    },
+    {
+      "file": "Closed Hats/AH_ClosedHats_02_Tick.wav",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "8a0db819bc938a401ee5816858e2cd1be080a4cc56fe4b2927e136fd476fb24b"
+    },
+    {
+      "file": "Closed Hats/AH_ClosedHats_03_Silk.wav",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "0dfc488b1c40c1a4ca7367464bdc1c12e180eb0cafe85422ea58cf1a1e290057"
+    },
+    {
+      "file": "Closed Hats/AH_ClosedHats_04_Quartz.wav",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "4454fa8860da9c6f35ed6979f63bb1fa32935d60a1ac9936d08f8c526f9ddcf2"
+    },
+    {
+      "file": "Closed Hats/AH_ClosedHats_05_Glass.wav",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "58446497018d982b6f9bc12099768885c532e48ff5fcf1da0ebb9ee856543e18"
+    },
+    {
+      "file": "Closed Hats/AH_ClosedHats_06_Needle.wav",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "aedf190d3d4d89ea3397d12af1f4d88f4b9ae294c6ec50ae5bcd944e69fb916f"
+    },
+    {
+      "file": "Closed Hats/AH_ClosedHats_07_Shiver.wav",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "69326023a642e541e328e46177ce8708febff5191fbdec19d468408d58f3d0ef"
+    },
+    {
+      "file": "Closed Hats/AH_ClosedHats_08_Tight.wav",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "def864cc0367536fcc2b3601689c853cb82e6343c4fee9ab795352b85b98a2cc"
+    },
+    {
+      "file": "Closed Hats/AH_ClosedHats_09_Static.wav",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "d57ebea4d11f0f729e0f39ed0af890cc75af5dc6128c35a5bdf5259ad1a55284"
+    },
+    {
+      "file": "Closed Hats/AH_ClosedHats_10_Diamond.wav",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "771a261ba44b360850300762776ad9bc76e114b8b89cfa42431adf63d4c07d99"
+    },
+    {
+      "file": "Open Hats/AH_OpenHats_01_Air.wav",
+      "category": "Open Hats",
+      "root_midi": null,
+      "frames": 52800,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "8e3973042587ddb5d14c6be65dad411a2b42d0a03f7eec1203c1b7af798c40a8"
+    },
+    {
+      "file": "Open Hats/AH_OpenHats_02_Halo.wav",
+      "category": "Open Hats",
+      "root_midi": null,
+      "frames": 52800,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "08d6a27b205a91c065e8b695eb16cbcba2f1f6dc5c47d49c22deafba65f39070"
+    },
+    {
+      "file": "Open Hats/AH_OpenHats_03_Silver.wav",
+      "category": "Open Hats",
+      "root_midi": null,
+      "frames": 52800,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "e91a30e6b5c8ed9301eac9d717c70c3b97d9ea3aa1ed6f930a300613f933c2cf"
+    },
+    {
+      "file": "Open Hats/AH_OpenHats_04_Sizzle.wav",
+      "category": "Open Hats",
+      "root_midi": null,
+      "frames": 52800,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "28f7b93e2b6ff7ff57bb40c22dbd7a3e8152d3a8e400aa4afe6f66a71de4d5ef"
+    },
+    {
+      "file": "Open Hats/AH_OpenHats_05_Haze.wav",
+      "category": "Open Hats",
+      "root_midi": null,
+      "frames": 52800,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "e1f836f2b9318b9fb69e7312092374c237086662eda485a901e89b47eead0293"
+    },
+    {
+      "file": "Open Hats/AH_OpenHats_06_Float.wav",
+      "category": "Open Hats",
+      "root_midi": null,
+      "frames": 52800,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "ffcc7919bf85055c55b8a09a18716558804b4ba981555e0e67d93ffc8ddad8ba"
+    },
+    {
+      "file": "Percussion/AH_Percussion_01_Wood.wav",
+      "category": "Percussion",
+      "root_midi": null,
+      "frames": 40800,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "563fe78ee7659aeae99dbf87017c26789376ffb85b812aaa6b0cca76d601bc28"
+    },
+    {
+      "file": "Percussion/AH_Percussion_02_Rim.wav",
+      "category": "Percussion",
+      "root_midi": null,
+      "frames": 40800,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "40adcdfd3455a4e474fed5b5f587ee71d8539b76c25eced5a8fb36ca6586b129"
+    },
+    {
+      "file": "Percussion/AH_Percussion_03_Clave.wav",
+      "category": "Percussion",
+      "root_midi": null,
+      "frames": 40800,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "ce92d8f0b3de749874c1cc745b9e47d3af599fce1177f809f83790d580b3b5af"
+    },
+    {
+      "file": "Percussion/AH_Percussion_04_Bottle.wav",
+      "category": "Percussion",
+      "root_midi": null,
+      "frames": 40800,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "c10c475d262bc074865ad3d78eea2d05feaa314bcfdbbefa21a239eaafb0c127"
+    },
+    {
+      "file": "Percussion/AH_Percussion_05_Bell.wav",
+      "category": "Percussion",
+      "root_midi": null,
+      "frames": 40800,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "ae0ab6bcdba94f608aab3b57a1063cf78df70e6f6f32ab3b05036af19a2785f6"
+    },
+    {
+      "file": "Percussion/AH_Percussion_06_Metal.wav",
+      "category": "Percussion",
+      "root_midi": null,
+      "frames": 40800,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "652a4affd9de4a3eb54a09a4f22a61c4cb0ebb18d02cbc76f890f36ae8061217"
+    },
+    {
+      "file": "Percussion/AH_Percussion_07_Tom.wav",
+      "category": "Percussion",
+      "root_midi": null,
+      "frames": 40800,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "d7c9c3efa37f3740e314c0cbcb3307d36ae036f431e6d43d91b7bbd91208763c"
+    },
+    {
+      "file": "Percussion/AH_Percussion_08_Bongo.wav",
+      "category": "Percussion",
+      "root_midi": null,
+      "frames": 40800,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "9e28d7f84a203efb909a2560f9c49d9e1b4addeac31b481f4f688dc772263333"
+    },
+    {
+      "file": "Percussion/AH_Percussion_09_Block.wav",
+      "category": "Percussion",
+      "root_midi": null,
+      "frames": 40800,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "dd9d5ba823efef1fb376a85e32d64fc4fb77bae2df5d537b02405d5d323059ee"
+    },
+    {
+      "file": "Percussion/AH_Percussion_10_Chime.wav",
+      "category": "Percussion",
+      "root_midi": null,
+      "frames": 40800,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "9bcd286e57d79419fb5a12a6ad8750f541fbb4723d848e30a3ac837abe7d3048"
+    },
+    {
+      "file": "FX/AH_FX_01_Laser.wav",
+      "category": "FX",
+      "root_midi": null,
+      "frames": 86400,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "ade8cc0e84d4fea6670ce1472c172390bc484c9b2a923580a2becedcec93813f"
+    },
+    {
+      "file": "FX/AH_FX_02_Drop.wav",
+      "category": "FX",
+      "root_midi": null,
+      "frames": 86400,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "5efefcb6c155c353f93407182b735ca147504c6efa8df8da498300ade0858122"
+    },
+    {
+      "file": "FX/AH_FX_03_Dustfall.wav",
+      "category": "FX",
+      "root_midi": null,
+      "frames": 86400,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "dd0f70d8991835cc7b83b6a92c0ba0e4bb53573bd5cc361ff92a1fc92870a5b2"
+    },
+    {
+      "file": "FX/AH_FX_04_Comet.wav",
+      "category": "FX",
+      "root_midi": null,
+      "frames": 86400,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "d3d42386944981878bedf00b2835ee4e0ac5d95ecf88a4206429e7fd1e20b653"
+    }
+  ]
+}

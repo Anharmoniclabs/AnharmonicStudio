@@ -130,6 +130,11 @@ def test_browser_exposes_linked_drum_packs_and_folder_filter(window):
 
     index = window.browser.source_filter.findData("packs")
     window.browser.source_filter.setCurrentIndex(index)
+    # Bundled sounds are now present alongside externally linked packs.
+    assert len(window.browser.list.sounds()) == 65
+    window.browser.category_filter.setCurrentIndex(
+        window.browser.category_filter.findData("Hits/Bass Drum [BD]")
+    )
 
     assert len(window.browser.list.sounds()) == 1
     item = window.browser.list.sounds()[0]

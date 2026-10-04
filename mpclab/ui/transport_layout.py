@@ -15,6 +15,9 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QSlider,
     QLineEdit,
+    QVBoxLayout,
+    QMenu,
+    QWidgetAction,
 )
 from .. import APP_NAME, ORGANIZATION_NAME
 from ..audio_kernel import AUDIO_BUFFER_PROFILES
@@ -28,8 +31,9 @@ def _build_transport(window) -> QWidget:
     bar.setObjectName("transportBar")
     bar.setAttribute(Qt.WA_StyledBackground, True)
     lay = QHBoxLayout(bar)
-    lay.setContentsMargins(12, 7, 12, 7)
-    lay.setSpacing(9)
+    compact = window.hardware_profile.compact
+    lay.setContentsMargins(8, 3 if compact else 7, 8, 3 if compact else 7)
+    lay.setSpacing(5 if compact else 9)
 
     window.transport_meters = TransportMeters()
     lay.addWidget(window.transport_meters)
@@ -203,13 +207,20 @@ def _build_transport(window) -> QWidget:
     window.audio_buffer.setObjectName("mini")
     for label, frames in AUDIO_BUFFER_PROFILES:
         period = frames / window.engine.sr * 1000.0
-        window.audio_buffer.addItem(f"{label} · {period:.1f}ms", frames)
+        window.audio_buffer.addItem(f"{label} · {frames} frames", frames)
+        window.audio_buffer.setItemData(
+            window.audio_buffer.count() - 1,
+            f"{period:.2f} ms per processing block at {window.engine.sr / 1000:g} kHz. "
+            "Actual latency also includes device, queue and plugin delays.",
+            Qt.ToolTipRole,
+        )
     current_buffer = window.audio_buffer.findData(window.engine.blocksize)
     window.audio_buffer.setCurrentIndex(max(0, current_buffer))
     window.audio_buffer.setToolTip(
         "Audio response profile. Lower is faster but leaves less DSP headroom.\n"
         "512 is recommended during builds, 256 for normal production, and "
-        "128 is experimental for light tracking only."
+        "128 is experimental for light tracking only.\n"
+        "Use Audio setup's cabled loopback test to measure round-trip latency."
     )
     window.audio_buffer.currentIndexChanged.connect(window._audio_buffer_changed)
     lay.addWidget(window.audio_buffer)
@@ -251,5 +262,38 @@ def _build_transport(window) -> QWidget:
         window.btn_audio_retry,
         window.btn_help,
         window.cpu_label,
+    ]
+    # One predictable transport on every display. Secondary controls keep
+    # their original signal connections and state inside the overflow panel.
+    more = QPushButton("More")
+    more.setAccessibleName("More transport controls")
+    more.setToolTip("Swing, master level, audio buffer and device setup")
+    menu = QMenu(more)
+    controls = QWidget()
+    rows = QVBoxLayout(controls)
+    popup_widgets = []
+    for widgets in (
+        (window.btn_tap, window.swing_title, window.swing, window.swing_label),
+        (window.master_title, window.master_slider),
+        (window.btn_cut_self, window.btn_typing),
+        (window.audio_buffer, window.btn_audio_retry),
+    ):
+        row = QHBoxLayout()
+        for widget in widgets:
+            lay.removeWidget(widget)
+            row.addWidget(widget)
+            popup_widgets.append(widget)
+        rows.addLayout(row)
+    action = QWidgetAction(menu)
+    action.setDefaultWidget(controls)
+    menu.addAction(action)
+    menu.addSeparator()
+    menu.addAction("Audio setup…", window.show_audio_setup)
+    more.setMenu(menu)
+    lay.insertWidget(lay.indexOf(window.cpu_label), more)
+    window.transport_more = more
+    # Focus mode must leave the overflow available and its children enabled.
+    window.transport_focus_hidden = [
+        widget for widget in window.transport_focus_hidden if widget not in popup_widgets
     ]
     return bar

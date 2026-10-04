@@ -115,7 +115,7 @@ def sample_group(clip):
     ):
         if tokens & words or (label == "Kicks" and {"bass", "drum"} <= tokens):
             return "drums", "Drum loops" if loop else label
-    if re.search(r"\b808\b", text) and getattr(clip, "kind", "") == "kit":
+    if re.search(r"(?<![a-z0-9])808(?![a-z0-9])", text):
         return "melodic", "Bass"
     for words, label in (
         ({"bass", "sub", "subbass"}, "Bass"),

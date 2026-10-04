@@ -176,6 +176,8 @@ def assign_sample_to_pad(window, gi: int, clip_id: str):
         return
     window.snapshot()
     pad = window.project.pads[gi]
+    if pad.empty and clip.root_note is not None:
+        pad.root_note = clip.root_note
     pad.sample_id = clip_id
     pad.name = clip.name
     pad.start = 0.0

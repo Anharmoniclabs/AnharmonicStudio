@@ -556,3 +556,85 @@ def test_setup_includes_hotplug_pipewire_output_and_refreshes(window, monkeypatc
     with pytest.raises(ValueError, match="direct ALSA"):
         dialog._selected_device_index(dialog.outputs, "scarlett")
     dialog.reject()
+
+
+def test_device_change_preserves_independent_channel_choices():
+    outputs = [dict(index=i, key=f"out{i}", label=f"Output {i}", channels=8) for i in (1, 2)]
+    inputs = [dict(index=i, key=f"in{i}", label=f"Input {i}", channels=8) for i in (3, 4)]
+    dialog = AudioSetupDialog(outputs, inputs)
+    dialog.select_saved("out1", "in3")
+    dialog.select_channels((4,), (6, 7))
+    dialog.input_box.setCurrentIndex(dialog.input_box.findData("in4"))
+    assert dialog.output_channels.currentData() == (6, 7)
+    assert dialog.input_channels.currentData() == ((4,), False)
+    dialog.output_box.setCurrentIndex(dialog.output_box.findData("out2"))
+    assert dialog.input_channels.currentData() == ((4,), False)
+    # Removing the multichannel output must fall back to a supported pair.
+    dialog.output_box.setCurrentIndex(0)
+    assert dialog.output_channels.currentData() == (0, 1)
+
+
+def test_rejected_output_pair_is_not_saved_and_previous_route_is_reopened(window):
+    output = dict(index=7, key="output-key", label="USB out", channels=8)
+    dialog = AudioSetupDialog([output], [], window)
+    dialog.select_saved("output-key")
+    dialog.select_channels((0,), (6, 7))
+    window._audio_output_key = "output-key"
+    window.engine.stream = object()
+    window.engine.output_device = 7
+    previous = window.engine.output_channels
+    before = dict(_MemorySettings.values)
+    reopened = []
+
+    def fail(_frames):
+        window.engine.stream = None
+        raise RuntimeError("unsupported output pair")
+
+    def reopen(device):
+        reopened.append((device, window.engine.output_channels))
+        window.engine.stream = object()
+
+    window.engine.restart = fail
+    window.engine.restart_device = reopen
+    window._apply_audio_setup(dialog)
+    assert window.engine.output_channels == previous
+    assert reopened == [(7, previous)]
+    assert _MemorySettings.values == before
+    assert "unavailable" in window.status.currentMessage()
+
+
+def test_failed_device_switch_does_not_mark_setup_complete(window):
+    dialog = AudioSetupDialog([dict(key="missing", label="Missing interface")], [], window)
+    dialog.select_saved("missing")
+    before = dict(_MemorySettings.values)
+    window._select_audio_output = lambda _key: False
+    window._apply_audio_setup(dialog)
+    assert _MemorySettings.values == before
+
+
+def test_cabled_loopback_uses_selected_route_and_restores_output(window, monkeypatch):
+    dialog = AudioSetupDialog(
+        [dict(key="out", label="Output", channels=8)],
+        [dict(key="in", label="Input", channels=8)],
+        window,
+    )
+    dialog.select_saved("out", "in", "production")
+    dialog.select_channels((4,), (6, 7))
+    window._audio_setup_dialog = dialog
+    calls = []
+    window.engine.stream = object()
+    window.engine.stop = lambda: calls.append("stop")
+    window.engine.start = lambda: calls.append("start")
+
+    def measure(*args, **kwargs):
+        calls.append((args, kwargs))
+        return LatencyCalibration(480, 48_000, 0.9)
+
+    monkeypatch.setattr(main_window, "run_loopback_calibration", measure)
+    result = window._run_setup_loopback_calibration(9, 7)
+    assert calls == [
+        "stop",
+        ((9, 7, window.engine.sr), dict(blocksize=256, input_channel=4, output_channels=(6, 7))),
+        "start",
+    ]
+    assert result.milliseconds == 10

@@ -41,6 +41,16 @@ are public GitHub release assets. Cloudflare R2 stores only the compiled install
 
 ## Latest source updates
 
+The October 4 source update begins the Qt Quick/QML interface migration with
+live workspace navigation: tabs on wide windows, a workspace picker on narrow
+ones, keyboard navigation, and a widget fallback if the scene fails. It uses
+the existing editors and production C++ DSP; project and audio state stay in
+their established owners. Transport overflow stays accessible in focus mode,
+audio setup preserves independent channel choices and rejects failed routes,
+and buffer durations are distinguished from measured round-trip latency.
+This is the first migrated interface surface, not a complete QML rewrite.
+Release self-checks now require the bundled QML scene to load.
+
 The September 27 source update improves count-in recording, separate pad/key
 routing, Song recording, uninterrupted workspace switching, independent Native
 and Prism instruments per pattern, and undo/redo responsiveness. Prism now
@@ -51,6 +61,19 @@ These changes are newer than the paid **0.1.0-rc.1** packages. A new encrypted
 candidate build must pass validation before the private download catalog changes.
 
 ## What is inside
+
+**Display-aware desktop:** startup checks the local CPU/memory and the current
+screen's usable logical size before constructing the workspace. Laptop screens
+start with compact crates and transport controls, a wider editor and optional
+pads. Editors and application dialogs scroll when their controls need more room;
+display/work-area changes refit the window without changing your project.
+
+**Trap Foundry:** 64 original, bundled 48 kHz / 24-bit drum one-shots, including
+12 tuned 808s, kicks, snares, claps, closed/open hats, percussion and FX.
+They appear automatically in the Browser; choose **Tools → Song / beat tools →
+Trap Foundry** in the workspace to load an eight-voice kit and editable groove.
+New pads/Notes instruments use the 808s' known root notes. See the
+[pack guide and license](assets/drums/trap-foundry/README.md).
 
 The current source includes a 128-track mixer, named
 timeline markers/regions, and audio-file analysis. See the

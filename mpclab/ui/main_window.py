@@ -80,6 +80,7 @@ from . import (
     project_actions,
 )
 from .layout_helpers import small
+from .workspace_fit import WorkspaceFit, inspect_hardware, write_profile
 
 # Numeric keypad → local pad index, matching PAD_KEYS. Every entry is matched
 # only when Qt.KeypadModifier is set, so the number row and the main Enter,
@@ -373,6 +374,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     def __init__(self, root: Path, *, restore_session: bool = True):
         super().__init__()
+        self.hardware_profile = inspect_hardware(self.screen())
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.setWindowIcon(owner_icon())
         self.export_job = None
@@ -397,7 +399,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         if not restore_session and self.session_path.exists():
             self._archive_session_recovery()
 
-        self.library = Library(root / "library")
+        self.library = Library(root / "library", include_bundled=True)
         self.project = Project()
         self.settings = QSettings(
             QSettings.IniFormat, QSettings.UserScope, ORGANIZATION_NAME, APP_SLUG
@@ -494,10 +496,12 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.setWindowTitle(APP_NAME)
         # The app is designed to remain usable beside another window.  Ignore
         # wide child-page size hints and let focused/compact controls reflow.
-        self.setMinimumSize(720, 560)
-        self.resize(1680, 950)
+        self.setMinimumSize(720, 480)
+        self.resize(*self.hardware_profile.initial_size)
         self.setStyleSheet(stylesheet())
         self._build()
+        self.workspace_fit = WorkspaceFit(self)
+        write_profile(self.hardware_profile, self.root)
         if restore_session:
             self._restore_session()
 
@@ -545,6 +549,9 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
+        if not getattr(self, "_workspace_fit_attached", False):
+            self._workspace_fit_attached = True
+            self.workspace_fit.attach()
         app = QApplication.instance()
         if app is not None and app.platformName().lower() in ("offscreen", "minimal"):
             return
@@ -617,13 +624,38 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             return
         mapping = tuple(dialog.output_channels.currentData() or (0, 1))
         previous_mapping = self.engine.output_channels
+        was_running = self.engine.stream is not None
+
+        def restore_channels():
+            self.engine.output_channels = previous_mapping
+            if was_running and mapping != previous_mapping:
+                try:
+                    self.engine.restart_device(self.engine.output_device)
+                    self._audio_start_error = None
+                except Exception as restore_error:
+                    self._audio_start_error = str(restore_error)
+
         self.engine.output_channels = mapping
         if output_key != self._audio_output_key:
-            self._select_audio_output(output_key)
+            if self._select_audio_output(output_key) is False:
+                restore_channels()
+                return
         frames = dialog.recommended_frames
         index = self.audio_buffer.findData(frames)
         if index >= 0 and frames != self.engine.blocksize:
             self.audio_buffer.setCurrentIndex(index)
+            if self.engine.blocksize != frames:
+                restore_channels()
+                return
+        if previous_mapping != mapping and self.engine.stream is not None:
+            try:
+                self.engine.restart(self.engine.blocksize)
+            except Exception as exc:
+                # Engine.restart can only restore the mapping it was given.
+                # Reopen the previous channel pair before reporting failure.
+                restore_channels()
+                self.status.showMessage(f"Output channels unavailable: {exc}", 6000)
+                return
         self.settings.setValue("audio/input_device", dialog.input_key)
         self.settings.setValue("audio/workflow", dialog.workflow_box.currentData())
         self.settings.setValue("audio/setup_complete", True)
@@ -635,13 +667,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.settings.setValue("audio/input_channels", json.dumps(rec.input_channels))
         self.settings.setValue("audio/split_inputs", rec.split_inputs)
         self.settings.setValue("audio/output_channels", json.dumps(mapping))
-        if previous_mapping != mapping and self.engine.stream is not None:
-            try:
-                self.engine.restart(self.engine.blocksize)
-            except Exception as exc:
-                self.engine.output_channels = previous_mapping
-                self.status.showMessage(f"Output channels unavailable: {exc}", 6000)
-                return
         if dialog.calibration is not None:
             milliseconds = dialog.calibration.milliseconds
             rec.input_latency_ms = milliseconds
@@ -829,7 +854,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
                 self._audio_start_error = error
             self.status.showMessage(f"audio switch failed · {error}", 8000)
             self._refresh_audio_menu()
-            return
+            return False
         self._audio_output_key = key
         self.settings.setValue("audio/output_device", key)
         self._audio_start_error = None
@@ -837,6 +862,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         label = selected["name"] if selected is not None else "system default"
         self.status.showMessage(f"audio connected · {label}", 4000)
         self._refresh_audio_menu()
+        return True
 
     def _repair_audio_connections(self):
         """Hot-plug recovery: rediscover and reopen the preferred output."""
@@ -1831,23 +1857,32 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.logo.setVisible(self.width() >= 1000 and not getattr(self, "_playlist_focus", False))
         self.record_destination_label.setVisible(self.width() >= 1450)
         self.project_bar.setMinimumWidth(self.project_bar.sizeHint().width())
-        self.transport_meters.setVisible(self.width() >= 1100)
+        self.transport_meters.setVisible(self.width() >= 1440)
         if getattr(self, "_playlist_focus", False):
             return
         compact = getattr(self, "_compact_panels", None)
-        if self.width() < 1100 and compact is None:
+        if self.width() < 1440 and compact is None:
             self._compact_panels = (
                 not self.browser_frame.isHidden(),
                 not self.pad_side.isHidden(),
                 self.main_splitter.sizes(),
             )
-            self.browser_frame.hide()
+            self.browser_frame.setVisible(
+                self.width() >= 1100 and compact is None and self._compact_panels[0]
+            )
             self.pad_side.hide()
-        elif self.width() >= 1200 and compact is not None:
+        elif self.width() < 1100 and compact is not None:
+            # Explicit panel toggles survive layout events, but an actual
+            # shrink must reclaim the editor even within the compact range.
+            if self.width() < getattr(self, "_responsive_width", 0):
+                self.browser_frame.hide()
+                self.pad_side.hide()
+        elif self.width() >= 1440 and compact is not None:
             self._compact_panels = None
             self.browser_frame.setVisible(compact[0])
             self.pad_side.setVisible(compact[1])
             self.main_splitter.setSizes(compact[2])
+        self._responsive_width = self.width()
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)

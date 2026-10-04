@@ -23,6 +23,7 @@ from .arrangement_tools import (
 )
 from .visual_assets import WorkspaceVisuals
 from . import theme
+from .workspace_fit import EditorViewport
 
 
 def mount():
@@ -102,8 +103,14 @@ class StudioPanel(QWidget):
             self.buttons[index] = button
 
         nav.addStretch(1)
-        self.mode_scroll = horizontal_strip(navigation, 46)
-        layout.addWidget(self.mode_scroll)
+        self.mode_scroll = horizontal_strip(navigation, 56)
+        mode_bar = QWidget()
+        self.mode_bar = mode_bar
+        mode_layout = QHBoxLayout(mode_bar)
+        mode_layout.setContentsMargins(0, 0, 8, 0)
+        mode_layout.setSpacing(6)
+        mode_layout.addWidget(self.mode_scroll, 1)
+        layout.addWidget(mode_bar)
 
         # Secondary destinations are tools rather than another row of duplicate
         # top-level DAW tabs.
@@ -125,7 +132,8 @@ class StudioPanel(QWidget):
         tips.setCheckable(True)
         tips.toggled.connect(lambda visible: self.hint.setVisible(visible))
         self.more_button.setMenu(menu)
-        nav.addWidget(self.more_button)
+        # Keep Tools reachable even when the editor tabs overflow.
+        mode_layout.addWidget(self.more_button)
 
         self.hint = QLabel()
         self.hint.setWordWrap(True)
@@ -139,7 +147,9 @@ class StudioPanel(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(QLabel("KIT"))
         self.kit = QComboBox()
-        self.kit.addItems(["Pocket · hip-hop", "Circuit · house", "Midnight · trap"])
+        self.kit.addItems(
+            ["Pocket · hip-hop", "Circuit · house", "Midnight · trap", "Trap Foundry · hi-res trap"]
+        )
         row.addWidget(self.kit)
         self.create_beat = QPushButton("+ NEW GROOVE")
         self.create_beat.setObjectName("go")
@@ -218,7 +228,7 @@ class StudioPanel(QWidget):
             holder = mount()
             holder.layout().addWidget(page)
             tabs.insertTab(index, holder, title)
-            dock = mount()
+            dock = EditorViewport()
             self.stack.addWidget(dock)
             self.pages[index], self.holders[index], self.docks[index] = page, holder, dock
         self.arrangement = self.docks[2]
@@ -231,6 +241,30 @@ class StudioPanel(QWidget):
         layout.insertWidget(1, self.visuals.header)
         self.visuals.header.hide()
         self._apply_reference_style()
+        self._install_quick_navigation()
+
+    def _install_quick_navigation(self):
+        from .quick_navigation import QuickNavigation
+
+        self.quick_navigation = QuickNavigation(
+            [{"page": index, "label": button.text()} for index, button in self.buttons.items()],
+            self.mode_bar,
+        )
+        self.mode_bar.layout().insertWidget(0, self.quick_navigation, 1)
+        self.quick_navigation.activated.connect(self._workspace_clicked)
+        self.quick_navigation.unavailable.connect(self._use_widget_navigation)
+        self.quick_navigation.select(self.selected)
+        if self.quick_navigation.ready:
+            self.mode_scroll.hide()
+        else:
+            self._use_widget_navigation(
+                "\n".join(error.toString() for error in self.quick_navigation.errors())
+            )
+
+    def _use_widget_navigation(self, reason):
+        self.navigation_error = reason
+        self.quick_navigation.hide()
+        self.mode_scroll.show()
 
     def _show_actions(self, visible):
         self.action_scroll.setVisible(visible and self.selected in (1, 2, 6))
@@ -278,6 +312,8 @@ class StudioPanel(QWidget):
         )
         navigation = self.mode_scroll.widget()
         navigation.setMinimumWidth(navigation.sizeHint().width())
+        if hasattr(self, "quick_navigation"):
+            self.quick_navigation.refresh_theme()
 
     def _app(self):
         candidate = self.tabs.window()
@@ -351,6 +387,10 @@ class StudioPanel(QWidget):
         self.stack.setCurrentWidget(self.docks[index])
         for key, button in self.buttons.items():
             button.setChecked(key == index)
+        if index in self.buttons:
+            self.mode_scroll.ensureWidgetVisible(self.buttons[index], 8, 0)
+        if hasattr(self, "quick_navigation"):
+            self.quick_navigation.select(index)
         self.beat_tools.setVisible(index == 1)
         self.arrange_tools.setVisible(index == 2)
         self._show_actions(self.song_tools_action.isChecked())
@@ -374,7 +414,11 @@ class StudioPanel(QWidget):
         self.enabled = enabled
         self.tabs.tabBar().setVisible(not enabled)
         for index, page in self.pages.items():
-            (self.docks if enabled else self.holders)[index].layout().addWidget(page)
+            if enabled:
+                self.docks[index].mount(page)
+            else:
+                self.docks[index].takeWidget()
+                self.holders[index].layout().addWidget(page)
             page.show()
 
         # Reference target keeps Browser left and rack/Inspector right. Apply

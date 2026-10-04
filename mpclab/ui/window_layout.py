@@ -112,6 +112,11 @@ def _build(window):
     window.main_splitter.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
 
     window.browser = BrowserPanel(window)
+    detailed = window.settings.value("ui/crate_detail", not window.hardware_profile.compact)
+    window.browser.crate_detail_toggle.setChecked(str(detailed).lower() not in ("false", "0"))
+    window.browser.crate_detail_toggle.toggled.connect(
+        lambda checked: window.settings.setValue("ui/crate_detail", checked)
+    )
     window.browser.clipSelected.connect(window.load_clip_into_editor)
     window.browser.clipActivated.connect(lambda cid: window.engine.audition(cid, 0.0, 0.0))
     window.browser.libraryChanged.connect(window._library_changed)
@@ -147,8 +152,12 @@ def _build(window):
 
     window.setCentralWidget(central)
     # Put the single navigation row across the workspace, above both panels.
-    window.studio.layout().removeWidget(window.studio.mode_scroll)
-    outer.insertWidget(2, window.studio.mode_scroll)
+    window.studio.layout().removeWidget(window.studio.mode_bar)
+    outer.insertWidget(2, window.studio.mode_bar)
+    if window.hardware_profile.compact:
+        for button in window.studio.buttons.values():
+            button.setMinimumHeight(28)
+        window.studio.mode_scroll.setFixedHeight(46)
     window.panel_controls = QWidget()
     panel_controls = QHBoxLayout(window.panel_controls)
     panel_controls.setContentsMargins(0, 0, 6, 0)

@@ -144,6 +144,10 @@ class AudioSetupDialog(QDialog):
         )
 
     def _channels_changed(self, *_args):
+        # Rebuilding one device's channel list must not silently reset the
+        # other route (for example an output pair feeding the artist's cans).
+        inputs, split = self.input_channels.currentData() or ((0,), False)
+        outputs = self.output_channels.currentData() or (0, 1)
         selected = next((item for item in self.inputs if item.get("key") == self.input_key), {})
         count = max(1, int(selected.get("channels", 2)))
         self.input_channels.clear()
@@ -160,6 +164,7 @@ class AudioSetupDialog(QDialog):
             self.output_channels.addItem(
                 f"Outputs {channel + 1}–{channel + 2}", (channel, channel + 1)
             )
+        self.select_channels(inputs, outputs, split, self.monitor_mode.currentData())
 
     def select_channels(self, inputs=(0,), outputs=(0, 1), split=False, monitor=False):
         for box, value in (

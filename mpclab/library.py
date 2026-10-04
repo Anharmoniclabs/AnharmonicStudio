@@ -54,10 +54,13 @@ class Library:
         root: Path,
         sample_rate: int = AUDIO_SAMPLE_RATE,
         audio_budget_bytes: int = DEFAULT_AUDIO_BUDGET,
+        *,
+        include_bundled: bool = False,
     ):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.sr = sample_rate
+        self.include_bundled = include_bundled
         self.audio_budget_bytes = max(0, int(audio_budget_bytes))
         self._cache_lock = threading.RLock()
         self._storage_dir = self.root / "_cache"
@@ -116,6 +119,14 @@ class Library:
                 continue
             self.clips[clip.id] = clip
         self.scan_registered_packs()
+        if self.include_bundled:
+            from .runtime_paths import RESOURCE_ROOT
+
+            self._scan_pack(
+                RESOURCE_ROOT / "assets/drums/trap-foundry",
+                "Anharmonic Trap Foundry",
+                identity="anharmonic-trap-foundry-v1",
+            )
 
     def _write_meta(self, clip: Clip) -> None:
         folder = self.folder(clip.id)
@@ -186,10 +197,21 @@ class Library:
                 continue
         return added
 
-    def _scan_pack(self, root: Path, pack_name: str) -> int:
+    def _scan_pack(self, root: Path, pack_name: str, *, identity: str | None = None) -> int:
         root = root.resolve()
         if not root.is_dir():
             return 0
+        roots = {}
+        if identity is not None:
+            try:
+                manifest = json.loads((root / "manifest.json").read_text())
+                roots = {
+                    item["file"]: item["root_midi"]
+                    for item in manifest["sounds"]
+                    if type(item.get("root_midi")) is int and 0 <= item["root_midi"] <= 127
+                }
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
         added = 0
         for source in sorted(root.rglob("*")):
             if (
@@ -202,7 +224,12 @@ class Library:
                 )
             ):
                 continue
-            stable = uuid.uuid5(uuid.NAMESPACE_URL, source.resolve().as_uri()).hex[:12]
+            key = (
+                f"urn:{identity}/{source.relative_to(root).as_posix()}"
+                if identity
+                else source.resolve().as_uri()
+            )
+            stable = uuid.uuid5(uuid.NAMESPACE_URL, key).hex[:12]
             if stable in self.clips:
                 continue
             try:
@@ -222,6 +249,7 @@ class Library:
                 source_path=str(source.resolve()),
                 pack=pack_name,
                 category=category,
+                root_note=roots.get(relative.as_posix()),
             )
             added += 1
         return added

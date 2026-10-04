@@ -1,5 +1,28 @@
 # Anharmonic Studio System Map
 
+## October 4, 2026 interface migration
+
+The production audio core already lives in `mpclab/native/`, built by
+`native/CMakeLists.txt`. The native output callback consumes the bounded FIFO;
+the Python render worker coordinates the existing C++ DSP kernels. This update
+does not replace the engine or certify physical audio-interface drivers.
+
+`ui/qml/WorkspaceNavigation.qml` is the first Qt Quick surface. Its
+`QuickNavigation` adapter emits workspace IDs to `StudioPanel`; project state,
+editor ownership, transport, recording and undo stay with their existing owners.
+The scene adapts from tabs to a workspace picker below 720 logical pixels of
+available navigation width. Theme and programmatic workspace changes are pushed
+into the scene. Qt widgets provide recovery when QML loading or rendering fails.
+Release self-checks require QML loading even though runtime recovery is available,
+so missing scene files cannot silently pass packaging validation.
+
+The remaining editors and transport are Qt widgets. Further migration should
+follow this presentation-only boundary and preserve the same command handlers.
+Physical driver/latency testing and frozen-package verification on each target
+remain separate release requirements.
+
+## Earlier ownership audit
+
 Status: audit snapshot for `main` at `8ff5651d90bc737edc4bbbbf28f0ef7deffd11f1`.
 
 This is an ownership map, not a move list. During this pass production files are

@@ -111,7 +111,9 @@ class SampleWorkflow(WindowClient):
             name=clip.name,
             start=start,
             end=end,
-            root_note=previous.root_note if replacing_loaded else 60,
+            root_note=previous.root_note
+            if replacing_loaded
+            else (clip.root_note if clip.root_note is not None else 60),
             reverse=False,
             sync_beats=0.0,
         )
@@ -148,6 +150,8 @@ class SampleWorkflow(WindowClient):
         root_message = (
             f"root MIDI {pad.root_note} preserved"
             if replacing_loaded and destination == "notes"
+            else f"root MIDI {clip.root_note} from sample pack"
+            if clip.root_note is not None
             else "root C4 assumed; set recorded pitch in Notes"
         )
         app.status.showMessage(

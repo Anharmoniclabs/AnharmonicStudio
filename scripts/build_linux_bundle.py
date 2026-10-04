@@ -84,6 +84,8 @@ def main():
             f"{root / 'assets'}:assets",
             "--add-data",
             f"{root / 'mpclab/native'}:mpclab/native",
+            "--add-data",
+            f"{root / 'mpclab/ui/qml'}:mpclab/ui/qml",
             "--add-binary",
             f"{native}:.native",
             "--add-binary",
