@@ -113,3 +113,39 @@ print(json.dumps({'width': image.width(), 'height': image.height(), 'hits': hits
         check=True,
     )
     assert json.loads(result.stdout) == {"width": 80, "height": 32, "hits": [True]}
+
+
+def test_desktop_entrypoint_opens_maximized_with_the_selected_scale(tmp_path):
+    code = """
+import json
+import sys
+from PySide6.QtCore import QSettings
+from PySide6.QtWidgets import QApplication
+QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, sys.argv[1] + '/settings')
+from mpclab.application_features import install_application_runtime
+install_application_runtime()
+from mpclab.engine import Engine
+Engine.start = lambda *args, **kwargs: None
+from mpclab.ui.main_window import MainWindow
+from mpclab.__main__ import main
+def inspect_startup():
+    app = QApplication.instance()
+    app.processEvents()
+    window = next(w for w in app.topLevelWidgets() if isinstance(w, MainWindow))
+    print(json.dumps({'maximized': window.isMaximized(), 'scale': window.devicePixelRatioF()}))
+    window._dirty = False
+    window.close()
+    return 0
+QApplication.exec = staticmethod(inspect_startup)
+sys.argv = ['studio', '--data-dir', sys.argv[1], '--ui-scale', '0.8']
+raise SystemExit(main())
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(tmp_path)],
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    assert json.loads(result.stdout) == {"maximized": True, "scale": 0.8}
