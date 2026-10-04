@@ -24,6 +24,7 @@ def _record_toggled(window, enabled):
     window._record_count_timer.stop()
     window._record_count_deadline = None
     window.record_count_label.hide()
+    window._record_count_audio = False
     capture = window.track_capture
     # In sequencing workspaces Record always means a pattern performance.
     # A separately armed audio lane remains armed for a later take; it
@@ -121,23 +122,25 @@ def _record_toggled(window, enabled):
     # pattern that is already running.  Restarting transport for a
     # count-in here makes it impossible to record against the groove the
     # player is hearing.  A stopped transport still takes the familiar
-    # three-beat count-in below.
+    # four-beat count-in below.
     if window.engine.playing and window.engine.mode == "pattern":
         window._snapshot_recording_take()
         window.engine.recording = True
         window.status.showMessage("Recording · pattern overdub · Record or Stop ends", 3500)
         return
     window.engine.recording = False
-    window.engine.stop_transport(rewind=False)
+    window.engine.stop_transport(rewind=True)
     window._record_count_beat_seconds = 60.0 / max(1.0, window.project.bpm)
-    window._record_count_deadline = time.monotonic() + 3 * window._record_count_beat_seconds
-    window._record_count_last = 3
+    window._record_count_deadline = (
+        time.monotonic() + window.engine.latency_ms / 1000 + 4 * window._record_count_beat_seconds
+    )
+    window._record_count_last = 4
     window._snapshot_recording_take()
-    window.engine.record_after(window._record_count_deadline)
-    window.engine.count_in_click(True)
-    window.record_count_label.setText("3")
+    window._record_count_audio = True
+    window.engine.record_after(window._record_count_deadline, count_beats=4)
+    window.record_count_label.setText("4")
     window.record_count_label.show()
-    window.status.showMessage("Count-in · 3 · Record or Stop cancels")
+    window.status.showMessage("Count-in · 4 · Record or Stop cancels")
     window._record_count_timer.start()
 
 
@@ -148,16 +151,27 @@ def _advance_record_count(window):
     if remaining > 0:
         import math
 
-        count = max(1, math.ceil(remaining / window._record_count_beat_seconds))
+        count = min(
+            window._record_count_last,
+            max(1, math.ceil(remaining / window._record_count_beat_seconds)),
+        )
         if count != window._record_count_last:
             window._record_count_last = count
-            window.engine.count_in_click(False)
+            if not getattr(window, "_record_count_audio", False):
+                window.engine.count_in_click(False)
         window.record_count_label.setText(str(count))
         return
     window._record_count_timer.stop()
     window._record_count_deadline = None
     window.record_count_label.hide()
     already_started = window.engine.playing and window.engine.recording
+    if (
+        not already_started
+        and getattr(window, "_record_count_audio", False)
+        and window.engine.stream is not None
+    ):
+        # The audio callback owns the exact start; the UI only displays it.
+        return
     if not already_started and not window.engine.metronome:
         window.engine.count_in_click(True)
     if window.track_capture.pending:

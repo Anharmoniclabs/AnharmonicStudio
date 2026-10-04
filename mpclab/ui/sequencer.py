@@ -368,6 +368,14 @@ class StepGrid(WindowClient, QWidget):
         menu.addSeparator()
         menu.addAction("Audition", lambda: self.padAuditioned.emit(gi))
         menu.addAction("Select this pad", lambda: self.padSelected.emit(gi))
+        routing = menu.addMenu("Route to mixer track")
+        for track_index, track in enumerate(self.app.project.tracks):
+            action = routing.addAction(
+                f"{track_index + 1} · {track.name}",
+                lambda checked=False, destination=track_index: self._route_pad(gi, destination),
+            )
+            action.setCheckable(True)
+            action.setChecked(track_index == pad.track)
         menu.addAction("Open in Notes", lambda: self.app.sample_workflow.open_notes(gi))
         menu.addAction(
             "Convert steps to notes (keep swing)", lambda: self.app.sample_workflow.step_notes(gi)
@@ -385,6 +393,20 @@ class StepGrid(WindowClient, QWidget):
         paste.setEnabled(self._clipboard is not None)
         menu.addAction("Clear lane", lambda: self._clear_lane(gi))
         menu.exec(global_pos)
+
+    def _route_pad(self, gi: int, track: int):
+        if not 0 <= track < len(self.app.project.tracks):
+            return
+        pad = self.app.project.pads[gi]
+        if pad.track == track:
+            return
+        self.app.snapshot()
+        pad.track = track
+        self.app._set_dirty(True)
+        self.app.pad_inspector.set_pad(self.app.pads.selected)
+        self.app.pads.update()
+        self.app.status.showMessage(f"{pad.name or 'Pad'} → Mixer {track + 1} · all patterns", 4000)
+        self.refresh()
 
     def _commit(self):
         self.stepEdited.emit()

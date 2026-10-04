@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-04 — Shared mixer routing and recording downbeats
+
+- New empty patterns retain instrument channels, selected sound, pattern length
+  and grid. Their instruments and pads keep the same mixer destinations.
+- Added an instrument mixer selector beside the pattern instrument list and
+  a Route to mixer track menu on Beats lanes. Routing persists across patterns.
+- Stopped pattern recording rewinds to beat one after a four-beat count-in.
+  The audio callback schedules clicks and splits buffers at the recording start,
+  independent of delayed UI repaint timers. Running overdubs keep playing.
+- Pad recordings follow the audible transport clock instead of the render-ahead
+  position, avoiding late placement caused by output latency.
+
 ## 2026-10-04 — Sound library quality audit
 
 - Corrected residual DC introduced by one-shot fades; retained silent boundaries,

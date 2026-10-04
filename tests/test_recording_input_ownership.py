@@ -78,13 +78,13 @@ def test_count_in_clicks_when_metronome_is_off_without_recording_clicks(window, 
     window.btn_rec.click()
     window.engine._process_commands()
     assert clicks == [True]
-    for tick in (10.5, 11.0):
+    for tick in (10.5, 11.0, 11.5):
         now[0] = tick
         window._advance_record_count()
-        window.engine._process_commands()
-    assert clicks == [True, False, False]
+        window.engine._callback(np.zeros((256, 2), np.float32), 256, None, None)
+    assert clicks == [True, False, False, False]
     assert not window.engine.playing and not window.engine.recording
-    now[0] = 11.5
+    now[0] = window._record_count_deadline
     window._advance_record_count()
     window.engine._process_commands()
     assert window.engine.playing and window.engine.recording
@@ -112,7 +112,7 @@ def test_record_button_stays_in_workspace_and_accepts_mpc_and_typing(
     now = [10.0]
     monkeypatch.setattr(window_transport.time, "monotonic", lambda: now[0])
     window.btn_rec.click()
-    now[0] = 12.0
+    now[0] = window._record_count_deadline
     window._advance_record_count()
     window.engine._process_commands()
     assert window.studio.selected == getattr(window, workspace)
@@ -212,3 +212,73 @@ def test_first_keyboard_note_at_deadline_is_saved_before_ui_timer(window, monkey
     assert len(pattern.notes) == 1
     assert pattern.notes[0].start == 0
     assert not pattern.steps
+
+
+def test_stopped_pattern_take_rewinds_old_playhead(window, monkeypatch):  # noqa: F811
+    from mpclab.ui import window_transport
+
+    now = [10.0]
+    monkeypatch.setattr(window_transport.time, "monotonic", lambda: now[0])
+    window.show_tab(window.TAB_SEQ)
+    window.engine.beat = 6.25
+    window.btn_rec.click()
+    window.engine._process_commands()
+    assert window.engine.beat == 0
+    now[0] = window._record_count_deadline
+    window._pad_pressed(0, 0.8)
+    window.engine._callback(np.zeros((256, 2), np.float32), 256, None, None)
+    assert window.project.pattern().steps == {0: {0: 0.8}}
+
+
+def test_audio_clock_splits_count_in_at_exact_start_frame(window, monkeypatch):  # noqa: F811
+    from types import SimpleNamespace
+    from mpclab.ui import window_transport
+
+    now = [10.0]
+    monkeypatch.setattr(window_transport.time, "monotonic", lambda: now[0])
+    engine = window.engine
+    engine.mode = "pattern"
+    engine.beat = 0
+    deadline = 10.0 + 128 / engine.sr
+    engine.record_after(deadline)
+    clicks = []
+    monkeypatch.setattr(
+        engine, "_click", lambda offset, accent: clicks.append((engine._trace_frame, accent))
+    )
+    engine._callback(
+        np.zeros((256, 2), np.float32), 256, SimpleNamespace(output_monotonic=10.0), None
+    )
+    assert engine.playing and engine.recording
+    assert engine.beat == pytest.approx(128 / engine.sr * window.project.bpm / 60)
+    assert clicks == [(128, True)]
+    assert engine.audio_clock[0] == pytest.approx(deadline)
+
+
+def test_pad_recording_uses_audible_beat_not_render_ahead_position(window, monkeypatch):  # noqa: F811
+    from mpclab import recording_timing
+
+    engine = window.engine
+    engine.mode = "pattern"
+    engine.playing = engine.recording = True
+    window.project.bpm = 120
+    engine.beat = 0.4  # render head is 200 ms ahead of the downbeat being heard
+    engine.audio_clock = (10.0, 0.0, 120, True)
+    monkeypatch.setattr(recording_timing.time, "monotonic", lambda: 10.0)
+    engine.trigger_pad(0, 0.8)
+    engine._process_commands()
+    assert window.project.pattern().steps == {0: {0: 0.8}}
+
+
+def test_count_in_includes_output_latency_without_showing_extra_beat(window, monkeypatch):  # noqa: F811
+    from types import SimpleNamespace
+    from mpclab.ui import window_transport
+
+    monkeypatch.setattr(window_transport.time, "monotonic", lambda: 10.0)
+    window.show_tab(window.TAB_SEQ)
+    window.project.bpm = 120
+    window.engine.stream = SimpleNamespace(latency=0.1)
+    window.btn_rec.click()
+    assert window._record_count_deadline == pytest.approx(12.1)
+    window._advance_record_count()
+    assert window.record_count_label.text() == "4"
+    window.engine.stream = None

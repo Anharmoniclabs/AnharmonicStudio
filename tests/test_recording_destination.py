@@ -28,7 +28,7 @@ def window():
 
 def test_pattern_workspace_ignores_armed_microphone():
     w = window()
-    assert recording_destination(w) == ("Record → Beat 1 · Pads & notes", "3-beat count-in")
+    assert recording_destination(w) == ("Record → Beat 1 · Pads & notes", "4-beat count-in")
     w.engine.playing = True
     assert recording_destination(w)[1] == "Join playback"
 

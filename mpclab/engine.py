@@ -119,6 +119,7 @@ class Engine:
         self.metronome = False
         self.recording = False
         self._record_start_deadline = None
+        self._count_in_clicks = []
         self.loop_song = False
         self._resume_audio = True
 
@@ -601,8 +602,15 @@ class Engine:
         """Audition a pre-record click without advancing or recording the song."""
         self.cmds.put(("countclick", bool(accent)))
 
-    def record_after(self, deadline: float) -> None:
-        self.cmds.put(("recordafter", float(deadline)))
+    def record_after(self, deadline: float, *, count_beats: int = 0) -> None:
+        self.cmds.put(("recordafter", float(deadline), count_beats))
+
+    def _advance_audio_count_in(self, presentation: float) -> None:
+        while self._count_in_clicks and self._count_in_clicks[0][0] <= presentation + 1e-9:
+            _when, accent = self._count_in_clicks.pop(0)
+            if presentation - _when <= self.blocksize / self.sr:
+                self._click(0, accent)
+        self._start_due_recording(presentation)
 
     def _start_due_recording(self, now: float) -> None:
         if self._record_start_deadline is None or now < self._record_start_deadline:
@@ -1222,7 +1230,6 @@ class Engine:
 
         self._process_commands()
         now = time.monotonic()
-        self._start_due_recording(now)
         presentation = getattr(time_info, "output_monotonic", None)
         if presentation is None:
             dac = getattr(time_info, "outputBufferDacTime", None)
@@ -1230,6 +1237,7 @@ class Engine:
             presentation = now + (
                 dac - current if dac is not None and current is not None else self.latency_ms / 1000
             )
+        self._advance_audio_count_in(presentation)
         self.audio_clock = (presentation, self.beat, self.project.bpm, self.playing)
         if self.capture_anchor_requested and self.playing:
             self.capture_anchor = self.audio_clock
@@ -1240,11 +1248,26 @@ class Engine:
         monitor = self.read_monitor(frames)
         offset = 0
         while offset < frames:
+            block_time = presentation + offset / self.sr
+            was_playing = self.playing
+            self._advance_audio_count_in(block_time)
+            if self.playing and not was_playing:
+                self.audio_clock = (block_time, self.beat, self.project.bpm, True)
+                if self.capture_anchor_requested:
+                    self.capture_anchor = self.audio_clock
+                    self.capture_anchor_requested = False
             while midi_index < len(midi_events) and midi_events[midi_index][0] <= offset:
                 self.midi.apply_event(midi_events[midi_index][1])
                 midi_index += 1
             self._process_commands()
             count = frames - offset
+            boundary = (
+                self._count_in_clicks[0][0]
+                if self._count_in_clicks
+                else self._record_start_deadline
+            )
+            if boundary is not None and boundary > block_time:
+                count = min(count, max(1, int(np.ceil((boundary - block_time) * self.sr - 1e-7))))
             if midi_index < len(midi_events):
                 count = min(count, midi_events[midi_index][0] - offset)
             end = None
@@ -1294,6 +1317,7 @@ class Engine:
             if kind in ("play", "stopt", "seek", "panic"):
                 self._live_recorded_steps.clear()
                 self._record_start_deadline = None
+                self._count_in_clicks.clear()
             if kind in ("panic", "synthpanic"):
                 self.external.panic()
                 self.midi_playback_state.clear()
@@ -1307,8 +1331,17 @@ class Engine:
                 self._click(0, cmd[1])
             elif kind == "recordafter":
                 self._record_start_deadline = cmd[1]
+                beats = cmd[2] if len(cmd) > 2 else 0
+                period = 60.0 / max(1.0, proj.bpm)
+                self._count_in_clicks = [
+                    (cmd[1] - (beats - i) * period, i == 0) for i in range(beats)
+                ]
+                # Offline/manual processing uses the same scheduler and skips
+                # expired clicks instead of playing a burst after a stalled UI.
+                self._advance_audio_count_in(time.monotonic())
             elif kind == "cancelcount":
                 self._record_start_deadline = None
+                self._count_in_clicks.clear()
                 self.voices[:] = [v for v in self.voices if v.pad_index != METRONOME]
             elif kind == "pad":
                 self._start_due_recording(time.monotonic())

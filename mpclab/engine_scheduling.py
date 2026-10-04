@@ -15,6 +15,7 @@ from .music import Note
 from .event_source import EventSource
 from .instrument_state import event_destination
 from .midi_playback import ScheduledNote, sustained_duration
+from .recording_timing import performance_beat
 
 if TYPE_CHECKING:
     from .engine import Engine
@@ -188,13 +189,14 @@ def audio_overlaps(engine: Engine, beat: float):
 def record(engine: Engine, pad_index: int, velocity: float) -> EventSource:
     pat = engine.project.pattern()
     length = pat.length_beats
-    local = engine.beat % length if length else 0.0
+    heard_beat = performance_beat(engine)
+    local = heard_beat % length if length else 0.0
     rounded = int(round(local * pat.div))
     step = rounded % pat.total_steps
     pat.set(pad_index, step, round(velocity, 3))
     # The live hit already sounds this pass. Quantization can place its stored
     # step at the block start, later this pass, or just across the loop boundary.
-    occurrence = engine.beat - local + rounded / pat.div + swing_offset(engine, pat, step)
+    occurrence = heard_beat - local + rounded / pat.div + swing_offset(engine, pat, step)
     engine._live_recorded_steps[(id(pat), pad_index, step)] = occurrence
     engine.pattern_dirty = True
     return EventSource(pat, pad=pad_index, step=step)

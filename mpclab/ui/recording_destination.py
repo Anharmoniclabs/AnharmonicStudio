@@ -54,7 +54,7 @@ def recording_destination(window):
     else:
         voice = "Pads & notes" if instrument == "Notes" else f"Pads + {instrument}"
         destination = f"{project.pattern().name} · {voice}"
-        beats, immediate = 3, window.engine.playing
+        beats, immediate = 4, window.engine.playing
     if capture.active or window.engine.recording:
         state = "Recording"
     else:

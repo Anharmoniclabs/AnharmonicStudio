@@ -84,13 +84,17 @@ class PatternInstrumentRack(QWidget):
         self.selector = QComboBox()
         self.selector.setMinimumWidth(220)
         self.selector.setAccessibleName("Current pattern instruments")
+        self.output = QComboBox()
+        self.output.setAccessibleName("Instrument mixer destination")
+        self.output.setToolTip("This instrument uses the same mixer track in every pattern")
+        self.output.activated.connect(self.route_output)
         self.kind = QComboBox()
         self.kind.addItem("Native instrument", "native")
         self.kind.addItem("Prism", "prism")
         self.layer = QCheckBox("Layer current notes")
         self.layer.setToolTip("Copy the selected instrument's notes onto the new sound")
         self.insert = QPushButton("Insert instrument")
-        for widget in (self.label, self.selector, self.kind, self.layer, self.insert):
+        for widget in (self.label, self.selector, self.output, self.kind, self.layer, self.insert):
             layout.addWidget(widget)
         self.selector.activated.connect(self.select)
         self.insert.clicked.connect(self.add)
@@ -103,6 +107,8 @@ class PatternInstrumentRack(QWidget):
         for note in pattern.notes:
             if note.pad is None and note.instrument not in ids:
                 ids.append(note.instrument)
+        if project.selected_instrument is None and None not in ids:
+            ids.insert(0, None)
         self.label.setText(pattern.name)
         self.selector.blockSignals(True)
         self.selector.clear()
@@ -120,16 +126,34 @@ class PatternInstrumentRack(QWidget):
         else:
             self.selector.setCurrentIndex(self.selector.findData(project.selected_instrument))
         self.selector.blockSignals(False)
+        self.output.blockSignals(True)
+        self.output.clear()
+        for index, track in enumerate(project.tracks):
+            self.output.addItem(f"Mixer {index + 1} · {track.name}", index)
+        self.output.setCurrentIndex(project.selected_patch.track)
+        self.output.blockSignals(False)
+
+    def route_output(self, index):
+        project = self.window.project
+        track = self.output.itemData(index)
+        if not isinstance(track, int) or not 0 <= track < len(project.tracks):
+            return
+        if project.selected_patch.track == track:
+            return
+        self.window.snapshot()
+        project.selected_patch.track = track
+        self.window._set_dirty(True)
+        self.window.synth_panel.sync()
+        self.window.status.showMessage(
+            f"Instrument → Mixer {track + 1} · {project.tracks[track].name} · all patterns", 4000
+        )
 
     def select_pattern(self):
         pattern = self.window.project.pattern()
         if self.pattern_id != pattern.id:
             self.pattern_id = pattern.id
-            target = pattern.selected_instrument
-            if target is None and pattern.instrument_ids:
-                target = pattern.instrument_ids[0]
-            if target is not None:
-                self.window.piano_roll.select_channel(target)
+            # None is the original instrument, not an absent selection.
+            self.window.piano_roll.select_channel(pattern.selected_instrument)
         self.refresh()
 
     def select(self, index):

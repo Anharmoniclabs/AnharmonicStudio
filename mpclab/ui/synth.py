@@ -831,6 +831,7 @@ class SynthPanel(WindowClient, QWidget):
             self.app.snapshot()
             self.app.project.selected_patch.track = index
             self.app._set_dirty(True)
+            self.pattern_rack.refresh()
 
     def _arp_toggled(self, enabled):
         if self._building:

@@ -56,7 +56,25 @@ class PatternActionsMixin:
 
     def new_pattern(self):
         self.snapshot()
-        pat = Pattern(name=f"pattern {len(self.project.patterns) + 1}")
+        source = self.project.pattern()
+        owners = list(source.instrument_ids)
+        for event in [*source.notes, *source.midi_controls]:
+            if (
+                event.pad is None
+                and event.instrument is not None
+                and event.instrument not in owners
+            ):
+                owners.append(event.instrument)
+        selected = self.project.selected_instrument
+        if selected is not None and selected not in owners:
+            owners.append(selected)
+        pat = Pattern(
+            name=f"pattern {len(self.project.patterns) + 1}",
+            bars=source.bars,
+            div=source.div,
+            instrument_ids=owners,
+            selected_instrument=selected,
+        )
         self.project.patterns.append(pat)
         self.project.current_pattern = pat.id
         self._sync_pattern_controls()

@@ -110,3 +110,52 @@ def test_async_native_preset_keeps_original_owner(window):  # noqa: F811
     assert window.project.instrument_patch(first).name == "Copper Pluck"
     assert window.project.instrument_patch(second) == before
     assert window.project.selected_instrument == second
+
+
+def test_new_pattern_reuses_channels_and_mixer_mapping(window):  # noqa: F811
+    owner = insert_pattern_instrument(window, "native")
+    source = window.project.pattern()
+    source.bars, source.div = 4, 8
+    source.notes = [Note(60, 0, 1, 0.8, instrument=owner)]
+    source.steps = {0: {0: 0.8}}
+    window.project.instrument_patch(owner).track = 5
+    window.project.pads[0].track = 4
+    count = len(window.project.instruments)
+    window.new_pattern()
+    created = window.project.pattern()
+    assert created.instrument_ids == [owner]
+    assert created.instrument_ids is not source.instrument_ids
+    assert created.selected_instrument == owner
+    assert (created.bars, created.div) == (4, 8)
+    assert not created.notes and not created.steps
+    assert len(window.project.instruments) == count
+    rack = window.synth_panel.pattern_rack
+    rack.route_output(6)
+    assert window.project.instrument_patch(source.notes[0].instrument).track == 6
+    assert window.project.pads[0].track == 4
+    restored = Project.from_dict(window.project.to_dict())
+    assert restored.instrument_patch(owner).track == 6
+    assert restored.pattern().instrument_ids == [owner]
+
+
+def test_pad_mixer_route_is_shared_by_new_and_duplicate_patterns(window):  # noqa: F811
+    window.project.pattern().steps = {0: {0: 0.8}}
+    window.step_grid._route_pad(0, 5)
+    window.new_pattern()
+    assert window.project.pads[0].track == 5
+    window.project.pattern().steps = {0: {4: 0.7}}
+    window.dup_pattern()
+    assert window.project.pads[0].track == 5
+    restored = Project.from_dict(window.project.to_dict())
+    assert restored.pads[0].track == 5
+
+
+def test_new_pattern_preserves_original_instrument_selection(window):  # noqa: F811
+    owner = insert_pattern_instrument(window, "native")
+    window.piano_roll.select_channel(None)
+    window.project.synth.track = 4
+    window.new_pattern()
+    assert window.project.pattern().instrument_ids == [owner]
+    assert window.project.selected_instrument is None
+    assert window.synth_panel.pattern_rack.selector.currentData() is None
+    assert window.synth_panel.pattern_rack.output.currentData() == 4

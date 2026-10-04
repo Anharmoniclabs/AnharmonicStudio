@@ -102,6 +102,7 @@ jobs:
           tests/test_release_feature_controls.py
           tests/test_paced_session.py tests/test_keyboard_performance.py
           tests/test_recording_input_ownership.py tests/test_pattern_instrument_rack.py
+          tests/test_audio_count_in.py tests/test_recording_destination.py
           tests/test_prism_instances_ui.py tests/test_undo_runtime.py tests/test_prism.py
           tests/test_prism_packs.py tests/test_sound_library_audit.py tests/test_trap_foundry.py
           tests/test_instrument_recording_route.py tests/test_deleted_event_voices.py
