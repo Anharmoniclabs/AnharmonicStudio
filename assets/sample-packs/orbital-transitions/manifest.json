@@ -1,0 +1,226 @@
+{
+  "name": "Anharmonic Orbital Transitions",
+  "id": "anharmonic-orbital-transitions-v1",
+  "version": 1,
+  "license": "CC0-1.0",
+  "sample_rate": 48000,
+  "bit_depth": 24,
+  "sounds": [
+    {
+      "file": "Risers/AH_Orbital_Risers_01.flac",
+      "category": "Risers",
+      "root_midi": null,
+      "frames": 144000,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "095ae82978aa5d861206885f78b0c8e7e830cb7c796b8bd9d3988f1c2b5e1306"
+    },
+    {
+      "file": "Risers/AH_Orbital_Risers_02.flac",
+      "category": "Risers",
+      "root_midi": null,
+      "frames": 144000,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "6a79c0125769e37baaa7ebc3e37dbf6a34c614405075a1c053e7d2e4b27a4b56"
+    },
+    {
+      "file": "Risers/AH_Orbital_Risers_03.flac",
+      "category": "Risers",
+      "root_midi": null,
+      "frames": 144000,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "a1c5457bc7819beae4d9efa3fcd1220544632217225562a19056993f0d6d4b82"
+    },
+    {
+      "file": "Risers/AH_Orbital_Risers_04.flac",
+      "category": "Risers",
+      "root_midi": null,
+      "frames": 144000,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "4c36cb1bd3cc0a55af16ce042c072c5c57fe6649fcda8551e8fcaded4b2f840c"
+    },
+    {
+      "file": "Downlifters/AH_Orbital_Downlifters_01.flac",
+      "category": "Downlifters",
+      "root_midi": null,
+      "frames": 120000,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "6ae330d38c05ea8b3ae2d00262e9a961e48937c48339f0a52a5fa5b2c9dc1730"
+    },
+    {
+      "file": "Downlifters/AH_Orbital_Downlifters_02.flac",
+      "category": "Downlifters",
+      "root_midi": null,
+      "frames": 120000,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "92c33dea524b1deff05acc9b6b33641fde7cae12d75aeba44174f1c8647e5919"
+    },
+    {
+      "file": "Downlifters/AH_Orbital_Downlifters_03.flac",
+      "category": "Downlifters",
+      "root_midi": null,
+      "frames": 120000,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "7e60e662e756c77edcad01185329f1105be41988ce163a7b4bbb7a064dc6fc09"
+    },
+    {
+      "file": "Downlifters/AH_Orbital_Downlifters_04.flac",
+      "category": "Downlifters",
+      "root_midi": null,
+      "frames": 120000,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "81a1f40743397ddbaaec8b83f7b2fd05d54847fc7210717aeb71838169eab57e"
+    },
+    {
+      "file": "Impacts/AH_Orbital_Impacts_01.flac",
+      "category": "Impacts",
+      "root_midi": null,
+      "frames": 96000,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "d03c137211f6492e566af32c2698a8e09bd0bdcd8b2f3b43b789454be144209e"
+    },
+    {
+      "file": "Impacts/AH_Orbital_Impacts_02.flac",
+      "category": "Impacts",
+      "root_midi": null,
+      "frames": 96000,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "c6a2aa7d270547f2ea370e396f042d2bd01f216f89dfe77e09b99d5048929fce"
+    },
+    {
+      "file": "Impacts/AH_Orbital_Impacts_03.flac",
+      "category": "Impacts",
+      "root_midi": null,
+      "frames": 96000,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "902ec6280ce2b481b320c3ab5ada003e77eb0922c3e899ca64b40cc71032b7d6"
+    },
+    {
+      "file": "Impacts/AH_Orbital_Impacts_04.flac",
+      "category": "Impacts",
+      "root_midi": null,
+      "frames": 96000,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "599906b470796066126873d67249e6062779a174e3f49596558ac46a785eb69d"
+    },
+    {
+      "file": "Whooshes/AH_Orbital_Whooshes_01.flac",
+      "category": "Whooshes",
+      "root_midi": null,
+      "frames": 134400,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "c58fe0feb62c7e7cc05e77a76b32e96ba32bc33ad574c3c151e93b9149254297"
+    },
+    {
+      "file": "Whooshes/AH_Orbital_Whooshes_02.flac",
+      "category": "Whooshes",
+      "root_midi": null,
+      "frames": 134400,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "b7baf599ccd2381ed4499e13ca4b20f762235cb147424b9fd40c3efd3e1c1dc5"
+    },
+    {
+      "file": "Whooshes/AH_Orbital_Whooshes_03.flac",
+      "category": "Whooshes",
+      "root_midi": null,
+      "frames": 134400,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "c798e2e60a28a24548bf696a54fdff96d184e4b40b5ebf2eb7da7848195ee629"
+    },
+    {
+      "file": "Whooshes/AH_Orbital_Whooshes_04.flac",
+      "category": "Whooshes",
+      "root_midi": null,
+      "frames": 134400,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "bdc968c639a7ead3fd656787d22f836e704109a77c474c43780edb1f634793bc"
+    },
+    {
+      "file": "Signals/AH_Orbital_Signals_01.flac",
+      "category": "Signals",
+      "root_midi": null,
+      "frames": 86400,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "9a6ee0b6406f2f656fe2d84417739d264e20974314611c6fa04b61d7df234fcf"
+    },
+    {
+      "file": "Signals/AH_Orbital_Signals_02.flac",
+      "category": "Signals",
+      "root_midi": null,
+      "frames": 86400,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "a3c33f86359dc5c88ef9502e30ac3aff6976f267cd000628927e19431d6ea872"
+    },
+    {
+      "file": "Signals/AH_Orbital_Signals_03.flac",
+      "category": "Signals",
+      "root_midi": null,
+      "frames": 86400,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "2da976b3894cc3dc47ff8677d57b919596f53166c14da83e502be1a7a02c0106"
+    },
+    {
+      "file": "Signals/AH_Orbital_Signals_04.flac",
+      "category": "Signals",
+      "root_midi": null,
+      "frames": 86400,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "0d0bef689cdf5ce43b7bbdabe5f504bfa131908ec5dd7e682cefb24aa4675848"
+    },
+    {
+      "file": "Textures/AH_Orbital_Textures_01.flac",
+      "category": "Textures",
+      "root_midi": null,
+      "frames": 153600,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "a73cf4546cc66a39927de7aec17367e2145269e9242bf98fe607690556147604"
+    },
+    {
+      "file": "Textures/AH_Orbital_Textures_02.flac",
+      "category": "Textures",
+      "root_midi": null,
+      "frames": 153600,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "b557b43de52f4e17766826b95d5e2b22c74a099b9fe8f6b7bb3186cce98c5ec2"
+    },
+    {
+      "file": "Textures/AH_Orbital_Textures_03.flac",
+      "category": "Textures",
+      "root_midi": null,
+      "frames": 153600,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "e4ad9dd14937111075080f689fe7aac3aa0b585bb93a9eb1d6df8043aca5acbd"
+    },
+    {
+      "file": "Textures/AH_Orbital_Textures_04.flac",
+      "category": "Textures",
+      "root_midi": null,
+      "frames": 153600,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "12bf6a630ad09e2215d56f9e076e094dc4ebe43b6764f15f3aba229c43ec2ec0"
+    }
+  ]
+}

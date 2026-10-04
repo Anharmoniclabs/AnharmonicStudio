@@ -1,0 +1,226 @@
+{
+  "name": "Anharmonic Chromatic Workshop",
+  "id": "anharmonic-chromatic-workshop-v1",
+  "version": 1,
+  "license": "CC0-1.0",
+  "sample_rate": 48000,
+  "bit_depth": 24,
+  "sounds": [
+    {
+      "file": "Instruments/AH_Felt_Lantern_C3.flac",
+      "category": "Instruments",
+      "root_midi": 48,
+      "frames": 63839,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "9d99a736561715c742fdf9fcdb597e580a9cee5f414bdfd8ee0e4d96ba7a2209"
+    },
+    {
+      "file": "Instruments/AH_Felt_Lantern_C4.flac",
+      "category": "Instruments",
+      "root_midi": 60,
+      "frames": 63839,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "98cad55e40be164542bed33e629b2c6587f5848a5a46d56228ff8451f5a475f4"
+    },
+    {
+      "file": "Instruments/AH_Reed_Suitcase_C3.flac",
+      "category": "Instruments",
+      "root_midi": 48,
+      "frames": 99840,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "4215d6b25d8a1d44888661b4a23c181fd1b91b597387d3748eeec32949aab1bd"
+    },
+    {
+      "file": "Instruments/AH_Reed_Suitcase_C4.flac",
+      "category": "Instruments",
+      "root_midi": 60,
+      "frames": 99840,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "956b33a336fd7a77b60924c82fa2a6d23a702ac099ed0f53d1fe58209ac5241c"
+    },
+    {
+      "file": "Instruments/AH_Tine_Harbor_C3.flac",
+      "category": "Instruments",
+      "root_midi": 48,
+      "frames": 73440,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "d8f64f7f523de8eb6de220891ff62581c3505ef685a4a50461428f9f397470b9"
+    },
+    {
+      "file": "Instruments/AH_Tine_Harbor_C4.flac",
+      "category": "Instruments",
+      "root_midi": 60,
+      "frames": 73440,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "175bb8b051c8e91b6f9bdf21df2efe5899a0bb05771935584cb0e937a51ad38e"
+    },
+    {
+      "file": "Instruments/AH_Bamboo_Thumb_C3.flac",
+      "category": "Instruments",
+      "root_midi": 48,
+      "frames": 43680,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "86cf559e92e57db3f5b811d8c7d06bf97a00642f3429e9ce4cde63a2b2bfa4ed"
+    },
+    {
+      "file": "Instruments/AH_Bamboo_Thumb_C4.flac",
+      "category": "Instruments",
+      "root_midi": 60,
+      "frames": 43680,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "e91f9c436f02eddb10ee40aaba55817bcef758a5c7faa09ce935e261aca410b0"
+    },
+    {
+      "file": "Instruments/AH_Cedar_Marimba_C3.flac",
+      "category": "Instruments",
+      "root_midi": 48,
+      "frames": 44640,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "041c68550906143f0af6c3c275fa10b1de29993037f9e0ed79b01a166a9bd274"
+    },
+    {
+      "file": "Instruments/AH_Cedar_Marimba_C4.flac",
+      "category": "Instruments",
+      "root_midi": 60,
+      "frames": 44640,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "18625043b6e3e3a4f5475a265bda593387ee1ebf2beb1487e5ddc571655cab25"
+    },
+    {
+      "file": "Instruments/AH_Glass_Celesta_C3.flac",
+      "category": "Instruments",
+      "root_midi": 48,
+      "frames": 92640,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "47bf96349cb91c5ce2af1b2d41a78923b9e0b6dc4707aca545790fb819b0f227"
+    },
+    {
+      "file": "Instruments/AH_Glass_Celesta_C4.flac",
+      "category": "Instruments",
+      "root_midi": 60,
+      "frames": 92640,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "bc87adfe072413018084d517d2fd6c2dd7542ea1bdf4a60acd4eec4f2700db66"
+    },
+    {
+      "file": "Instruments/AH_Copper_Dulcimer_C3.flac",
+      "category": "Instruments",
+      "root_midi": 48,
+      "frames": 68639,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "490d18395696a7408a44b042999a790cad9c440fc14a4454863d53a32f6aeb01"
+    },
+    {
+      "file": "Instruments/AH_Copper_Dulcimer_C4.flac",
+      "category": "Instruments",
+      "root_midi": 60,
+      "frames": 68639,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "479b6d2f6bfea6a9b4479348a67f9810fa7902f67e46a2c779e04a19d6d2e1d5"
+    },
+    {
+      "file": "Instruments/AH_Nylon_Courtyard_C3.flac",
+      "category": "Instruments",
+      "root_midi": 48,
+      "frames": 48480,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "44637080d7e099f0f60c7697d37a4f48d7c4ccb7f07f5c8147839af265186fab"
+    },
+    {
+      "file": "Instruments/AH_Nylon_Courtyard_C4.flac",
+      "category": "Instruments",
+      "root_midi": 60,
+      "frames": 48480,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "d4fc47767cfe6c0dc22d7f0dd8c6f56afc3a639842411a520fa2407216198f0f"
+    },
+    {
+      "file": "Instruments/AH_Breathwood_Flute_C3.flac",
+      "category": "Instruments",
+      "root_midi": 48,
+      "frames": 99840,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "5429f23a1ae997c6468b3ef031ffb1083de2d3f2e26c2d14553a33afe60f95bb"
+    },
+    {
+      "file": "Instruments/AH_Breathwood_Flute_C4.flac",
+      "category": "Instruments",
+      "root_midi": 60,
+      "frames": 99840,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "fb001eafc56d59a0f4825aca4b9a05b09880cd2923f4d4d2b67b94859e3ebaf5"
+    },
+    {
+      "file": "Instruments/AH_Amber_Reed_C3.flac",
+      "category": "Instruments",
+      "root_midi": 48,
+      "frames": 99840,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "6ed42fe13cd2d349f9539bf1f9e27bf797c9f11f8b621ea47ca6c264c73fe367"
+    },
+    {
+      "file": "Instruments/AH_Amber_Reed_C4.flac",
+      "category": "Instruments",
+      "root_midi": 60,
+      "frames": 99840,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "a59afdcef1b3a4d2c3272caa0d50d05b0d637984fd6b61ef3b4d60faf8b17801"
+    },
+    {
+      "file": "Instruments/AH_Chapel_Drawbars_C3.flac",
+      "category": "Instruments",
+      "root_midi": 48,
+      "frames": 40800,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "6acfe6cea16fce2851caaa155acd35d3aae2244e5f0f2a605634b8ebdffe1544"
+    },
+    {
+      "file": "Instruments/AH_Chapel_Drawbars_C4.flac",
+      "category": "Instruments",
+      "root_midi": 60,
+      "frames": 40800,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "1d3c4d2907924930202cffba5e87bc0a923b86adac3b079c5c654f9d6064d82a"
+    },
+    {
+      "file": "Instruments/AH_Pocket_Accordion_C3.flac",
+      "category": "Instruments",
+      "root_midi": 48,
+      "frames": 42720,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "77575f29bd84c51244eadd918fb14a44c743f0dfcc0b3f1a3198d32597a661d7"
+    },
+    {
+      "file": "Instruments/AH_Pocket_Accordion_C4.flac",
+      "category": "Instruments",
+      "root_midi": 60,
+      "frames": 42720,
+      "channels": 2,
+      "peak_dbfs": -3.0,
+      "sha256": "bfc691b2bd367c298c85a055a9522379ab02212bd65b70db5dc1d524b34d592c"
+    }
+  ]
+}

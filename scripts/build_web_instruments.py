@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate website/app/instrument-bank.js from the desktop Native and Prism banks.
 
-The web studio offers exactly the sounds the desktop ships: the 54 Native/Prism
+The web studio offers exactly the sounds the desktop ships: the Native/Prism
 oscillator tones and the 120 layered Prism performances. Orchestral sounds
 that need recorded sample files stay desktop-only. Run after changing a bank;
 tests/web/instrument-bank.test.cjs fails if the generated file is stale.

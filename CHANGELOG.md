@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-10-04 — Sound library quality audit
+
+- Corrected residual DC introduced by one-shot fades; retained silent boundaries,
+  tuning and -3 dBFS sample peaks. Rebuilt the 72 Workshop samples and hashes.
+- Added a read-only audio audit for decoded duplicates, onset similarity, DC,
+  boundaries, estimated intersample peaks and mono loss, plus desktop preset checks.
+- All 136 first-party audio files pass these technical checks. Shared orchestral
+  sources and live preset DC findings still need review; this is not certification
+  of perceptual quality or exclusivity against commercial libraries.
+
+## 2026-10-04 — Prism Workshop sound expansion
+
+- Added 24 playable oscillator presets: instrument-inspired keys, plucks, winds,
+  organ, basses, pads and effects. Factory bank now has 78 tones.
+- Added six effect recipes using the existing mixer drive, delay and reverb.
+- Added 72 original CC0 one-shots in three automatically discovered browser packs:
+  Pocket Machines, Chromatic Workshop and Orbital Transitions. Lossless 24-bit,
+  48 kHz FLAC with -3 dBFS peaks, faded boundaries and melodic root-note metadata.
+- Rebuild samples with `.venv/bin/python scripts/build_prism_packs.py`.
+  Plugin and web factory banks include the new playable presets.
+
 ## 2026-10-02 — Record follows the workspace; phone audio fixes (web)
 
 - Record now works like the desktop: in Beats, Notes, Keys/Instruments and Pads

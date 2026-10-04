@@ -42,16 +42,16 @@ def test_shipped_audio_format_fades_headroom_and_tuning():
 
 def test_pack_is_automatic_rescannable_and_relocatable(tmp_path):
     library = Library(tmp_path / "library", include_bundled=True)
-    ids = set(library.clips)
+    ids = {c.id for c in library.clips.values() if c.pack == "Anharmonic Trap Foundry"}
     assert len(ids) == 64
     library.scan()
-    assert set(library.clips) == ids
+    assert {c.id for c in library.clips.values() if c.pack == "Anharmonic Trap Foundry"} == ids
     moved = tmp_path / "moved-pack"
     shutil.copytree(PACK, moved)
     relocated = Library(tmp_path / "other")
     relocated._scan_pack(moved, "Anharmonic Trap Foundry", identity="anharmonic-trap-foundry-v1")
     assert set(relocated.clips) == ids
-    bass = [c for c in library.clips.values() if c.root_note is not None]
+    bass = [c for c in library.clips.values() if c.id in ids and c.root_note is not None]
     assert len(bass) == 12
     assert all(sample_group(c) == ("melodic", "Bass") for c in bass)
     kit = install_kit(library, 3)

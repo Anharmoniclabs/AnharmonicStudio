@@ -129,6 +129,17 @@ class Library:
                 identity="anharmonic-trap-foundry-v1",
             )
 
+            for folder, name in (
+                ("pocket-machines", "Anharmonic Pocket Machines"),
+                ("chromatic-workshop", "Anharmonic Chromatic Workshop"),
+                ("orbital-transitions", "Anharmonic Orbital Transitions"),
+            ):
+                self._scan_pack(
+                    RESOURCE_ROOT / "assets/sample-packs" / folder,
+                    name,
+                    identity=f"anharmonic-{folder}-v1",
+                )
+
     def _write_meta(self, clip: Clip) -> None:
         folder = self.folder(clip.id)
         if folder.is_symlink():

@@ -1,0 +1,226 @@
+{
+  "name": "Anharmonic Pocket Machines",
+  "id": "anharmonic-pocket-machines-v1",
+  "version": 1,
+  "license": "CC0-1.0",
+  "sample_rate": 48000,
+  "bit_depth": 24,
+  "sounds": [
+    {
+      "file": "Kicks/AH_Pocket_Kicks_01.flac",
+      "category": "Kicks",
+      "root_midi": null,
+      "frames": 14400,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "dde8c13e6ee3e1446ef5e3e89f88ef38388d743d7bac2f14d0bd0bfdc275245f"
+    },
+    {
+      "file": "Kicks/AH_Pocket_Kicks_02.flac",
+      "category": "Kicks",
+      "root_midi": null,
+      "frames": 14400,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "f0246475a65877d890af833b27ee746dc8d2b5d68964c025f016d76aafeabbff"
+    },
+    {
+      "file": "Kicks/AH_Pocket_Kicks_03.flac",
+      "category": "Kicks",
+      "root_midi": null,
+      "frames": 14400,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "80bf27fa9e741647f1a694e1b84229610239d86b4feb26bdf79b19d7bfd5c2d1"
+    },
+    {
+      "file": "Kicks/AH_Pocket_Kicks_04.flac",
+      "category": "Kicks",
+      "root_midi": null,
+      "frames": 14400,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "239ee570929c818cbe493c1f66866f90e8b36352a31f081c4d87490a31814a92"
+    },
+    {
+      "file": "Snares/AH_Pocket_Snares_01.flac",
+      "category": "Snares",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "60200c2d8d11e5a792b9ad0ae2d568aede0fff114368b46965f573c9c11ecb99"
+    },
+    {
+      "file": "Snares/AH_Pocket_Snares_02.flac",
+      "category": "Snares",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "3ae5729b4607840ec5ba9335dfbcb56193c66f0a1164d28e9a204a96407affa3"
+    },
+    {
+      "file": "Snares/AH_Pocket_Snares_03.flac",
+      "category": "Snares",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "19ef5d5553c5833d5f86c68b04df52af7819eea4521b4a57152baab7a698549b"
+    },
+    {
+      "file": "Snares/AH_Pocket_Snares_04.flac",
+      "category": "Snares",
+      "root_midi": null,
+      "frames": 31200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "57a74440f575f92cefcedebd1b0b57c64371b0c4b124feb399aae5d2f56c59fe"
+    },
+    {
+      "file": "Closed Hats/AH_Pocket_ClosedHats_01.flac",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "0336968eace29eec67edd893f021e7f6e3e5c96ede1bd3f8be9218e1ee49f126"
+    },
+    {
+      "file": "Closed Hats/AH_Pocket_ClosedHats_02.flac",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "23767b3c4b3504555ee5d110f0a0fa39c0d04481b4953b9d0286f9e855caf212"
+    },
+    {
+      "file": "Closed Hats/AH_Pocket_ClosedHats_03.flac",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "0f3a8bccd2eab01811b3f6bf93e6681c5f8f22db337a94bc139f30a99013018b"
+    },
+    {
+      "file": "Closed Hats/AH_Pocket_ClosedHats_04.flac",
+      "category": "Closed Hats",
+      "root_midi": null,
+      "frames": 10560,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "63ed612894d3b70743681fc2351c12a31664acf7323f18277539215e6687c348"
+    },
+    {
+      "file": "Open Hats/AH_Pocket_OpenHats_01.flac",
+      "category": "Open Hats",
+      "root_midi": null,
+      "frames": 43200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "69c9bbf0eaed83e1fc58dce1f716af124eaa3a202cf5acdc651513834400d25d"
+    },
+    {
+      "file": "Open Hats/AH_Pocket_OpenHats_02.flac",
+      "category": "Open Hats",
+      "root_midi": null,
+      "frames": 43200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "dde5a2bc581a4066f822b72ba06fe5f9368bed4e56d6ca8fb25513da70dc7a7a"
+    },
+    {
+      "file": "Open Hats/AH_Pocket_OpenHats_03.flac",
+      "category": "Open Hats",
+      "root_midi": null,
+      "frames": 43200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "137e0810e54456330bd9bd91ede5d535bed4a28363fe9cfc8d38433b23b45933"
+    },
+    {
+      "file": "Open Hats/AH_Pocket_OpenHats_04.flac",
+      "category": "Open Hats",
+      "root_midi": null,
+      "frames": 43200,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "f4ecb348797aae35d199d5fd9e960cde038df88f913d45f8fd14771ad41107f9"
+    },
+    {
+      "file": "Toms/AH_Pocket_Toms_01.flac",
+      "category": "Toms",
+      "root_midi": null,
+      "frames": 33600,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "be5b7d709f4afab848ebe9d2ce2f64d84325480105c2ea3f6cf779f8f7003735"
+    },
+    {
+      "file": "Toms/AH_Pocket_Toms_02.flac",
+      "category": "Toms",
+      "root_midi": null,
+      "frames": 33600,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "457b9a95f6961f10f8241896edae83a492e6910ae5fcb16fdfbb982eb0c63ef6"
+    },
+    {
+      "file": "Toms/AH_Pocket_Toms_03.flac",
+      "category": "Toms",
+      "root_midi": null,
+      "frames": 33600,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "8a7bb8910c23fe63454cd88e45ab305d9472c466d5c317d921ea8f17c8d608cc"
+    },
+    {
+      "file": "Toms/AH_Pocket_Toms_04.flac",
+      "category": "Toms",
+      "root_midi": null,
+      "frames": 33600,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "aeee552b83d3bf45d1d36d20d74eb8b68df38bfa525ef45d1aa5a4d7d996aa09"
+    },
+    {
+      "file": "Claps/AH_Pocket_Claps_01.flac",
+      "category": "Claps",
+      "root_midi": null,
+      "frames": 24000,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "c5b2dceb81c99585b0449182a160e99d5a57ca40b21de29af06548371b3e2ea5"
+    },
+    {
+      "file": "Claps/AH_Pocket_Claps_02.flac",
+      "category": "Claps",
+      "root_midi": null,
+      "frames": 24000,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "5f72e4704e0dd6c6697398bb37f7acf5a5e190b742813d8467e28f0ee2df81d8"
+    },
+    {
+      "file": "Claps/AH_Pocket_Claps_03.flac",
+      "category": "Claps",
+      "root_midi": null,
+      "frames": 24000,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "f8379960d00d597a627c89e7b73ffebdcac7ad3eca9e8e8071fce0a33b978068"
+    },
+    {
+      "file": "Claps/AH_Pocket_Claps_04.flac",
+      "category": "Claps",
+      "root_midi": null,
+      "frames": 24000,
+      "channels": 1,
+      "peak_dbfs": -3.0,
+      "sha256": "c8cce8c7f3b661a0381fc6ae204574749a2d9acd8e9d0caaedfcb647d8297c11"
+    }
+  ]
+}

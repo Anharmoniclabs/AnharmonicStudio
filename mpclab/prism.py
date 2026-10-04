@@ -16,6 +16,12 @@ EFFECT_PRESETS = {
     "Prism echoes": {"send_delay": 0.32, "send_reverb": 0.14, "drive": 0.08},
     "Velvet room": {"send_delay": 0.0, "send_reverb": 0.32, "drive": 0.04},
     "Distant orbit": {"send_delay": 0.38, "send_reverb": 0.46, "drive": 0.0},
+    "Warm cassette": {"send_delay": 0.09, "send_reverb": 0.12, "drive": 0.24},
+    "Dub lantern": {"send_delay": 0.48, "send_reverb": 0.18, "drive": 0.12},
+    "Cathedral glass": {"send_delay": 0.16, "send_reverb": 0.62, "drive": 0.0},
+    "Dust booth": {"send_delay": 0.0, "send_reverb": 0.08, "drive": 0.18},
+    "Shattered neon": {"send_delay": 0.24, "send_reverb": 0.2, "drive": 0.55},
+    "Cloud chamber": {"send_delay": 0.28, "send_reverb": 0.52, "drive": 0.03},
     "Carbon edge": {"send_delay": 0.12, "send_reverb": 0.06, "drive": 0.32},
 }
 

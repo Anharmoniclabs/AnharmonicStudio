@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_factory_bank_is_identical_to_studio():
     bank = json.loads((ROOT / "plugins/prism/factory.json").read_text())
-    assert len(bank) == 54
+    assert len(bank) == 78
+    assert len({item["name"] for item in bank}) == len(bank)
     for item in bank:
         assert item["patch"] == asdict(PATCHES[item["name"]])
         validate_patch(PATCHES[item["name"]])
@@ -244,7 +245,7 @@ def test_workstation_performances_and_layer_controls(window):  # noqa: F811
     from types import SimpleNamespace
 
     panel = window.synth_panel.prism_surface
-    assert len(PERFORMANCES) == 120 and len(CATALOG) == 174
+    assert len(PERFORMANCES) == 120 and len(CATALOG) == 198
     edits = []
     window.project.plugins["instrument"] = {"path": "Anharmonic Prism.vst3", "parameters": {}}
     window.engine.external.instrument = SimpleNamespace(

@@ -303,5 +303,370 @@
       "noise": 0.08,
       "release": 0.18
     }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Felt Lantern",
+    "source": "Ghost Keys",
+    "changes": {
+      "osc1": "sine",
+      "osc2": "triangle",
+      "osc_mix": 0.22,
+      "attack": 0.006,
+      "decay": 0.6,
+      "sustain": 0.12,
+      "release": 0.6,
+      "cutoff": 2300,
+      "noise": 0,
+      "drive": 0.02
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Reed Suitcase",
+    "source": "Ghost Keys",
+    "changes": {
+      "osc1": "triangle",
+      "osc2": "sine",
+      "osc2_octave": 1,
+      "osc_mix": 0.18,
+      "decay": 0.85,
+      "sustain": 0.25,
+      "cutoff": 3200,
+      "lfo_rate": 4.8,
+      "lfo_pitch": 3
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Tine Harbor",
+    "source": "Copper Pluck",
+    "changes": {
+      "osc1": "sine",
+      "osc2": "sine",
+      "osc2_octave": 2,
+      "osc_mix": 0.16,
+      "drive": 0.02,
+      "cutoff": 6400,
+      "decay": 0.7,
+      "release": 0.8,
+      "noise": 0
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Bamboo Thumb",
+    "source": "Copper Pluck",
+    "changes": {
+      "osc1": "triangle",
+      "osc2": "sine",
+      "osc2_octave": 1,
+      "osc_mix": 0.12,
+      "decay": 0.22,
+      "sustain": 0,
+      "release": 0.18,
+      "cutoff": 2800,
+      "drive": 0.03
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Cedar Marimba",
+    "source": "Copper Pluck",
+    "changes": {
+      "osc1": "sine",
+      "osc2": "triangle",
+      "osc2_octave": 2,
+      "osc_mix": 0.09,
+      "decay": 0.28,
+      "sustain": 0,
+      "release": 0.2,
+      "cutoff": 2400,
+      "drive": 0.01,
+      "noise": 0
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Glass Celesta",
+    "source": "Ghost Keys",
+    "changes": {
+      "osc1": "sine",
+      "osc2": "triangle",
+      "osc2_octave": 2,
+      "osc_mix": 0.28,
+      "attack": 0.002,
+      "decay": 1.1,
+      "sustain": 0.02,
+      "release": 1.2,
+      "cutoff": 8500,
+      "noise": 0
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Copper Dulcimer",
+    "source": "Copper Pluck",
+    "changes": {
+      "osc1": "triangle",
+      "osc2": "square",
+      "osc2_octave": 1,
+      "osc_mix": 0.14,
+      "decay": 0.45,
+      "sustain": 0.04,
+      "release": 0.7,
+      "cutoff": 4800,
+      "detune": 3
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Nylon Courtyard",
+    "source": "Copper Pluck",
+    "changes": {
+      "osc1": "triangle",
+      "osc2": "sine",
+      "osc_mix": 0.32,
+      "decay": 0.36,
+      "sustain": 0.08,
+      "release": 0.28,
+      "cutoff": 1700,
+      "filter_env": 0.32,
+      "drive": 0.02
+    }
+  },
+  {
+    "category": "Leads",
+    "name": "Breathwood Flute",
+    "source": "Singing Triangle",
+    "changes": {
+      "osc1": "sine",
+      "osc2": "triangle",
+      "osc_mix": 0.1,
+      "noise": 0.018,
+      "attack": 0.08,
+      "cutoff": 3500,
+      "lfo_pitch": 5,
+      "lfo_rate": 5.2
+    }
+  },
+  {
+    "category": "Leads",
+    "name": "Amber Reed",
+    "source": "Singing Triangle",
+    "changes": {
+      "osc1": "square",
+      "osc2": "sine",
+      "osc_mix": 0.23,
+      "pulse_width": 0.5,
+      "attack": 0.06,
+      "cutoff": 1850,
+      "resonance": 0.12,
+      "drive": 0.03
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Chapel Drawbars",
+    "source": "Ghost Keys",
+    "changes": {
+      "osc1": "sine",
+      "osc2": "sine",
+      "osc2_octave": 1,
+      "osc_mix": 0.45,
+      "sub": 0.3,
+      "attack": 0.01,
+      "sustain": 0.95,
+      "release": 0.12,
+      "cutoff": 7000,
+      "noise": 0
+    }
+  },
+  {
+    "category": "Keys & plucks",
+    "name": "Pocket Accordion",
+    "source": "Ghost Keys",
+    "changes": {
+      "osc1": "square",
+      "osc2": "saw",
+      "osc_mix": 0.32,
+      "detune": 7,
+      "attack": 0.04,
+      "sustain": 0.8,
+      "release": 0.16,
+      "cutoff": 2100,
+      "drive": 0.04
+    }
+  },
+  {
+    "category": "Bass",
+    "name": "Basalt Mono",
+    "source": "Neon Sub",
+    "changes": {
+      "osc1": "sine",
+      "osc2": "square",
+      "osc_mix": 0.13,
+      "sub": 0.55,
+      "cutoff": 700,
+      "drive": 0.22,
+      "release": 0.16
+    }
+  },
+  {
+    "category": "Bass",
+    "name": "Spring Rubber",
+    "source": "Acid Orchard",
+    "changes": {
+      "cutoff": 580,
+      "resonance": 0.6,
+      "decay": 0.24,
+      "sustain": 0.12,
+      "filter_env": 0.9,
+      "drive": 0.28
+    }
+  },
+  {
+    "category": "Bass",
+    "name": "Velour Finger",
+    "source": "Neon Sub",
+    "changes": {
+      "osc1": "triangle",
+      "osc2": "sine",
+      "attack": 0.003,
+      "decay": 0.4,
+      "sustain": 0.18,
+      "cutoff": 1300,
+      "release": 0.2
+    }
+  },
+  {
+    "category": "Pads",
+    "name": "Rainlit Linen",
+    "source": "Velvet Poly",
+    "changes": {
+      "osc1": "triangle",
+      "osc2": "saw",
+      "attack": 1.4,
+      "release": 3.2,
+      "cutoff": 1900,
+      "detune": 17,
+      "lfo_filter": 0.18
+    }
+  },
+  {
+    "category": "Pads",
+    "name": "Solstice Choir",
+    "source": "Dust Choir",
+    "changes": {
+      "osc1": "triangle",
+      "osc2": "square",
+      "pulse_width": 0.28,
+      "attack": 0.75,
+      "release": 2.5,
+      "cutoff": 1400,
+      "lfo_rate": 0.18
+    }
+  },
+  {
+    "category": "Pads",
+    "name": "Icehouse Strings",
+    "source": "Solar Strings",
+    "changes": {
+      "attack": 0.65,
+      "release": 2.8,
+      "detune": 23,
+      "cutoff": 3800,
+      "spread": 0.85
+    }
+  },
+  {
+    "category": "FX",
+    "name": "Meteor Tail",
+    "source": "Copper Pluck",
+    "changes": {
+      "osc2_octave": 3,
+      "noise": 0.22,
+      "decay": 0.7,
+      "sustain": 0,
+      "release": 1.4,
+      "lfo_rate": 8,
+      "lfo_pitch": 95,
+      "cutoff": 6800
+    }
+  },
+  {
+    "category": "FX",
+    "name": "Radio Moths",
+    "source": "Ghost Keys",
+    "changes": {
+      "osc1": "square",
+      "noise": 0.36,
+      "attack": 0.015,
+      "decay": 0.4,
+      "sustain": 0.2,
+      "lfo_rate": 17,
+      "lfo_filter": 0.8,
+      "cutoff": 3200
+    }
+  },
+  {
+    "category": "FX",
+    "name": "Submarine Beacon",
+    "source": "Neon Sub",
+    "changes": {
+      "osc1": "sine",
+      "osc2": "sine",
+      "sub": 0,
+      "attack": 0.004,
+      "decay": 0.5,
+      "sustain": 0,
+      "release": 1.1,
+      "lfo_rate": 3,
+      "lfo_pitch": 20
+    }
+  },
+  {
+    "category": "FX",
+    "name": "Frost Static",
+    "source": "Dust Choir",
+    "changes": {
+      "noise": 0.7,
+      "attack": 0.3,
+      "decay": 0.8,
+      "sustain": 0.15,
+      "release": 1.8,
+      "cutoff": 8500,
+      "lfo_filter": 0.6
+    }
+  },
+  {
+    "category": "FX",
+    "name": "Clockwork Spark",
+    "source": "Copper Pluck",
+    "changes": {
+      "osc1": "square",
+      "osc2_octave": 3,
+      "decay": 0.07,
+      "sustain": 0,
+      "release": 0.15,
+      "cutoff": 9800,
+      "lfo_rate": 24,
+      "lfo_pitch": 180
+    }
+  },
+  {
+    "category": "FX",
+    "name": "Vacuum Bloom",
+    "source": "Velvet Poly",
+    "changes": {
+      "attack": 1.2,
+      "decay": 0.9,
+      "sustain": 0.3,
+      "release": 2.4,
+      "noise": 0.3,
+      "cutoff": 1700,
+      "resonance": 0.65,
+      "lfo_filter": 0.7
+    }
   }
 ]
