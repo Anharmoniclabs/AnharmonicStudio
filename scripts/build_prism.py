@@ -108,6 +108,11 @@ def main():
     sdk = cache / f"JUCE-{JUCE_VERSION}"
     generate_bank()
     build = ROOT / ".native/prism"
+    build_env = os.environ.copy()
+    if sys.platform == "darwin":
+        # juceaide bootstraps a separate CMake project without forwarding the
+        # parent's cache arguments. Its deployment target must be inherited.
+        build_env["MACOSX_DEPLOYMENT_TARGET"] = "11.0"
     subprocess.run(
         [
             "cmake",
@@ -123,6 +128,7 @@ def main():
             *(["-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0"] if sys.platform == "darwin" else []),
         ],
         check=True,
+        env=build_env,
     )
     subprocess.run(
         ["cmake", "--build", str(build), "--config", "Release", "-j", str(max(1, args.jobs))],

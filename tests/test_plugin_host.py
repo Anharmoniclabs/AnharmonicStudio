@@ -11,6 +11,33 @@ from mpclab.plugin_host import IsolatedPlugin, LivePlugin, PluginError, receive_
 from mpclab.plugin_registry import discover_plugins, validate_project_plugins
 
 
+@pytest.mark.parametrize("machine,directory", [("AMD64", "x86_64-win"), ("ARM64", "arm64-win")])
+def test_windows_bundle_resolves_architecture_binary(tmp_path, monkeypatch, machine, directory):
+    from mpclab import plugin_host
+
+    bundle = tmp_path / "Example.vst3"
+    binary = bundle / "Contents" / directory / bundle.name
+    binary.parent.mkdir(parents=True)
+    binary.write_bytes(b"plugin fixture")
+    monkeypatch.setattr(plugin_host.sys, "platform", "win32")
+    monkeypatch.setattr(plugin_host.platform, "machine", lambda: machine)
+    assert plugin_host.plugin_load_path(bundle) == str(binary)
+    assert plugin_host.plugin_load_path(binary) == str(binary)
+    binary.unlink()
+    with pytest.raises(PluginError, match="Missing .* VST3 binary"):
+        plugin_host.plugin_load_path(bundle)
+
+
+@pytest.mark.parametrize("system", ["linux", "darwin"])
+def test_non_windows_plugin_bundle_remains_a_bundle(tmp_path, monkeypatch, system):
+    from mpclab import plugin_host
+
+    bundle = tmp_path / "Example.vst3"
+    bundle.mkdir()
+    monkeypatch.setattr(plugin_host.sys, "platform", system)
+    assert plugin_host.plugin_load_path(bundle) == str(bundle)
+
+
 def fixture_worker(connection, specification, sample_rate):
     """Deliberate crash/hang and deterministic gain in an actual spawned child."""
     mode = specification.get("mode")

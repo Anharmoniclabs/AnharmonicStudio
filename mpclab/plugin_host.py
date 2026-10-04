@@ -12,8 +12,10 @@ import math
 import multiprocessing
 import os
 from pathlib import Path
+import platform
 import queue
 import struct
+import sys
 import threading
 
 import numpy as np
@@ -25,6 +27,19 @@ MAX_STATE = 2 * 1024 * 1024
 
 class PluginError(RuntimeError):
     pass
+
+
+def plugin_load_path(path):
+    """Resolve Windows VST3 bundles for Pedalboard's file-only DLL loader."""
+    bundle = Path(path)
+    if sys.platform != "win32" or bundle.suffix.lower() != ".vst3" or not bundle.is_dir():
+        return str(path)
+    architecture = platform.machine().lower()
+    directory = "arm64-win" if architecture in ("arm64", "aarch64") else "x86_64-win"
+    binary = bundle / "Contents" / directory / bundle.name
+    if not binary.is_file():
+        raise PluginError(f"Missing {directory} VST3 binary: {binary}")
+    return str(binary)
 
 
 class UnavailablePlugin:
@@ -81,7 +96,7 @@ def plugin_worker(connection, specification, sample_rate):
 
         pedalboard_native.ExternalPlugin.__set_initial_parameter_values__ = initialize_parameters
         plugin = plugin_class(
-            specification["path"],
+            plugin_load_path(specification["path"]),
             plugin_name=specification.get("plugin_name") or None,
             initialization_timeout=5,
         )

@@ -15,7 +15,15 @@ from pathlib import Path
 
 import numpy as np
 
-from .plugin_host import MAX_FRAMES, MAX_STATE, LivePlugin, PluginError, receive_packet, send_packet
+from .plugin_host import (
+    MAX_FRAMES,
+    MAX_STATE,
+    LivePlugin,
+    PluginError,
+    plugin_load_path,
+    receive_packet,
+    send_packet,
+)
 
 MAX_CHAIN_PLUGINS = 8
 
@@ -109,7 +117,7 @@ def plugin_chain_worker(connection, specifications, sample_rate):
             else:
                 raise PluginError("Effect chain currently hosts VST3 and Audio Unit plugins")
             plugin = plugin_class(
-                path,
+                plugin_load_path(path),
                 plugin_name=specification.get("plugin_name") or None,
                 initialization_timeout=5,
             )
