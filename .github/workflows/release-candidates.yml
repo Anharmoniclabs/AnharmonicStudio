@@ -104,6 +104,9 @@ jobs:
           tests/test_recording_input_ownership.py tests/test_pattern_instrument_rack.py
           tests/test_prism_instances_ui.py tests/test_undo_runtime.py tests/test_prism.py
           tests/test_instrument_recording_route.py tests/test_deleted_event_voices.py
+          tests/test_workspace_keys.py tests/test_display_scale.py
+          tests/test_team_audio.py tests/test_team_workflow.py tests/test_team_workspace.py
+          tests/test_upgrade_audio.py tests/test_upgrade_workflow.py tests/test_upgrade_workspace.py
           --junitxml=reports/release-tests.xml
       - name: Ten minute mixed-instrument session (no physical devices)
         run: >-

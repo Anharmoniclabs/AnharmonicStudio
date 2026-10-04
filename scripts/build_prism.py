@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import urllib.request
 import zipfile
@@ -117,6 +118,9 @@ def main():
             "-DCMAKE_BUILD_TYPE=Release",
             f"-DJUCE_SOURCE_DIR={sdk}",
             "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+            # JUCE 7's snapshot API is unavailable when targeting macOS 15+.
+            # Set the supported baseline explicitly for juceaide and plugins.
+            *(["-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0"] if sys.platform == "darwin" else []),
         ],
         check=True,
     )

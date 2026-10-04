@@ -64,14 +64,20 @@ def release_source_commit(root):
 
 
 def check(executable, directory, report):
-    result = run(
-        [executable, "--self-check", "--self-check-report", report],
-        cwd=directory,
-        env=dict(os.environ, QT_QPA_PLATFORM="offscreen", OPENBLAS_NUM_THREADS="1"),
-        capture_output=True,
-        text=True,
-        timeout=240,
-    )
+    try:
+        result = run(
+            [executable, "--self-check", "--self-check-report", report],
+            cwd=directory,
+            env=dict(os.environ, QT_QPA_PLATFORM="offscreen", OPENBLAS_NUM_THREADS="1"),
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"Frozen application self-check failed ({executable}):\n"
+            f"{exc.stdout or ''}\n{exc.stderr or ''}"
+        ) from exc
     # GUI bootloaders have no stdout on Windows. Require an explicit report
     # from the actual installed GUI executable as well as a successful exit.
     if not report.is_file():

@@ -22,6 +22,10 @@ def window(tmp_path, monkeypatch):
     monkeypatch.setattr(main_window, "QSettings", PreviewSettings)
     monkeypatch.setattr(Engine, "start", lambda self: None)
     w = main_window.MainWindow(tmp_path, restore_session=False)
+    # These import tests start with no user or bundled library entries.
+    w.library.include_bundled = False
+    w.library.scan()
+    w.browser.refresh()
     yield w
     w._dirty = False
     w.close()

@@ -129,8 +129,9 @@ def test_saved_precision_and_retired_controls(window, parameter, original):
 
 def test_numeric_keyboard_history_ownership(window, parameter):
     assert QApplication.platformName() == "offscreen"
-    window.pad_side.show()
     window.show()
+    QApplication.processEvents()
+    window.pad_side.show()
     box = box_for(window, parameter)
     box.setFocus()
     QApplication.processEvents()

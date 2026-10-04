@@ -168,8 +168,9 @@ def test_pan_reset_and_no_op_edits_preserve_redo(window):
 def test_pan_shortcuts_with_numeric_focus(window):
     # This is the test's disposable offscreen widget, never a desktop window.
     assert QApplication.platformName() == "offscreen"
-    window.pad_side.show()
     window.show()
+    QApplication.processEvents()
+    window.pad_side.show()
     box = pan_box(window)
     box.setFocus()
     QApplication.processEvents()
@@ -187,8 +188,9 @@ def test_pan_shortcuts_with_numeric_focus(window):
 
 def test_pan_undo_redo_during_typing_stays_in_the_field(window):
     assert QApplication.platformName() == "offscreen"
-    window.pad_side.show()
     window.show()
+    QApplication.processEvents()
+    window.pad_side.show()
     box = pan_box(window)
     box.setFocus()
     QApplication.processEvents()

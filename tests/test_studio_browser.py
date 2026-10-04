@@ -127,18 +127,18 @@ def test_studio_reuses_editors_and_keeps_selection_across_focused_tabs(tmp_path,
         assert window.tabs.currentIndex() == 8
         original = window.playlist
         window.playlist.px_per_beat = 37
-        assert window.studio.pages[2].parent() is window.studio.arrangement
+        assert window.studio.arrangement.widget() is window.studio.pages[2]
         window.show_tab(window.TAB_PLAYLIST)
         # Workspace shortcuts select the existing Studio editor; the single
         # navigation shell keeps the page in its permanent dock.
         assert window.tabs.currentIndex() == 8
         assert window.studio.selected == window.TAB_PLAYLIST
-        assert window.studio.pages[2].parent() is window.studio.arrangement
+        assert window.studio.arrangement.widget() is window.studio.pages[2]
         window.tabs.setCurrentIndex(8)
         assert window.playlist is original
         assert window.playlist.px_per_beat == 37
         assert window.studio.pages[3] is window.mixer
-        assert window.studio.pages[2].parent() is window.studio.arrangement
+        assert window.studio.arrangement.widget() is window.studio.pages[2]
         assert window.btn_play.accessibleName() == "Play or pause"
         assert window.playback_scope.accessibleName() == "Playback scope"
         assert window.playback_scope.property("scope") == "pattern"

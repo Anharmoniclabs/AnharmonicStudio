@@ -175,8 +175,9 @@ def test_gain_noops_preserve_redo(window):
 
 def test_gain_keyboard_reset_and_history_ownership(window):
     assert QApplication.platformName() == "offscreen"
-    window.pad_side.show()
     window.show()
+    QApplication.processEvents()
+    window.pad_side.show()
     box = gain_box(window)
     box.setFocus()
     QApplication.processEvents()

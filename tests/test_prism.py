@@ -380,6 +380,7 @@ def test_prism_live_panic_keeps_processor_and_accepts_next_note():
 
 def test_staging_updated_plugin_preserves_an_existing_loaded_mapping(tmp_path):
     import mmap
+    import sys
     from scripts.build_prism import stage_plugin
 
     source = tmp_path / "source"
@@ -390,9 +391,19 @@ def test_staging_updated_plugin_preserves_an_existing_loaded_mapping(tmp_path):
     (target / "plugin.so").write_bytes(b"old binary contents")
     with (target / "plugin.so").open("rb") as file:
         with mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
-            stage_plugin(source, target)
+            if sys.platform == "win32":
+                # Windows locks mapped binaries. Fail without changing the
+                # loaded file, then allow staging once its owner closes it.
+                with pytest.raises(PermissionError):
+                    stage_plugin(source, target)
+                assert (target / "plugin.so").read_bytes() == b"old binary contents"
+                assert not list(target.glob("*.tmp"))
+            else:
+                stage_plugin(source, target)
+                assert (target / "plugin.so").read_bytes() == b"new binary contents"
             assert mapped[:] == b"old binary contents"
-            assert (target / "plugin.so").read_bytes() == b"new binary contents"
+    stage_plugin(source, target)
+    assert (target / "plugin.so").read_bytes() == b"new binary contents"
 
 
 def test_performance_banks_are_portable_and_distinct():

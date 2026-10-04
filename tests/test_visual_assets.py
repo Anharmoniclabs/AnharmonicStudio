@@ -93,7 +93,7 @@ def test_workspace_icons_navigation_and_persistent_pages(workspace):
         assert studio.visuals.header.page == index
         assert not button.icon().isNull()
         assert studio.pages[index] is pages[index]
-        assert pages[index].parent() is studio.docks[index]
+        assert studio.docks[index].widget() is pages[index]
     for index in (5, 7):
         studio.select(index)
         assert studio.visuals.header.accessibleName() == PAGES[index][1]

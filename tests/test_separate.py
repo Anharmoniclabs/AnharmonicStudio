@@ -56,6 +56,7 @@ def test_stem_drawer_and_library_adoption():
             window = MainWindow(root)
         window.show()
         app.processEvents()
+        window.browser_frame.show()
 
         assert not window.browser.sep_toggle.isChecked()
         assert not window.browser.sep_panel.isVisible()
