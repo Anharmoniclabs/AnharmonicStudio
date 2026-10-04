@@ -29,9 +29,9 @@ NTRACKS = 8  # Legacy/default mixer size, never a runtime routing limit.
 MAX_TRACKS = 128
 
 # Classic 4x4 sampler layout: pad 1 sits bottom-left. Display row 0 is the top.
-# Pads are played from the numeric keypad, which no other binding touches — the
-# typing rows are left entirely to the synth. Labels only; main_window owns the
-# Qt keycodes, since several of these are operator keys.
+# Pads use the numeric keypad plus matching number-row digits in the workspace.
+# The focused musical-typing window owns piano input. Labels only; main_window
+# owns the Qt keycodes, since several of these are operator keys.
 #
 #     7  8  9  -      pads 13-16
 #     4  5  6  +      pads  9-12

@@ -87,6 +87,10 @@ class PadGrid(WindowClient, QWidget):
         self.setAcceptDrops(True)
         self.setMinimumSize(240, 240)
         self.setFocusPolicy(Qt.StrongFocus)
+        self.setToolTip(
+            "Play the matching pad with number-row 0–9 or the numeric keypad. "
+            "Shift plays softly. Focus Musical Typing to use numbers for piano."
+        )
         self._pressed: set[int] = set()
 
         self._timer = QTimer(self)

@@ -82,9 +82,9 @@ from . import (
 from .layout_helpers import small
 from .workspace_fit import WorkspaceFit, inspect_hardware, write_profile
 
-# Numeric keypad → local pad index, matching PAD_KEYS. Every entry is matched
-# only when Qt.KeypadModifier is set, so the number row and the main Enter,
-# ., / and * are untouched and stay free for typing and the synth.
+# Numeric keypad → local pad index, matching PAD_KEYS. The number row also
+# plays the matching digit labels in the workspace. Navigation and punctuation
+# aliases require the keypad so ordinary editing commands keep their meaning.
 KEY_TO_PAD = {
     Qt.Key_0: 0,
     Qt.Key_Period: 1,
@@ -132,10 +132,10 @@ def _is_text_entry(widget) -> bool:
 
 
 def _pad_for_key(ev) -> int | None:
-    """Local pad index for a key event, or None if it is not a keypad key."""
-    if not (ev.modifiers() & Qt.KeypadModifier):
-        return None
+    """Resolve keypad keys and number-row digits to their painted pad labels."""
     if ev.modifiers() & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier):
+        return None
+    if not (ev.modifiers() & Qt.KeypadModifier) and not Qt.Key_0 <= ev.key() <= Qt.Key_9:
         return None
     return KEY_TO_PAD.get(ev.key())
 
@@ -179,7 +179,7 @@ SHORTCUTS = (
     (
         "PADS",
         (
-            ("numeric keypad", "pads 1-16 of the current bank"),
+            ("numeric keypad / 0–9", "current-bank pads with matching key labels"),
             ("Shift + pad", "softer hit"),
             (",  ·  .", "previous / next pad bank"),
         ),
@@ -1141,7 +1141,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             or event.modifiers() != Qt.NoModifier
         ):
             self._last_transport_space = None
-        # Numeric-keypad pads are a performance surface, not a widget-local
+        # Number-key pads are a performance surface, not a widget-local
         # shortcut.  A producer may keep focus in the Browser, Arrange,
         # mixer, or an inspector while playing a pattern take.  Capture the
         # hit at the application boundary so it always reaches the selected
@@ -1211,8 +1211,8 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             return
 
         key = ev.key()
-        # Pads first, and on the keypad only: nothing the typing rows do can
-        # reach this branch, so the synth can never swallow a pad hit.
+        # The focused musical-typing tool owns its own note events. In the
+        # workspace, both keypad keys and number-row digits play pads.
         local = _pad_for_key(ev)
         if local is not None:
             gi = self.pads.bank * PADS_PER_BANK + local
@@ -1415,8 +1415,8 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         row_lay.setContentsMargins(14, 8, 14, 10)
         row_lay.addWidget(
             small(
-                "Pads answer the numeric keypad unless a text "
-                "field is being edited. Ctrl+T opens musical typing."
+                "Pads answer the numeric keypad and number-row 0–9, matching their labels. "
+                "Text fields keep number entry. Ctrl+T opens musical typing; focus it to play piano."
             )
         )
         row_lay.addStretch(1)

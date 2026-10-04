@@ -193,6 +193,67 @@ class WindowKeyTests(_WindowCase):
         self.assertEqual(notes, [])
         self.assertFalse(self.window._held_pads)
 
+    def test_number_row_plays_matching_pads_with_typing_closed_or_unfocused(self):
+        from mpclab.ui.main_window import KEY_TO_PAD
+
+        triggered, released, notes = [], [], []
+        self.window.engine.trigger_pad = lambda *args: triggered.append(args)
+        self.window.engine.release_pad = released.append
+        self.window.play_selected_note = lambda *args: notes.append(args)
+        for typing_open in (False, True):
+            if typing_open:
+                self.window.toggle_typing_keyboard()
+            self.window.activateWindow()
+            self.window.browser.list.setFocus()
+            self.app.processEvents()
+            self.window.set_bank(1)
+            for digit in "0123456789":
+                with self.subTest(typing_open=typing_open, digit=digit):
+                    key = ord(digit)
+                    QTest.keyClick(self.window.browser.list, key)
+                    self.assertEqual(triggered[-1], (16 + KEY_TO_PAD[key], 1.0))
+                    self.assertEqual(released[-1], 16 + KEY_TO_PAD[key])
+        self.assertEqual(notes, [])
+        self.assertFalse(self.window._held_pads)
+
+    def test_number_row_release_survives_bank_and_focus_changes(self):
+        triggered, released = [], []
+        self.window.engine.trigger_pad = lambda *args: triggered.append(args)
+        self.window.engine.release_pad = released.append
+        self.window.set_bank(0)
+        QTest.keyPress(self.window.pads, Qt.Key_0, Qt.ShiftModifier)
+        self.window.set_bank(1)
+        self.window.proj_name.setFocus()
+        QTest.keyRelease(self.window.proj_name, Qt.Key_0)
+        self.assertEqual(triggered, [(0, 0.55)])
+        self.assertEqual(released, [0])
+        self.assertFalse(self.window._held_pads)
+
+    def test_number_zero_renders_the_loaded_bottom_left_pad(self):
+        import numpy as np
+
+        clip = self.window.library.add_audio(np.full((4800, 2), 0.2, np.float32), "Pad test")
+        self.window.sample_workflow.send(clip.id, index=0, destination="beats")
+        self.window.set_bank(0)
+        QTest.keyPress(self.window.pads, Qt.Key_0)
+        output = np.zeros((512, 2), np.float32)
+        self.window.engine._callback(output, len(output), None, None)
+        self.assertGreater(float(np.max(np.abs(output))), 0.01)
+        QTest.keyRelease(self.window.pads, Qt.Key_0)
+        self.assertFalse(self.window._held_pads)
+
+    def test_number_row_respects_text_and_command_modifiers(self):
+        triggered = []
+        self.window.engine.trigger_pad = lambda *args: triggered.append(args)
+        self.window.proj_name.clear()
+        self.window.proj_name.setFocus()
+        QTest.keyClicks(self.window.proj_name, "0123456789")
+        self.assertEqual(self.window.proj_name.text(), "0123456789")
+        self.window.pads.setFocus()
+        for modifier in (Qt.ControlModifier, Qt.AltModifier, Qt.MetaModifier):
+            QTest.keyClick(self.window.pads, Qt.Key_0, modifier)
+        self.assertEqual(triggered, [])
+
     def test_popout_number_keys_play_piano_without_triggering_pads(self):
         triggered, notes = [], []
         self.window.engine.trigger_pad = lambda *args: triggered.append(args)
