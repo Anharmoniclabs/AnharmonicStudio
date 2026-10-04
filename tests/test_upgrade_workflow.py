@@ -176,4 +176,4 @@ def test_unrelated_cyclic_directory_symlink_is_preserved(package_inputs):
     (destination / "cycle").symlink_to(destination, target_is_directory=True)
     packaging.package_project(project, destination, sources, overwrite=True)
     assert (destination / "cycle").is_symlink()
-    assert (destination / "cycle").readlink() == destination
+    assert (destination / "cycle").samefile(destination)

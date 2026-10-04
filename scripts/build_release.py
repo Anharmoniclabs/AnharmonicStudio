@@ -126,7 +126,12 @@ def make_spec(stage, native, ffmpeg, ffprobe, pitch_engine=None):
     datas.append((str(ROOT / "mpclab/ui/qml"), "mpclab/ui/qml"))
     datas.extend(
         (str(ROOT / "mpclab" / name), "mpclab")
-        for name in ("prism_expansion.json", "prism_arps.json", "prism_parameters.json")
+        for name in (
+            "prism_expansion.json",
+            "prism_arps.json",
+            "prism_parameters.json",
+            "prism_performances.json",
+        )
     )
     if (ROOT / "plugins/bundled").is_dir():
         datas.append((str(ROOT / "plugins/bundled"), "plugins/bundled"))
