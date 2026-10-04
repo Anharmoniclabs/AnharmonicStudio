@@ -70,6 +70,9 @@ class WindowKeyTests(_WindowCase):
             self.assertTrue(self.window.tabs.tabBar().isHidden())
 
     def test_f8_hides_and_restores_the_browser(self):
+        # Compact displays start with the browser collapsed.
+        self.window.browser_frame.show()
+        self.app.processEvents()
         self.assertTrue(self.window.browser_frame.isVisible())
         self.assertTrue(self._fire("F8"))
         self.assertFalse(self.window.browser_frame.isVisible())
@@ -174,6 +177,33 @@ class WindowKeyTests(_WindowCase):
         self.assertEqual(released, [0])
         self.assertEqual(self.window._held_pads, {})
 
+    def test_all_keypad_pads_work_with_musical_typing_open(self):
+        from mpclab.ui.main_window import KEY_TO_PAD
+
+        triggered, released, notes = [], [], []
+        self.window.engine.trigger_pad = lambda *args: triggered.append(args)
+        self.window.engine.release_pad = released.append
+        self.window.play_selected_note = lambda *args: notes.append(args)
+        self.window.toggle_typing_keyboard()
+        for key, local in KEY_TO_PAD.items():
+            with self.subTest(key=key):
+                QTest.keyClick(self.window.pads, key, Qt.KeypadModifier)
+                self.assertEqual(triggered[-1], (local, 1.0))
+                self.assertEqual(released[-1], local)
+        self.assertEqual(notes, [])
+        self.assertFalse(self.window._held_pads)
+
+    def test_popout_number_keys_play_piano_without_triggering_pads(self):
+        triggered, notes = [], []
+        self.window.engine.trigger_pad = lambda *args: triggered.append(args)
+        self.window.play_selected_note = lambda note, velocity: notes.append(note)
+        self.window.toggle_typing_keyboard()
+        keyboard = self.window.typing_keyboard
+        QTest.keyClick(keyboard.keyboard, Qt.Key_1)
+        QTest.keyClick(keyboard.keyboard, Qt.Key_1, Qt.KeypadModifier)
+        self.assertEqual(notes, [self.window.synth_panel.base_note + 13] * 2)
+        self.assertEqual(triggered, [])
+
     def test_text_fields_own_letters_spaces_and_keypad_digits(self):
         triggered = []
         self.window.engine.trigger_pad = lambda *args: triggered.append(args)
@@ -225,25 +255,20 @@ class WindowKeyTests(_WindowCase):
         self.assertTrue(self.window.btn_rec.isChecked())
         QTest.keyRelease(keyboard.keyboard, Qt.Key_R)
 
-    def test_forwarded_typing_keys_never_toggle_record(self):
+    def test_main_window_keeps_record_keys_when_popout_is_visible(self):
         notes, released = [], []
         self.window.play_selected_note = lambda note, velocity: notes.append(note)
         self.window.release_selected_note = released.append
         self.window.toggle_typing_keyboard()
         self.window.setFocus()
-        base = self.window.synth_panel.base_note
-
-        # A forwarded event can enter the window handler directly, bypassing
-        # the floating keyboard's application filter.
         for armed in (False, True):
-            self.window.btn_rec.setChecked(armed)
-            for key, offset in ((Qt.Key_K, 18), (Qt.Key_R, 17)):
+            for key in (Qt.Key_K, Qt.Key_R):
+                self.window.btn_rec.setChecked(armed)
                 self.window.keyPressEvent(QKeyEvent(QKeyEvent.KeyPress, key, Qt.NoModifier))
-                self.assertEqual(self.window.btn_rec.isChecked(), armed)
-                self.assertEqual(notes[-1], base + offset)
+                self.assertEqual(self.window.btn_rec.isChecked(), not armed)
                 self.window.keyReleaseEvent(QKeyEvent(QKeyEvent.KeyRelease, key, Qt.NoModifier))
-                self.assertEqual(released[-1], base + offset)
-        self.assertEqual(notes, released)
+        self.assertEqual(notes, [])
+        self.assertEqual(released, [])
         self.assertFalse(self.window.typing_keyboard._held_keys)
 
     def test_popout_octave_and_sustain_release_the_captured_note(self):
@@ -302,7 +327,7 @@ class WindowKeyTests(_WindowCase):
         QTest.keyRelease(keyboard.keyboard, Qt.Key_Q)
         self.assertEqual(released, [base + 12])
 
-    def test_typing_stays_available_while_editing_knobs_and_preserves_text(self):
+    def test_typing_routes_by_pane_and_releases_across_focus_changes(self):
         notes, released = [], []
         self.window.play_selected_note = lambda note, velocity: notes.append(note)
         self.window.release_selected_note = released.append
@@ -318,13 +343,13 @@ class WindowKeyTests(_WindowCase):
         QTest.keyRelease(knob, Qt.Key_Z)
         self.assertEqual(released, notes)
         QTest.keyClick(knob, Qt.Key_A)
-        self.assertEqual(notes[-1], self.window.synth_panel.base_note + 1)
+        self.assertEqual(len(notes), 1)
         self.window.proj_name.clear()
         QTest.keyClicks(self.window.proj_name, "qaz1[]")
         self.assertEqual(self.window.proj_name.text(), "qaz1[]")
-        self.assertEqual(len(notes), 2)
+        self.assertEqual(len(notes), 1)
         self.assertTrue(keyboard.isVisible())
-        QTest.keyPress(knob, Qt.Key_X)
+        QTest.keyPress(keyboard.keyboard, Qt.Key_X)
         QApplication.sendEvent(keyboard, QEvent(QEvent.ApplicationDeactivate))
         self.assertFalse(keyboard._held_keys)
 

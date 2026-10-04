@@ -58,7 +58,9 @@ def render_export(
             progress(value)
 
     report(0)
-    engine = Engine(library)
+    # Cached samples are already converted into the library's clock domain.
+    # A default-rate engine would pitch-shift them and encode the wrong WAV rate.
+    engine = Engine(library, sample_rate=library.sample_rate)
     engine.project = Project.from_dict(project.to_dict())
     missing_slots = {
         note.pad
@@ -85,6 +87,10 @@ def render_export(
             for block in engine.iter_offline_blocks(mode, repeats, tail, report):
                 if cancel is not None and cancel.is_set():
                     raise ExportCancelled()
+                if not np.isfinite(block).all():
+                    raise ValueError(
+                        "Export produced non-finite audio; check instruments and effects"
+                    )
                 output.write(block)
                 frames += len(block)
             output.flush()

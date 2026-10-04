@@ -135,6 +135,8 @@ def _pad_for_key(ev) -> int | None:
     """Local pad index for a key event, or None if it is not a keypad key."""
     if not (ev.modifiers() & Qt.KeypadModifier):
         return None
+    if ev.modifiers() & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier):
+        return None
     return KEY_TO_PAD.get(ev.key())
 
 
@@ -359,6 +361,19 @@ def set_pipewire_default(node_id: int) -> None:
         timeout=2.0,
         check=True,
         env=external_environment(),
+    )
+
+
+def _audio_take_active(window) -> bool:
+    """Device/timing changes must wait for audio, MIDI and count-in takes."""
+    capture = getattr(window, "track_capture", None)
+    vocal = getattr(window, "vocal_panel", None)
+    return bool(
+        getattr(capture, "busy", False)
+        or getattr(getattr(vocal, "recorder", None), "recording", False)
+        or getattr(vocal, "_counting", False)
+        or getattr(getattr(window, "engine", None), "recording", False)
+        or getattr(window, "_record_count_deadline", None) is not None
     )
 
 
@@ -619,21 +634,31 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
     def _apply_audio_setup(self, dialog: AudioSetupDialog) -> None:
         """Persist accepted onboarding choices through existing controls."""
         output_key = dialog.output_key
-        if self.track_capture.busy or self.vocal_panel.recorder.recording:
+        if _audio_take_active(self):
             self.status.showMessage("Finish the take before changing audio devices", 5000)
             return
         mapping = tuple(dialog.output_channels.currentData() or (0, 1))
         previous_mapping = self.engine.output_channels
+        previous_output_key = self._audio_output_key
+        previous_frames = self.engine.blocksize
         was_running = self.engine.stream is not None
 
         def restore_channels():
             self.engine.output_channels = previous_mapping
-            if was_running and mapping != previous_mapping:
-                try:
+            try:
+                if self.engine.blocksize != previous_frames:
+                    self.engine.restart(previous_frames)
+                    self.settings.setValue("audio/buffer_frames", previous_frames)
+                    self.audio_buffer.blockSignals(True)
+                    self.audio_buffer.setCurrentIndex(self.audio_buffer.findData(previous_frames))
+                    self.audio_buffer.blockSignals(False)
+                if self._audio_output_key != previous_output_key:
+                    self._select_audio_output(previous_output_key)
+                elif was_running and mapping != previous_mapping:
                     self.engine.restart_device(self.engine.output_device)
                     self._audio_start_error = None
-                except Exception as restore_error:
-                    self._audio_start_error = str(restore_error)
+            except Exception as restore_error:
+                self._audio_start_error = str(restore_error)
 
         self.engine.output_channels = mapping
         if output_key != self._audio_output_key:
@@ -645,7 +670,9 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         if index >= 0 and frames != self.engine.blocksize:
             self.audio_buffer.setCurrentIndex(index)
             if self.engine.blocksize != frames:
+                error_message = self.status.currentMessage()
                 restore_channels()
+                self.status.showMessage(error_message, 8000)
                 return
         if previous_mapping != mapping and self.engine.stream is not None:
             try:
@@ -675,6 +702,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         else:
             rec.input_latency_ms = 0.0
             self.settings.setValue("audio/roundtrip_latency_ms", 0.0)
+            self.settings.setValue("audio/roundtrip_confidence", 0.0)
         self._set_dirty(True)
         self.vocal_panel.sync()
         self.track_inspector.sync()
@@ -682,7 +710,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     def _run_setup_loopback_calibration(self, input_device=None, output_device=None):
         """Temporarily yield the live device to the explicit cable test."""
-        if self.track_capture.busy or self.vocal_panel.recorder.recording:
+        if _audio_take_active(self):
             raise RuntimeError("Finish the current take before running calibration")
         was_running = self.engine.stream is not None
         if was_running:
@@ -819,6 +847,10 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     def _select_audio_output(self, key: str):
         """Switch output now and remember the stable device identity."""
+        if _audio_take_active(self):
+            self.status.showMessage("Finish the take before changing audio devices", 5000)
+            return False
+        previous_device = self.engine.output_device
         previous_system_id = None
         changed_system = False
         try:
@@ -846,7 +878,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             if changed_system and previous_system_id is not None:
                 try:
                     set_pipewire_default(previous_system_id)
-                    self.engine.restart_device(None)
+                    self.engine.restart_device(previous_device)
                 except Exception:
                     pass
             error = str(exc) or type(exc).__name__
@@ -933,6 +965,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.browser.refresh_separation_status()
         self.browser.refresh()
         self.mixer.sync()
+        self.synth_panel.prism_surface.apply_theme()
         self.pad_inspector.rebuild()
         for w in (
             self.pads,
@@ -1098,6 +1131,10 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
 
     # ── keyboard: pads and transport ─────────────────────────
     def eventFilter(self, watched, event):
+        if event.type() == QEvent.ApplicationDeactivate:
+            for gi in tuple(self._held_pads.values()):
+                self._pad_released(gi)
+            self._held_pads.clear()
         if event.type() == QEvent.KeyPress and (
             event.key() != Qt.Key_Space
             or _is_text_entry(watched)
@@ -1115,6 +1152,9 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             and not event.isAutoRepeat()
             and not _is_text_entry(watched)
             and not _is_text_entry(QApplication.focusWidget())
+            and isinstance(watched, QWidget)
+            and QWidget.window(watched) is self
+            and QApplication.activeModalWidget() is None
             and (local := _pad_for_key(event)) is not None
         ):
             gi = self.pads.bank * PADS_PER_BANK + local
@@ -1181,14 +1221,6 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             vel = 0.55 if ev.modifiers() & Qt.ShiftModifier else 1.0
             self._pad_pressed(gi, vel)
             self.pads.update()
-            return
-
-        # Forwarded key events can bypass the application's typing filter.
-        # Keep musical typing ahead of workspace and recording shortcuts here
-        # too, so K/R cannot arm or disarm a take while playing notes.
-        typing = self.typing_keyboard
-        if typing is not None and typing.isVisible() and typing._handle_press(ev):
-            ev.accept()
             return
 
         # Playlist tool letters only bite while the Playlist is on screen, so
@@ -1471,9 +1503,19 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         return window_transport._master_changed(self, v)
 
     def _audio_buffer_changed(self, index: int):
+        if _audio_take_active(self):
+            previous = self.audio_buffer.findData(self.engine.blocksize)
+            self.audio_buffer.blockSignals(True)
+            self.audio_buffer.setCurrentIndex(max(0, previous))
+            self.audio_buffer.blockSignals(False)
+            self.status.showMessage("Finish the take before changing the audio buffer", 5000)
+            return
         return window_transport._audio_buffer_changed(self, index)
 
     def _retry_audio(self):
+        if _audio_take_active(self):
+            self.status.showMessage("Finish the take before reconnecting audio", 5000)
+            return
         return window_transport._retry_audio(self)
 
     # ── pads ─────────────────────────────────────────────────
@@ -1481,7 +1523,18 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         return window_sampling.set_bank(self, bank)
 
     def select_pad(self, gi: int):
-        return window_sampling.select_pad(self, gi)
+        result = window_sampling.select_pad(self, gi)
+        # Selecting a performance pad should expose its controls after a
+        # compact layout has collapsed the rack. Preserve arrangement focus
+        # and leave startup selections free to establish the initial layout.
+        if (
+            self.isVisible()
+            and getattr(self, "_compact_panels", None) is not None
+            and not getattr(self, "_playlist_focus", False)
+            and self.pad_side.isHidden()
+        ):
+            self.toggle_pads()
+        return result
 
     def print_synth_to_pad(self):
         return window_sampling.print_synth_to_pad(self)

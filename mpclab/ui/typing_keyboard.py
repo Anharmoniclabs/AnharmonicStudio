@@ -58,7 +58,7 @@ class KeyboardDragHandle(QLabel):
 class TypingKeyboardWindow(WindowClient, QDialog):
     """A Logic-style floating keyboard with an unambiguous key context.
 
-    While visible, note keys work across the main workstation and this tool.
+    Note keys play only within this tool's focused window.
     Text fields retain normal typing.  Ctrl/Alt/Meta combinations are never interpreted as notes, Shift
     is reserved for soft velocity, and key release always targets the exact
     note captured on key press.
@@ -288,14 +288,10 @@ class TypingKeyboardWindow(WindowClient, QDialog):
         if event.type() == QEvent.KeyRelease and self._handle_release(event):
             event.accept()
             return True
-        # Some Studio dialogs historically store their owning MainWindow in an
-        # instance attribute named ``window``. That shadows QWidget.window() and
-        # made the global musical-typing filter call a MainWindow object as a
-        # function, producing an exception storm that can make Qt look hung.
-        top = watched
-        while isinstance(top.parentWidget(), QWidget):
-            top = top.parentWidget()
-        if top not in (self, self.app) or self._text_control(watched):
+        # Call the Qt method directly: some dialogs shadow ``window`` with an
+        # owner attribute. Parent traversal also crosses a floating window's
+        # boundary and incorrectly treats its owner as the active pane.
+        if QWidget.window(watched) is not self or self._text_control(watched):
             return False
         if event.type() == QEvent.ShortcutOverride:
             if not self._has_command_modifier(event.modifiers()) and event.key() in (

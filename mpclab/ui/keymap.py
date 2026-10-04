@@ -1,7 +1,7 @@
 """Canonical physical-key maps used by the workstation UI.
 
-Musical typing owns these keys across the workstation while its floating
-keyboard is visible. Text fields and command-modified shortcuts keep their
+Musical typing owns these keys while its floating keyboard has focus.
+Text fields and command-modified shortcuts keep their
 normal behavior.  Keeping the note offsets and the labels in this one table prevents
 the painted piano and the event handler from drifting apart.
 """

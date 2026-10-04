@@ -6,6 +6,7 @@ project state stay with that coordinator. This module owns only its named domain
 
 from __future__ import annotations
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -96,6 +97,26 @@ def _build(window):
     appearance = QMenu(window.appearance_button)
     appearance.addAction("Color wheel…", window.pick_accent_color)
     appearance.addAction("Light / dark theme", window.toggle_theme)
+    scale_menu = appearance.addMenu("Interface scale · next launch")
+    scales = QActionGroup(scale_menu)
+    scales.setExclusive(True)
+    saved_scale = str(window.settings.value("ui/interface_scale", "auto"))
+    for label, value in (
+        ("Auto fit screen", "auto"),
+        ("80%", "0.8"),
+        ("90%", "0.9"),
+        ("100%", "1"),
+        ("110%", "1.1"),
+        ("125%", "1.25"),
+    ):
+        action = scale_menu.addAction(label)
+        action.setCheckable(True)
+        action.setChecked(saved_scale == value)
+        scales.addAction(action)
+        action.triggered.connect(
+            lambda checked=False, value=value: window.settings.setValue("ui/interface_scale", value)
+        )
+    appearance.addAction("Maximize workspace", window.showMaximized)
     appearance.addSeparator()
     appearance.addAction("Reset dark blue", window.reset_appearance)
     window.appearance_button.setMenu(appearance)

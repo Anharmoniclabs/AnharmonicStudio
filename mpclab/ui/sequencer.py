@@ -74,6 +74,9 @@ class StepGrid(WindowClient, QWidget):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(33)
+        self._keyboard_reveal_timer = QTimer(self)
+        self._keyboard_reveal_timer.setSingleShot(True)
+        self._keyboard_reveal_timer.timeout.connect(self._reveal_keyboard_cell)
         self._playing_step = -1
         self._sample_drop = SoundDropFilter(app, self, "beats", self.drop_target)
 
@@ -309,6 +312,9 @@ class StepGrid(WindowClient, QWidget):
         # Keyboard editing must reveal its target even when playback FOLLOW is
         # disabled. Mouse selection should not move the view under the pointer.
         self._reveal_keyboard_cell()
+        # Choosing a different pad can reopen its rack and change the scroll
+        # viewport. Repeat after that layout settles, coalescing rapid keys.
+        self._keyboard_reveal_timer.start(0)
         ev.accept()
 
     def wheelEvent(self, ev):

@@ -509,6 +509,7 @@ class Engine:
             self.stop()
         try:
             self.configure_blocksize(blocksize)
+            self.output_device = output_device
             if was_running:
                 self.start(output_device)
         except Exception:
@@ -645,6 +646,18 @@ class Engine:
     def synth_note_off(self, note: int, *, instrument_id=None) -> None:
         command = ("synthoff", max(0, min(127, int(note))))
         self.cmds.put(command if instrument_id is None else (*command, instrument_id))
+
+    def synth_preview_note_on(self, note: int, velocity: float = 1.0, *, instrument_id=None):
+        """Audition a patch without taking ownership of a musician's held key."""
+        prepare_patch(self.project.instrument_patch(instrument_id))
+        token = object()
+        self.cmds.put(("synthpreview", max(0, min(127, int(note))), velocity, instrument_id, token))
+        return token
+
+    def synth_preview_note_off(self, token) -> None:
+        """Release only the preview represented by its returned trigger token."""
+        if token is not None:
+            self.cmds.put(("synthpreviewoff", token))
 
     def synth_panic(self) -> None:
         self.cmds.put(("synthpanic",))
@@ -1355,6 +1368,24 @@ class Engine:
                             reason="sample_panic",
                         )
                         v.release_now(max(1, int(FADE * self.sr)))
+            elif kind == "synthpreview":
+                _, note, velocity, instrument_id, token = cmd
+                if instrument_id is None or any(
+                    instance.id == instrument_id for instance in proj.instruments
+                ):
+                    self._spawn_synth(
+                        note,
+                        velocity,
+                        instrument_id=instrument_id,
+                        trigger_id=token,
+                        midi_owner=token,
+                        live_trigger=False,
+                    )
+            elif kind == "synthpreviewoff":
+                for voice in (*self.synth_voices, *self.external.all_voices()):
+                    if voice.trigger_id is cmd[1] and not voice.dead:
+                        patch = getattr(voice, "patch_ref", None) or proj.synth
+                        voice.note_off(patch.release)
             elif kind == "synthon":
                 note, vel = cmd[1], cmd[2]
                 instrument_id = cmd[3] if len(cmd) > 3 else None

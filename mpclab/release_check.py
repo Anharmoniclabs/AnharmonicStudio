@@ -249,6 +249,9 @@ def main(report=None):
                     + "\n".join(error.toString() for error in navigation.errors())
                 )
             result["quick_workspace_navigation"] = True
+            # Release the probe's child-widget reference before checking that
+            # closing the workstation releases the window and audio engine.
+            del navigation
             controller = attach_application_features(window)
             result["production_commands"] = validate_production_features(window, controller)
             result["production_feature_controls"] = True

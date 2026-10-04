@@ -109,6 +109,7 @@ def _build_transport(window) -> QWidget:
     lay.addSpacing(8)
     lay.addWidget(small("BPM"))
     window.bpm_box = QDoubleSpinBox()
+    window.bpm_box.setAccessibleName("Project tempo in beats per minute")
     window.bpm_box.setRange(40, 240)
     window.bpm_box.setDecimals(2)
     window.bpm_box.setValue(window.project.bpm)
@@ -126,6 +127,7 @@ def _build_transport(window) -> QWidget:
     window.swing_title = small("SWING")
     lay.addWidget(window.swing_title)
     window.swing = QSlider(Qt.Horizontal)
+    window.swing.setAccessibleName("Swing amount")
     window.swing.setFixedWidth(64)
     window.swing.setRange(0, 70)
     window.swing_label = small("0%")
@@ -160,6 +162,7 @@ def _build_transport(window) -> QWidget:
     window.master_title = small("MAIN")
     lay.addWidget(window.master_title)
     window.master_slider = QSlider(Qt.Horizontal)
+    window.master_slider.setAccessibleName("Master output level")
     window.master_slider.setFixedWidth(72)
     window.master_slider.setRange(0, 130)
     window.master_slider.setValue(int(window.project.master * 100))
@@ -168,6 +171,7 @@ def _build_transport(window) -> QWidget:
 
     lay.addStretch(1)
     window.proj_name = QLineEdit(window.project.name)
+    window.proj_name.setAccessibleName("Project name")
     window.proj_name.setFixedWidth(108)
     window.proj_name.setToolTip("Project name — what SAVE writes to projects/")
     window.proj_name.textChanged.connect(window._project_name_changed)
@@ -204,6 +208,7 @@ def _build_transport(window) -> QWidget:
     lay.addWidget(window.btn_color)
 
     window.audio_buffer = QComboBox()
+    window.audio_buffer.setAccessibleName("Audio buffer profile")
     window.audio_buffer.setObjectName("mini")
     for label, frames in AUDIO_BUFFER_PROFILES:
         period = frames / window.engine.sr * 1000.0

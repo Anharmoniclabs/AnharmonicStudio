@@ -45,6 +45,9 @@ def main() -> int:
     )
     parser.add_argument("--self-check-report", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--export-worker", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--display-probe", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--ui-scale", help="interface scale: auto, or 0.75 to 1.5")
+    parser.add_argument("--windowed", action="store_true", help="open in a resizable window")
     parser.add_argument(
         "--install", action="store_true", help="install a Linux bundle for this user"
     )
@@ -66,6 +69,10 @@ def main() -> int:
         "--companion-port", type=int, default=0, help="loopback port; default chooses a free port"
     )
     args, qt_args = parser.parse_known_args(sys.argv[1:])
+    if args.display_probe:
+        from .display_scale import probe_display
+
+        return probe_display(args.display_probe, qt_args)
     if args.browser_companion:
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
@@ -117,6 +124,13 @@ def main() -> int:
         print(f"built {project.name} -> {args.build_stem_remix}")
         return 0
 
+    from .display_scale import configure_scale, show_workspace
+
+    try:
+        configure_scale(args.ui_scale, qt_args)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     from PySide6.QtWidgets import QApplication, QMessageBox
     from PySide6.QtCore import QLockFile
     from PySide6.QtGui import QFontDatabase, QIcon
@@ -163,7 +177,7 @@ def main() -> int:
     if args.project is not None:
         if not win.load_project_path(args.project, clear_session=False):
             return 2
-    win.show()
+    show_workspace(win, windowed=args.windowed or args.browser_companion)
     from .companion.ui import install_companion_action, start_companion
 
     install_companion_action(win)

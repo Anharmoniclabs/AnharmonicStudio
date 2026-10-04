@@ -137,6 +137,7 @@ class PadGrid(WindowClient, QWidget):
 
     # ── mouse ────────────────────────────────────────────────
     def mousePressEvent(self, ev):
+        self.setFocus(Qt.MouseFocusReason)
         local, rect = self._hit(ev.position())
         if local is None:
             return

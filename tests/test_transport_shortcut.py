@@ -101,6 +101,7 @@ class SpaceTransportTests(unittest.TestCase):
         self.assertTrue(self.window.song_scroll.widgetResizable())
 
     def test_playlist_focus_mode_preserves_and_restores_sidebars(self):
+        self.window.browser_frame.show()
         self.window.pad_side.show()
         self.window.set_playlist_focus(True)
         self.assertTrue(self.window.browser_frame.isHidden())

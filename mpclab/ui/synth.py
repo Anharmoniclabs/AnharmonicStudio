@@ -44,6 +44,7 @@ from ..prism import (
     sound_document,
 )
 from .prism_scope import PrismScope
+from .studio import horizontal_strip
 
 
 BLACK_NOTES = {1, 3, 6, 8, 10}
@@ -234,6 +235,7 @@ class PianoKeyboard(QWidget):
         self.octaves = 3
         self.active: set[int] = set()
         self._mouse_note: int | None = None
+        self.show_typing_labels = True
         self.setMinimumHeight(150)
         self.setMouseTracking(True)
 
@@ -327,7 +329,11 @@ class PianoKeyboard(QWidget):
                 p.drawText(
                     rect.adjusted(4, 0, -3, -5), Qt.AlignBottom | Qt.AlignLeft, f"C{note // 12 - 1}"
                 )
-            key = MUSICAL_OFFSET_LABELS.get(note - self.base_note)
+            key = (
+                MUSICAL_OFFSET_LABELS.get(note - self.base_note)
+                if self.show_typing_labels
+                else None
+            )
             if key:
                 p.setPen(q("on_accent") if active else q("dim"))
                 p.drawText(
@@ -338,7 +344,11 @@ class PianoKeyboard(QWidget):
             p.setBrush(q("accent_hi") if active else q("canvas"))
             p.setPen(QPen(q("line"), 1))
             p.drawRoundedRect(rect, 2, 2)
-            key = MUSICAL_OFFSET_LABELS.get(note - self.base_note)
+            key = (
+                MUSICAL_OFFSET_LABELS.get(note - self.base_note)
+                if self.show_typing_labels
+                else None
+            )
             if key:
                 p.setPen(q("on_accent") if active else q("dim"))
                 p.drawText(
@@ -359,6 +369,7 @@ class SynthPanel(WindowClient, QWidget):
         self._preview_request = -1
         self._preview_generation = 0
         self._preview_note = None
+        self._preview_token = None
         self.instrumentReady.connect(self._instrument_ready)
         self._controls: list[tuple[QSlider, str, float, float, bool, QLabel, object]] = []
         self._combos: list[tuple[QComboBox, str]] = []
@@ -417,6 +428,7 @@ class SynthPanel(WindowClient, QWidget):
         hl.setContentsMargins(10, 7, 10, 7)
         hl.addWidget(self._title("SOUNDS"))
         self.category = QComboBox()
+        self.category.setAccessibleName("Instrument category")
         self.category.addItems(
             [
                 "All sounds",
@@ -442,6 +454,7 @@ class SynthPanel(WindowClient, QWidget):
         hl.insertWidget(1, self.patch_name, 1)
         hl.addStretch(1)
         self.track = QComboBox()
+        self.track.setAccessibleName("Instrument mixer track")
         self.track.addItems([f"{i + 1}" for i in range(len(self.app.project.tracks))])
         self.track.currentIndexChanged.connect(self._track_changed)
         panic = QPushButton("Panic")
@@ -454,13 +467,9 @@ class SynthPanel(WindowClient, QWidget):
         self.print_button.setToolTip("Render a two-beat note from this patch onto the selected pad")
         self.print_button.clicked.connect(self.app.print_synth_to_pad)
         hl.addWidget(self.print_button)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        head.setMinimumWidth(head.sizeHint().width())
-        scroll.setFixedHeight(50)
-        scroll.setWidget(head)
+        # Include room for the horizontal scrollbar: it must not cover the
+        # preview/print buttons when the editor is narrower than its toolbar.
+        scroll = horizontal_strip(head, 64)
         self._native_head = scroll
         outer.addWidget(scroll)
         quick, form = self._section("INSTRUMENT")
@@ -559,12 +568,8 @@ class SynthPanel(WindowClient, QWidget):
             tools_layout.addWidget(button)
             if len(self._tone_buttons) < 5:
                 self._tone_buttons.append(button)
-        tools_scroll = QScrollArea()
+        tools_scroll = horizontal_strip(tools, 60)
         self._native_tools = tools_scroll
-        tools_scroll.setWidgetResizable(True)
-        tools_scroll.setFixedHeight(48)
-        tools_scroll.setFrameShape(QFrame.NoFrame)
-        tools_scroll.setWidget(tools)
         outer.addWidget(tools_scroll)
         self.plugin_mode = QLabel()
         self.plugin_mode.setWordWrap(True)
@@ -687,8 +692,13 @@ class SynthPanel(WindowClient, QWidget):
         keyboard_bar.setObjectName("toolbar")
         kl = QHBoxLayout(keyboard_bar)
         kl.setContentsMargins(10, 5, 10, 5)
-        kl.addWidget(QLabel("TYPING KEYS"))
-        kl.addWidget(QLabel("Ctrl+T opens the movable keyboard · play while editing controls"))
+        kl.addWidget(QLabel("PIANO"))
+        typing_button = QPushButton("Musical typing")
+        typing_button.setToolTip(
+            "Open the floating keyboard (Ctrl+T). Focus that window to play piano keys."
+        )
+        typing_button.clicked.connect(self.app.toggle_typing_keyboard)
+        kl.addWidget(typing_button)
         kl.addStretch(1)
         self.keyboard_toggle = QPushButton("Hide piano")
         self.keyboard_toggle.setCheckable(True)
@@ -698,18 +708,22 @@ class SynthPanel(WindowClient, QWidget):
         self.keyboard_toggle.toggled.connect(self._toggle_docked_keyboard)
         kl.addWidget(self.keyboard_toggle)
         down = QPushButton("OCT −")
+        down.setAccessibleName("Lower piano octave")
         down.setObjectName("mini")
         down.clicked.connect(lambda: self.set_octave(self.octave - 1))
         up = QPushButton("OCT +")
+        up.setAccessibleName("Raise piano octave")
         up.setObjectName("mini")
         up.clicked.connect(lambda: self.set_octave(self.octave + 1))
         self.octave_label = QLabel("")
         kl.addWidget(down)
         kl.addWidget(self.octave_label)
         kl.addWidget(up)
-        outer.addWidget(keyboard_bar)
+        self.keyboard_toolbar = horizontal_strip(keyboard_bar, 56)
+        outer.addWidget(self.keyboard_toolbar)
 
         self.keyboard = PianoKeyboard()
+        self.keyboard.show_typing_labels = False
         self.keyboard.setFixedHeight(112)
         self.keyboard.notePressed.connect(self.app.play_synth_note)
         self.keyboard.noteReleased.connect(self.app.release_synth_note)
@@ -724,6 +738,7 @@ class SynthPanel(WindowClient, QWidget):
 
     def _combo(self, form, label, attr, labels, values=None):
         combo = QComboBox()
+        combo.setAccessibleName(label)
         if attr == "sample_reverse":
             combo.setToolTip("Recorded sample direction; applies to the next note")
         values = values or labels
@@ -740,6 +755,7 @@ class SynthPanel(WindowClient, QWidget):
         row = QHBoxLayout(host)
         row.setContentsMargins(0, 0, 0, 0)
         slider = QSlider(Qt.Horizontal)
+        slider.setAccessibleName(label)
         slider.setRange(0, 1000)
         slider.setProperty("instrumentDragChanged", False)
         slider.sliderReleased.connect(lambda: slider.setProperty("instrumentDragChanged", False))
@@ -772,6 +788,8 @@ class SynthPanel(WindowClient, QWidget):
     def _slider_changed(self, pos, attr, lo, hi, log, label, formatter, slider=None):
         value = self._value(pos / 1000, lo, hi, log)
         label.setText(formatter(value))
+        if slider is not None:
+            slider.setAccessibleDescription(formatter(value))
         snapshot = True
         if not self._building and slider is not None:
             snapshot = not slider.isSliderDown() or not slider.property("instrumentDragChanged")
@@ -805,7 +823,12 @@ class SynthPanel(WindowClient, QWidget):
             self.app._set_dirty(True)
 
     def _track_changed(self, index):
-        if not self._building:
+        if (
+            not self._building
+            and 0 <= index < len(self.app.project.tracks)
+            and index != self.app.project.selected_patch.track
+        ):
+            self.app.snapshot()
             self.app.project.selected_patch.track = index
             self.app._set_dirty(True)
 
@@ -847,31 +870,31 @@ class SynthPanel(WindowClient, QWidget):
             return True
         return super().eventFilter(watched, event)
 
+    def stop_preview(self):
+        """Release this panel's captured audition owner before invalidating its timer."""
+        self._preview_generation += 1
+        if self._preview_note is not None:
+            self.app.engine.synth_preview_note_off(self._preview_token)
+            self._preview_note = None
+            self._preview_token = None
+
     def preview_sound(self):
         # Preview goes directly to the engine; it must not record notes.
         note = orchestra.PREVIEW_NOTES.get(self.app.project.selected_patch.name, self.base_note)
-        self._preview_generation += 1
+        self.stop_preview()
         generation = self._preview_generation
         instrument_id = self.app.project.selected_instrument
-        if self._preview_note is not None:
-            self.app.engine.synth_note_off(
-                self._preview_note, instrument_id=getattr(self, "_preview_instrument", None)
-            )
         self._preview_note = note
         self._preview_instrument = instrument_id
-        if instrument_id is None:
-            self.app.engine.synth_note_on(note, 0.7)
-        else:
-            self.app.engine.synth_note_on(note, 0.7, instrument_id=instrument_id)
+        token = self.app.engine.synth_preview_note_on(note, 0.7, instrument_id=instrument_id)
+        self._preview_token = token
         duration = 1800 if self.app.project.selected_patch.sample_source else 650
 
         def release_preview():
             if generation == self._preview_generation:
-                if instrument_id is None:
-                    self.app.engine.synth_note_off(note)
-                else:
-                    self.app.engine.synth_note_off(note, instrument_id=instrument_id)
+                self.app.engine.synth_preview_note_off(token)
                 self._preview_note = None
+                self._preview_token = None
 
         QTimer.singleShot(duration, self, release_preview)
 
@@ -967,6 +990,8 @@ class SynthPanel(WindowClient, QWidget):
     def _commit_preset(self, name, *, owner="selected"):
         if owner == "selected":
             owner = self.app.project.selected_instrument
+        if self._preview_note is not None and self._preview_instrument == owner:
+            self.stop_preview()
         self.app.snapshot()
         track = self.app.project.instrument_patch(owner).track
         patch = patch_copy(name)
@@ -997,9 +1022,13 @@ class SynthPanel(WindowClient, QWidget):
 
     def sync(self):
         self._building = True
-        if getattr(self, "_displayed_instrument", None) != self.app.project.selected_instrument:
-            self._preview_generation += 1
+        if (
+            getattr(self, "_displayed_instrument", None) != self.app.project.selected_instrument
+            or getattr(self, "_displayed_project", None) is not self.app.project
+        ):
+            self.stop_preview()
         self._displayed_instrument = self.app.project.selected_instrument
+        self._displayed_project = self.app.project
         patch = self.app.project.selected_patch
         self.visualizer.set_patch(patch)
         self.patch_name.setText(patch.name)
@@ -1041,6 +1070,7 @@ class SynthPanel(WindowClient, QWidget):
             value = min(hi, max(lo, float(getattr(patch, attr))))
             slider.setValue(round(self._position(value, lo, hi, log) * 1000))
             label.setText(formatter(value))
+            slider.setAccessibleDescription(formatter(value))
         for combo, attr in self._combos:
             index = combo.findData(getattr(patch, attr))
             combo.setCurrentIndex(max(0, index))

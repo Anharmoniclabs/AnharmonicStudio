@@ -15,6 +15,7 @@ def main(specification=None):
     from .automation_mode_state import install_automation_mode_state
     from .plugin_chain_runtime import install_plugin_chain_runtime
     from .pro_daw_state import install_pro_daw_state
+    from .project_audio_runtime import install_project_audio_runtime
     from .workflow_mixing import install_advanced_track_controls
     from .workflow_state import install_project_workflow_state
 
@@ -26,6 +27,9 @@ def main(specification=None):
     install_automation_mode_state()
     install_advanced_track_controls(device_controllers=False)
     install_plugin_chain_runtime()
+    # Construct rate-dependent effect buffers in the same clock domain as
+    # the cached media, including when this fresh process exports at 44.1/96 kHz.
+    install_project_audio_runtime()
 
     # This process is owned by ExportJob; no other application's policy changes.
     # Lower its priority only when the accelerated DSP backend is available.

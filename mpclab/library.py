@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import shutil
 import tempfile
@@ -136,8 +137,8 @@ class Library:
         _atomic_json(folder / "meta.json", asdict(clip))
 
     def update(self, clip: Clip) -> None:
-        self.clips[clip.id] = clip
         self._write_meta(clip)
+        self.clips[clip.id] = clip
 
     def ordered(self) -> list[Clip]:
         local = sorted(
@@ -181,7 +182,7 @@ class Library:
             "path": str(root),
         }
         saved = sorted(resolved.values(), key=lambda item: item["name"].lower())
-        self.packs_path.write_text(json.dumps({"packs": saved}, indent=2) + "\n")
+        _atomic_json(self.packs_path, {"packs": saved})
         return self._scan_pack(root, str(name or root.name))
 
     def scan_registered_packs(self) -> int:
@@ -323,8 +324,17 @@ class Library:
             audio = audio[:, None]
         if audio.ndim != 2 or audio.shape[1] not in (1, 2) or not len(audio):
             raise ValueError("generated audio must contain mono or stereo frames")
+        # Reject invalid DSP/capture output before creating media or exposing it
+        # to playback. Check blocks to keep validation scratch memory bounded.
+        for start in range(0, len(audio), DECODE_BLOCK):
+            if not np.isfinite(audio[start : start + DECODE_BLOCK]).all():
+                raise ValueError("generated audio must contain only finite samples")
         source_rate = self.sample_rate if source_sample_rate is None else source_sample_rate
-        if isinstance(source_rate, bool) or not isinstance(source_rate, (int, float)):
+        if (
+            isinstance(source_rate, bool)
+            or not isinstance(source_rate, (int, float))
+            or not math.isfinite(source_rate)
+        ):
             raise ValueError("source sample rate must be a positive number")
         source_rate = int(round(float(source_rate)))
         if source_rate <= 0:

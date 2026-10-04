@@ -158,6 +158,7 @@ class EventCaptureSession(CaptureSession):
 
     def start(self):
         super().start()
+        self.events.clear()
         self.recording()
 
     def stop(self):

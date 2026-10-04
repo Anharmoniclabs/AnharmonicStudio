@@ -58,7 +58,9 @@ def test_new_factory_beat_preserves_existing_pads_and_undo(tmp_path, monkeypatch
         assert window.project.synth.name == "Clean Sub"
         calls = []
         monkeypatch.setattr(
-            window.engine, "synth_note_on", lambda note, velocity: calls.append(note)
+            window.engine,
+            "synth_preview_note_on",
+            lambda note, velocity, **_kwargs: calls.append(note),
         )
         before_notes = list(window.project.pattern().notes)
         window.synth_panel.preview_sound()
@@ -140,7 +142,9 @@ def test_instrument_enter_loads_and_previews_without_recording_and_undo_restores
         target = panel.sound_cards if browse_results else panel.sound_search
         calls = []
         monkeypatch.setattr(
-            window.engine, "synth_note_on", lambda note, velocity: calls.append((note, velocity))
+            window.engine,
+            "synth_preview_note_on",
+            lambda note, velocity, **_kwargs: calls.append((note, velocity)),
         )
         QTest.keyClick(target, Qt.Key_Return)
         assert window.project.synth.name == "Clean Sub"

@@ -1,7 +1,6 @@
 """First-party plugin controls inside Studio's instrument workflow."""
 
 from dataclasses import asdict
-import colorsys
 import json
 from pathlib import Path
 
@@ -20,13 +19,18 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMenu,
+    QSplitter,
+    QSizePolicy,
     QPushButton,
+    QToolButton,
     QScrollArea,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 from .window_client import WindowClient
+from . import theme as studio_theme
 from ..synth import PATCHES, PATCH_CATEGORIES
 
 SPECS = json.loads((Path(__file__).resolve().parents[1] / "prism_parameters.json").read_text())
@@ -44,37 +48,30 @@ CATALOG.update({item["name"]: item for item in PERFORMANCES})
 WAVES = {"saw": 0, "sine": 1, "triangle": 2, "square": 3}
 
 
-def _hsv_hex(hue, saturation, value):
-    red, green, blue = colorsys.hsv_to_rgb(
-        hue % 1.0, max(0.0, min(1.0, saturation)), max(0.0, min(1.0, value))
-    )
-    return f"#{round(red * 255):02x}{round(green * 255):02x}{round(blue * 255):02x}"
-
-
 def prism_theme(values):
     """Keep the editor palette stable across presets, automation and hand FX."""
-    hue, saturation, brightness = 0.61, 0.62, 0.94
+    c = studio_theme.C
     return {
-        "id": "prism-blue",
-        "accent": _hsv_hex(hue, saturation, brightness),
-        "accent_hi": _hsv_hex(hue, max(0.16, saturation * 0.28), 0.98),
-        "accent_soft": _hsv_hex(hue, max(0.30, saturation * 0.70), min(0.94, brightness + 0.06)),
-        "selection": _hsv_hex(hue, 0.36, 0.25),
-        "selection_text": _hsv_hex(hue, 0.18, 0.96),
-        "checked": _hsv_hex(hue, 0.40, 0.30),
-        "pressed": _hsv_hex(hue, 0.30, 0.33),
-        "hover_border": _hsv_hex(hue, 0.32, 0.56),
-        "input_select": _hsv_hex(hue, 0.36, 0.36),
-        "surface": _hsv_hex(hue, 0.075, 0.13),
-        "tab_surface": _hsv_hex(hue, 0.11, 0.17),
-        "display_bg": _hsv_hex(hue, 0.08, 0.095),
-        "border": _hsv_hex(hue, 0.075, 0.27),
-        "grid": _hsv_hex(hue, 0.07, 0.17),
-        "track": _hsv_hex(hue, 0.055, 0.24),
-        "knob": _hsv_hex(hue, 0.065, 0.16),
-        "scroll": _hsv_hex(hue, 0.065, 0.34),
-        "muted": _hsv_hex(hue, 0.10, 0.68),
-        "text": _hsv_hex(hue, 0.045, 0.93),
+        "id": "prism-studio",
+        "accent": c["accent"],
+        "accent_hi": c["accent_hi"],
+        "accent_soft": c["accent_hi"],
+        "selection": c["bg3"],
+        "selection_text": c["fg"],
+        "checked": c["bg3"],
+        "pressed": c["press"],
+        "hover_border": c["hover_line"],
+        "input_select": c["accent"],
+        "surface": c["bg2"],
+        "tab_surface": c["bg3"],
+        "display_bg": c["bg"],
+        "border": c["line"],
+        "grid": c["bg3"],
+        "track": c["line"],
+        "knob": c["bg3"],
+        "scroll": c["dim"],
+        "muted": c["dim"],
+        "text": c["fg"],
     }
 
 
@@ -83,7 +80,7 @@ def prism_stylesheet(theme):
     #prismSurface {{ background: {theme["surface"]}; color: {theme["text"]}; }}
     #prismSurface QWidget {{ color: {theme["text"]}; font-size: 12px; }}
     #prismSurface QLabel {{ background: transparent; }}
-    #prismSurface QPushButton {{
+    #prismSurface QPushButton, #prismSurface QToolButton {{
         background: {theme["tab_surface"]}; border: 1px solid {theme["border"]};
         border-radius: 4px; padding: 6px 10px; color: {theme["text"]};
     }}
@@ -91,6 +88,9 @@ def prism_stylesheet(theme):
         background: {theme["pressed"]}; border-color: {theme["hover_border"]};
     }}
     #prismSurface QPushButton:pressed {{ background: {theme["pressed"]}; }}
+    #prismSurface QToolButton::menu-button {{
+        width: 22px; border-left: 1px solid {theme["border"]};
+    }}
     #prismSurface QPushButton:checked {{
         background: {theme["checked"]}; color: {theme["selection_text"]};
         border-color: {theme["accent"]};
@@ -191,7 +191,7 @@ class PrismKnob(QDial):
         self.setRange(0, 10000)
         self.setSingleStep(25)
         self.setPageStep(500)
-        self.setFixedSize(110, 116)
+        self.setFixedSize(110, 100)
         self.setAccessibleName(spec["label"])
         self.setToolTip(
             f"{spec['label']} · drag vertically · Shift for fine control · double-click to reset"
@@ -216,7 +216,7 @@ class PrismKnob(QDial):
         p.setRenderHint(QPainter.Antialiasing)
         theme = getattr(self.panel, "theme", prism_theme({}))
         p.setPen(QPen(QColor(theme["track"]), 5))
-        r = QRectF(25, 8, 60, 60)
+        r = QRectF(29, 4, 52, 52)
         p.drawArc(r, -225 * 16, -270 * 16)
         p.setPen(QPen(QColor(theme["accent"] if not self.hasFocus() else theme["accent_hi"]), 5))
         p.drawArc(r, -225 * 16, int(-270 * 16 * self.value() / 10000))
@@ -226,13 +226,13 @@ class PrismKnob(QDial):
         a = math.radians(135 + 270 * self.value() / 10000)
         p.setPen(QPen(QColor(theme["accent_hi"]), 3))
         p.drawLine(
-            QPointF(55 + math.cos(a) * 12, 38 + math.sin(a) * 12),
-            QPointF(55 + math.cos(a) * 20, 38 + math.sin(a) * 20),
+            QPointF(55 + math.cos(a) * 10, 30 + math.sin(a) * 10),
+            QPointF(55 + math.cos(a) * 18, 30 + math.sin(a) * 18),
         )
         p.setPen(QColor(theme["text"]))
-        p.drawText(QRectF(0, 76, 110, 18), Qt.AlignCenter, self.text())
+        p.drawText(QRectF(0, 61, 110, 18), Qt.AlignCenter, self.text())
         p.setPen(QColor(theme["muted"]))
-        p.drawText(QRectF(0, 95, 110, 20), Qt.AlignCenter, self.spec["label"])
+        p.drawText(QRectF(0, 80, 110, 20), Qt.AlignCenter, self.spec["label"])
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -460,15 +460,16 @@ class PrismControls(WindowClient, QWidget):
         self._sound_project = self.app.project
         self.camera_dialog = None
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 16, 20, 10)
+        root.setContentsMargins(12, 10, 12, 8)
         root.setSpacing(10)
         header = QHBoxLayout()
         self.title = QLabel("PRISM")
-        self.title.setStyleSheet(
-            "font-size: 26px; font-weight: 600; letter-spacing: 4px; padding: 0px"
-        )
+        self.title.setStyleSheet("font-size: 18px; font-weight: 600; padding: 0px")
         header.addWidget(self.title)
-        header.addStretch()
+        actions = QPushButton("Sound actions")
+        actions_menu = QMenu(actions)
+        actions.setMenu(actions_menu)
+        header.addWidget(actions)
         for label, callback in (
             ("Hand FX", self.show_camera),
             ("Store A", self.store),
@@ -477,16 +478,16 @@ class PrismControls(WindowClient, QWidget):
             ("Open", self.open_sound),
             ("Reset", self.reset),
         ):
-            button = QPushButton(label)
-            button.clicked.connect(callback)
-            header.addWidget(button)
-        root.addLayout(header)
+            actions_menu.addAction(label, callback)
         self.sound_title = QLabel("Two-layer synthesizer")
-        self.sound_title.setStyleSheet("font-size: 12px; padding: 0px 0px 8px 0px")
-        root.addWidget(self.sound_title)
-        body = QHBoxLayout()
-        body.setSpacing(16)
-        library = QVBoxLayout()
+        header.insertWidget(1, self.sound_title, 1)
+        root.addLayout(header)
+        self.body_splitter = QSplitter(Qt.Horizontal)
+        self.body_splitter.setChildrenCollapsible(False)
+        library_widget = QWidget()
+        library_widget.setMinimumWidth(160)
+        library = QVBoxLayout(library_widget)
+        library.setContentsMargins(0, 0, 0, 0)
         library.setSpacing(8)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search sounds…")
@@ -496,14 +497,21 @@ class PrismControls(WindowClient, QWidget):
             ["All categories", *sorted({p["category"] for p in CATALOG.values()})]
         )
         self.category.currentTextChanged.connect(self.filter_presets)
-        library.addWidget(self.category)
+        filters = QHBoxLayout()
+        filters.addWidget(self.category, 1)
+        library.addLayout(filters)
         self.favorites = set(window.settings.value("prism/favorites", []) or [])
-        self.starred_only = QPushButton("★ Starred sounds")
+        self.starred_only = QPushButton("★")
+        self.starred_only.setAccessibleName("Show starred sounds")
+        self.starred_only.setToolTip("Show starred sounds")
+        self.starred_only.setFixedWidth(32)
         self.starred_only.setCheckable(True)
         self.starred_only.clicked.connect(self.filter_presets)
-        library.addWidget(self.starred_only)
+        filters.addWidget(self.starred_only)
         self.presets = QListWidget()
-        self.presets.setFixedWidth(220)
+        self.presets.setMinimumWidth(160)
+        self.presets.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.presets.setTextElideMode(Qt.ElideRight)
         self.presets.setSpacing(0)
         for name, item in CATALOG.items():
             row = QListWidgetItem(name + "\n" + item["category"])
@@ -513,17 +521,24 @@ class PrismControls(WindowClient, QWidget):
         self.presets.itemActivated.connect(lambda item: self.preset(item.data(Qt.UserRole)))
         self.search.textChanged.connect(self.filter_presets)
         library.addWidget(self.presets)
+        load = QToolButton()
+        load.setText("Load sound")
+        load.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        load.setPopupMode(QToolButton.MenuButtonPopup)
+        load.setToolTip("Load the selected sound. Open the arrow for layer and favorite actions.")
+        load.clicked.connect(self.load_selected)
+        library.addWidget(load)
+        layer_menu = QMenu(load)
+        load.setMenu(layer_menu)
         for label, callback in (
-            ("Load sound", self.load_selected),
             ("Load to layer A", lambda: self.load_layer(False)),
             ("Load to layer B", lambda: self.load_layer(True)),
             ("★ Star / unstar", self.star_selected),
         ):
-            button = QPushButton(label)
-            button.clicked.connect(callback)
-            library.addWidget(button)
-        body.addLayout(library)
-        right = QVBoxLayout()
+            layer_menu.addAction(label, callback)
+        right_widget = QWidget()
+        right = QVBoxLayout(right_widget)
+        right.setContentsMargins(0, 0, 0, 0)
         right.setSpacing(10)
         macros = QHBoxLayout()
         for i in range(53, 58):
@@ -618,10 +633,13 @@ class PrismControls(WindowClient, QWidget):
             scroll.setWidget(page)
             tabs.addTab(scroll, title)
         right.addWidget(tabs, 1)
-        body.addLayout(right, 1)
-        root.addLayout(body, 1)
+        self.body_splitter.addWidget(library_widget)
+        self.body_splitter.addWidget(right_widget)
+        self.body_splitter.setStretchFactor(1, 1)
+        self.body_splitter.setSizes([200, 800])
+        root.addWidget(self.body_splitter, 1)
         hint = QLabel("Shift + drag  ·  Fine adjustment          Double-click  ·  Reset control")
-        hint.setStyleSheet("color: #aaa69e; padding: 4px")
+        hint.setObjectName("hint")
         root.addWidget(hint)
         self.timer = QTimer(self)
         self.timer.setInterval(50)
@@ -697,12 +715,11 @@ class PrismControls(WindowClient, QWidget):
         self.setStyleSheet(prism_stylesheet(theme))
         if hasattr(self, "title"):
             self.title.setStyleSheet(
-                "font-size: 26px; font-weight: 600; letter-spacing: 4px; "
-                f"color: {theme['accent_hi']}; padding: 0px"
+                f"font-size: 18px; font-weight: 600; color: {theme['accent_hi']}; padding: 0px"
             )
         if hasattr(self, "sound_title"):
             self.sound_title.setStyleSheet(
-                f"color: {theme['accent_soft']}; font-size: 12px; padding: 0px 0px 8px 0px"
+                f"color: {theme['muted']}; font-size: 12px; padding: 0px"
             )
         for key in ("0", "1", "32", "33"):
             for shape, button in enumerate(self.selectors.get(key, ())):

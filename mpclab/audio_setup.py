@@ -87,6 +87,8 @@ def assess_audio_health(frames: int, stats: dict) -> AudioHealthAdvice:
 
 def _mono_peak(signal: np.ndarray) -> tuple[int, float, float]:
     data = np.asarray(signal, dtype=np.float32)
+    if not data.size or not np.isfinite(data).all():
+        raise ValueError("loopback signal must contain finite audio samples")
     if data.ndim == 2:
         data = np.max(np.abs(data), axis=1)
     elif data.ndim != 1:
@@ -108,7 +110,11 @@ def estimate_loopback_latency(
     The calibration stimulus intentionally contains one unambiguous transient,
     making peak location more robust and much cheaper than full correlation.
     """
-    emitted, _stimulus_peak, _stimulus_floor = _mono_peak(stimulus)
+    if not np.isfinite(sample_rate) or sample_rate <= 0:
+        raise ValueError("loopback sample rate must be positive and finite")
+    emitted, stimulus_peak, _stimulus_floor = _mono_peak(stimulus)
+    if stimulus_peak < 1e-4:
+        raise ValueError("loopback stimulus is silent")
     received, peak, floor = _mono_peak(captured)
     confidence = float(np.clip((peak - floor) / max(peak, 1e-9), 0.0, 1.0))
     if peak < 1e-4 or confidence < 0.2:
@@ -131,20 +137,27 @@ def loopback_stimulus(sample_rate: int = AUDIO_SAMPLE_RATE, duration: float = 0.
 
 def correlate_loopback(stimulus, captured, sample_rate=AUDIO_SAMPLE_RATE):
     """FFT correlation tolerates polarity reversal and multiple test transients."""
-    reference = np.asarray(stimulus, dtype=np.float64).reshape(-1)
-    received = np.asarray(captured, dtype=np.float64).reshape(-1)
-    if (
-        not len(reference)
-        or not len(received)
-        or not np.isfinite(reference).all()
-        or not np.isfinite(received).all()
-    ):
-        raise ValueError("Invalid loopback samples")
+    if not np.isfinite(sample_rate) or sample_rate <= 0:
+        raise ValueError("loopback sample rate must be positive and finite")
+
+    def mono(signal):
+        data = np.asarray(signal, dtype=np.float64)
+        if data.ndim not in (1, 2) or not data.size or not np.isfinite(data).all():
+            raise ValueError("Invalid loopback samples")
+        if data.ndim == 2:
+            # Preserve the frame timeline. Flattening stereo doubles its lag;
+            # averaging can cancel an otherwise valid polarity-reversed pair.
+            channel = int(np.argmax(np.sum(data * data, axis=0)))
+            data = data[:, channel]
+        return data
+
+    reference = mono(stimulus)
+    received = mono(captured)
     size = 1 << (len(reference) + len(received) - 1).bit_length()
     correlation = np.fft.irfft(
         np.conj(np.fft.rfft(reference, size)) * np.fft.rfft(received, size), size
     )
-    search = np.abs(correlation[: min(len(received), int(sample_rate * 0.5))])
+    search = np.abs(correlation[: min(len(received), max(1, int(sample_rate * 0.5)))])
     lag = int(np.argmax(search))
     energy = float(np.linalg.norm(reference) * np.linalg.norm(received))
     confidence = min(1.0, float(search[lag]) / max(1e-12, energy))

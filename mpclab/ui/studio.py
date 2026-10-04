@@ -1,6 +1,6 @@
 """Focused production workspace; each editor keeps one persistent Qt owner."""
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QEvent, QTimer
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -35,19 +35,47 @@ def mount():
     return widget
 
 
+class _ToolbarViewport(QScrollArea):
+    """Reserve scrollbar space after fonts and theme metrics are applied."""
+
+    def __init__(self, widget, height):
+        super().__init__()
+        self._requested_height = height
+        self.setFrameShape(QFrame.NoFrame)
+        self.setWidgetResizable(True)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setMinimumWidth(0)
+        self.setWidget(widget)
+        widget.installEventFilter(self)
+        self._fit_height()
+
+    def _fit_height(self):
+        content_height = max(
+            self.widget().sizeHint().height(), self.widget().minimumSizeHint().height()
+        )
+        self.setFixedHeight(
+            max(
+                self._requested_height,
+                content_height + self.horizontalScrollBar().sizeHint().height(),
+            )
+        )
+
+    def eventFilter(self, watched, event):
+        if watched is self.widget() and event.type() in (
+            QEvent.LayoutRequest,
+            QEvent.FontChange,
+            QEvent.StyleChange,
+        ):
+            self._fit_height()
+        return super().eventFilter(watched, event)
+
+
 def horizontal_strip(widget: QWidget, height: int) -> QScrollArea:
     """Keep dense production chrome usable without imposing a window minimum."""
     widget.adjustSize()
     widget.setMinimumWidth(widget.sizeHint().width())
-    scroll = QScrollArea()
-    scroll.setFrameShape(QFrame.NoFrame)
-    scroll.setWidgetResizable(True)
-    scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-    scroll.setMinimumWidth(0)
-    scroll.setFixedHeight(height)
-    scroll.setWidget(widget)
-    return scroll
+    return _ToolbarViewport(widget, height)
 
 
 class StudioPanel(QWidget):
@@ -68,6 +96,9 @@ class StudioPanel(QWidget):
         self.enabled = False
         self._layout_applied = False
         self._master_view = False
+        self._navigation_resize_timer = QTimer(self)
+        self._navigation_resize_timer.setSingleShot(True)
+        self._navigation_resize_timer.timeout.connect(self._reveal_selected_workspace)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -409,6 +440,16 @@ class StudioPanel(QWidget):
                 9: "Scoring · read instrument parts, compose notes and export sheet music.",
             }[index]
         )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # The scrollbar range changes after the layout request. Keep the
+        # active workspace visible when a desktop window becomes narrow.
+        self._navigation_resize_timer.start(0)
+
+    def _reveal_selected_workspace(self):
+        if self.selected in self.buttons:
+            self.mode_scroll.ensureWidgetVisible(self.buttons[self.selected], 8, 0)
 
     def activate(self, enabled):
         self.enabled = enabled
