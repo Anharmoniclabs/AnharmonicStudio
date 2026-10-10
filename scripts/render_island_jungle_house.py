@@ -2,9 +2,10 @@
 """Build an island jungle-house / hip-hop beat around a sample from your own song file.
 
 Give it any audio file you own (MP3, M4A, WAV, FLAC...). The script imports it
-into a Studio library, finds a musical loop, fits the loop to the beat tempo by
-repitching (the classic jungle sampler move), chops it onto pads, estimates the
-key, and writes a 24-bit WAV plus an editable project.
+into a Studio library, finds a musical loop and fits it to the beat tempo. By
+default it repitches (the classic jungle sampler move); ``--stretch`` keeps the
+original pitch. It chops the loop onto pads, estimates the key, and writes a
+24-bit WAV plus an editable project.
 
 OUTPUT_DIR is a Studio data folder: ``library/`` holds the imported song and
 chops, ``projects/`` the beat, and ``exports/`` the WAV. Open it with
@@ -43,6 +44,7 @@ from mpclab.engine import Engine
 from mpclab.library import Library
 from mpclab.model import Clip, Pad, Pattern, Project, Row
 from mpclab.music import Note
+from mpclab.time_stretch import MODES as STRETCH_MODES, stretch_audio
 
 SR = 48000
 NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
@@ -244,6 +246,11 @@ def main():
     parser.add_argument("--key", choices=NAMES, help="override the detected key root")
     parser.add_argument("--mode", choices=("major", "minor"), help="override the detected mode")
     parser.add_argument("--name", default="Island Jungle House", help="project name")
+    parser.add_argument(
+        "--stretch",
+        choices=[m for m in STRETCH_MODES if m != "resample"],
+        help="time-stretch the loop to tempo at its original pitch instead of repitching it",
+    )
     args = parser.parse_args()
     project_path = args.output / "projects" / f"{args.name}.json"
     wav_path = args.output / "exports" / f"{args.name}.wav"
@@ -263,12 +270,20 @@ def main():
     if end - start < 0.25:
         raise SystemExit("loop range is too short; check --loop-start/--loop-end")
     beats = fit_beats(end - start, args.bpm)
-    ratio = (end - start) / (beats * 60 / args.bpm)  # playback rate after the tempo fit
-    shift = 12 * np.log2(ratio)
+    target = beats * 60 / args.bpm
+    # Repitching changes key with tempo; a stretch keeps the song's own pitch.
+    shift = 0.0 if args.stretch else 12 * np.log2((end - start) / target)
     root, mode = estimate_key(audio[int(start * SR) : int(end * SR)])
     root = NAMES.index(args.key) if args.key else root
     mode = args.mode or mode
-    heard = (root + shift) % 12  # key once the sample is repitched to tempo
+    heard = (root + shift) % 12  # key once the sample is fitted to tempo
+    sample, s0, s1 = source, start, end
+    if args.stretch:
+        frames = stretch_audio(
+            audio[int(start * SR) : int(end * SR)], round(target * SR), mode=args.stretch
+        )
+        sample = library.add_audio(frames, f"{source.name} loop", parent=source.id)
+        s0, s1 = 0.0, sample.duration
 
     project = Project(name=args.name, bpm=args.bpm, swing=6.0, master=0.95)
     for track, name in zip(project.tracks, TRACK_NAMES, strict=True):
@@ -312,22 +327,22 @@ def main():
         track=4,
     )
     project.pads[LOOP] = Pad(
-        sample_id=source.id,
+        sample_id=sample.id,
         name="Sample loop",
-        start=start,
-        end=end,
+        start=s0,
+        end=s1,
         sync_beats=float(beats),
         gain=0.55,
         track=5,
         release=0.02,
     )
-    slice_len = (end - start) / len(CHOPS)
+    slice_len = (s1 - s0) / len(CHOPS)
     for i, pad in enumerate(CHOPS):
         project.pads[pad] = Pad(
-            sample_id=source.id,
+            sample_id=sample.id,
             name=f"Chop {i + 1}",
-            start=start + i * slice_len,
-            end=start + i * slice_len + slice_len / 2,
+            start=s0 + i * slice_len,
+            end=s0 + i * slice_len + slice_len / 2,
             sync_beats=beats / len(CHOPS) / 2,
             gain=0.5,
             track=6,
@@ -365,7 +380,7 @@ def main():
     print(f"Source: {source.name} ({source_bpm:.1f} BPM detected)")
     print(
         f"Loop: {start:.2f}-{end:.2f} s fitted to {beats} beats at {args.bpm:g} BPM "
-        f"({shift:+.2f} semitones)"
+        + (f"(time-stretched, {args.stretch})" if args.stretch else f"({shift:+.2f} semitones)")
     )
     print(f"Key: {NAMES[root]} {mode} in the source, {NAMES[bass_pc]} {mode} after the fit")
     print(f"Project: {project_path}")
