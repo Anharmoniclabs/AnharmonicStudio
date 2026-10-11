@@ -67,7 +67,7 @@ def _register_commands(owner) -> None:
     spec("pattern.new", "New pattern", w.new_pattern, "Pattern", "F4")
     spec(
         "workspace.playlist",
-        "Open Playlist",
+        "Open Song",
         lambda: w.show_tab(w.TAB_PLAYLIST),
         "Windows",
         "F5",
@@ -104,7 +104,7 @@ def _register_commands(owner) -> None:
     )
     spec(
         "workspace.focus",
-        "Playlist focus mode",
+        "Song focus mode",
         lambda: w.btn_playlist_focus.toggle(),
         "Windows",
         "F11",
@@ -174,14 +174,14 @@ def _register_commands(owner) -> None:
         "playlist.split",
         "Split selected clip at playhead",
         owner._playlist_split,
-        "Playlist",
+        "Song",
         "Shift+S",
     )
     spec(
         "playlist.duplicate",
         "Duplicate selected clip(s)",
         owner._playlist_duplicate,
-        "Playlist",
+        "Song",
         "Ctrl+D",
     )
     spec(

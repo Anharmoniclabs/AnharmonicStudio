@@ -185,7 +185,7 @@ def test_vocal_take_management_links_ab_pairs_and_guards_used_delete(window, mon
     )
     panel.delete_selected_take()
     assert duplicate.id in window.library.clips
-    assert "Playlist" in warnings[-1][1]
+    assert "Song" in warnings[-1][1]
 
 
 def test_crash_recovery_restores_persistent_undo_and_redo(tmp_path, monkeypatch):

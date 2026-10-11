@@ -182,7 +182,7 @@ class StudioPanel(QWidget):
             ["Pocket · hip-hop", "Circuit · house", "Midnight · trap", "Trap Foundry · hi-res trap"]
         )
         row.addWidget(self.kit)
-        self.create_beat = QPushButton("+ NEW GROOVE")
+        self.create_beat = QPushButton("+ New groove")
         self.create_beat.setObjectName("go")
         self.create_beat.setToolTip(
             "Create an editable beat in empty pads; keep existing patterns and sounds"
@@ -202,7 +202,7 @@ class StudioPanel(QWidget):
         self.song_template.setMinimumWidth(150)
         self.song_template.currentTextChanged.connect(self._refresh_song_summary)
         arrange.addWidget(self.song_template)
-        self.map_song = QPushButton("MAP FULL SONG")
+        self.map_song = QPushButton("Map full song")
         self.map_song.setObjectName("go")
         self.map_song.setMinimumHeight(30)
         self.map_song.setToolTip(
@@ -210,16 +210,14 @@ class StudioPanel(QWidget):
         )
         self.map_song.clicked.connect(self._map_full_song)
         arrange.addWidget(self.map_song)
-        self.sample_to_arrange = QPushButton("SELECTION → ARRANGE")
+        self.sample_to_arrange = QPushButton("Selection → Song")
         self.sample_to_arrange.setMinimumHeight(30)
-        self.sample_to_arrange.setToolTip(
-            "Place the exact selected sample range on an Arrange audio lane"
-        )
+        self.sample_to_arrange.setToolTip("Place the selected sample range on a Song audio track")
         self.sample_to_arrange.clicked.connect(self._sample_to_arrange)
         arrange.addWidget(self.sample_to_arrange)
-        self.fit_arrange = QPushButton("FIT SONG")
+        self.fit_arrange = QPushButton("Fit song")
         self.fit_arrange.setMinimumHeight(30)
-        self.fit_arrange.setToolTip("Fit the full current arrangement into the visible timeline")
+        self.fit_arrange.setToolTip("Fit the whole Song into view")
         self.fit_arrange.clicked.connect(self._fit_arrange)
         arrange.addWidget(self.fit_arrange)
         self.song_summary = QLabel()
@@ -236,7 +234,7 @@ class StudioPanel(QWidget):
         actions.addWidget(self.beat_tools)
         actions.addWidget(self.arrange_tools)
         actions.addStretch(1)
-        self.arrange_pattern = QPushButton("PATTERN → SONG")
+        self.arrange_pattern = QPushButton("Pattern → Song")
         self.arrange_pattern.setMinimumHeight(30)
         self.arrange_pattern.setObjectName("go2")
         self.arrange_pattern.setToolTip(
@@ -426,14 +424,14 @@ class StudioPanel(QWidget):
         self.arrange_tools.setVisible(index == 2)
         self._show_actions(self.song_tools_action.isChecked())
         self.arrange_pattern.setVisible(index in (1, 2, 6))
-        self.arrange_pattern.setText("PATTERN → SONG" if index != 2 else "ADD CURRENT PATTERN")
+        self.arrange_pattern.setText("Pattern → Song" if index != 2 else "Add current pattern")
         self.hint.setText(
             {
                 1: "Build the beat here · map sounds to lanes, draw hits, then send the pattern to Song.",
                 0: "Sampler · trim, chop and audition source audio before mapping it.",
                 4: "Instruments · choose and shape a playable source.",
                 6: "Performance · compose sample or synth notes in the piano roll.",
-                2: "Song · Arrange owns the complete record: sections, patterns, vocals and audio clips.",
+                2: "Song · the full track: sections, patterns, vocals and audio clips.",
                 3: "Mix · balance tracks, effects, sends and the master output.",
                 5: "Autotune · shape the pitch of an existing recording. Record dry vocals in Song.",
                 7: "Automation · draw song-level movement for gain and pan.",

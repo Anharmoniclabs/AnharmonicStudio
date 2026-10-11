@@ -167,7 +167,7 @@ def toggle_recording(owner):
         owner._countdown_token += 1
         owner._counting = False
         owner._restore_count_in_transport()
-        owner.record_button.setText("●  START VOCAL TAKE")
+        owner.record_button.setText("●  Start vocal take")
         owner.record_status.setText("count-in cancelled")
         return
     owner._countdown_token += 1
@@ -260,13 +260,13 @@ def _start_capture(owner):
             owner._live_monitor = None
         owner._restore_count_in_transport()
         owner.record_button.setEnabled(True)
-        owner.record_button.setText("●  START VOCAL TAKE")
+        owner.record_button.setText("●  Start vocal take")
         owner.record_status.setText(f"recording failed · {exc}")
         QMessageBox.warning(owner, "Vocal input failed", str(exc))
         return
     # Successful capture owns the transport state from here onward.
     owner._count_in_transport = None
-    owner.record_button.setText("■  STOP + SAVE TAKE")
+    owner.record_button.setText("■  Stop and save take")
     owner.pause_button.setEnabled(True)
     owner.discard_button.setEnabled(True)
     owner.record_status.setText("recording 24-bit library take · original stays dry")
@@ -274,7 +274,7 @@ def _start_capture(owner):
 
 def _pause_changed(owner, paused: bool):
     owner.recorder.paused = bool(paused)
-    owner.pause_button.setText("RESUME" if paused else "PAUSE")
+    owner.pause_button.setText("Resume" if paused else "Pause")
 
 
 def stop_recording(owner):
@@ -347,13 +347,13 @@ def _finish_record_controls(owner):
         owner._live_monitor = None
     owner._counting = False
     owner.record_button.setEnabled(True)
-    owner.record_button.setText("●  START VOCAL TAKE")
+    owner.record_button.setText("●  Start vocal take")
     owner.pause_button.blockSignals(True)
     owner.pause_button.setChecked(False)
     owner.pause_button.blockSignals(False)
-    owner.pause_button.setText("PAUSE")
+    owner.pause_button.setText("Pause")
     owner.pause_button.setEnabled(False)
     pending = owner.recorder.temporary_path is not None
     owner.discard_button.setEnabled(pending)
     if pending:
-        owner.record_button.setText("RETRY SAVE TAKE")
+        owner.record_button.setText("Retry saving take")

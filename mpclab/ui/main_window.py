@@ -164,7 +164,7 @@ SHORTCUTS = (
             ("F1", "this shortcut sheet"),
             ("Ctrl+T", "open / hide the musical-typing keyboard"),
             ("F2", "Chop / Edit"),
-            ("F5", "Playlist"),
+            ("F5", "Song"),
             ("F6", "Sequencer"),
             ("F7", "Analog / Arp"),
             ("F8", "show / hide the browser"),
@@ -172,7 +172,7 @@ SHORTCUTS = (
             ("Shift+F8", "show / hide the pads"),
             ("F9", "Mixer"),
             ("F10", "Autotune · recorded vocal editor"),
-            ("F11", "Playlist focus mode"),
+            ("F11", "Song focus mode"),
             ("Ctrl+1…9", "the workspaces, in order · Ctrl+9 opens Studio"),
         ),
     ),
@@ -195,7 +195,7 @@ SHORTCUTS = (
             ("↑  ↓", "step through slices"),
             ("M  ·  Delete", "drop a marker / remove the selected one"),
             ("Enter", "play the range"),
-            ("Ctrl+Enter", "send the range to the arrangement"),
+            ("Ctrl+Enter", "send the range to the Song"),
             ("Ctrl+Shift+Enter", "map the range to the selected pad"),
         ),
     ),
@@ -209,7 +209,7 @@ SHORTCUTS = (
         ),
     ),
     (
-        "PLAYLIST",
+        "SONG",
         (
             ("E · P · B · C · T · D", "select · draw · paint · slice · mute · erase"),
             ("1…6", "the same six tools, by number"),
@@ -559,7 +559,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         self.audio_menu.aboutToShow.connect(self._refresh_audio_menu)
         # Actual device probing is intentionally lazy. PortAudio backends can
         # take a moment to enumerate, and that must never delay opening a song.
-        scan_hint = self.audio_menu.addAction("OPEN TO SCAN CONNECTIONS")
+        scan_hint = self.audio_menu.addAction("Scanning devices…")
         scan_hint.setEnabled(False)
 
     def showEvent(self, event):
@@ -746,18 +746,9 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         """Rebuild the menu so USB hot-plug changes appear immediately."""
         self.audio_menu.clear()
         online = self.engine.stream is not None
-        status = QAction("● OUTPUT ONLINE" if online else "○ OUTPUT OFFLINE", self.audio_menu)
+        status = QAction("● Audio is on" if online else "○ Audio is off", self.audio_menu)
         status.setEnabled(False)
         self.audio_menu.addAction(status)
-        realtime = QAction(self.engine.linux_audio.status.summary(), self.audio_menu)
-        realtime.setEnabled(False)
-        self.audio_menu.addAction(realtime)
-        from ..native_dsp import STATUS as dsp_status
-
-        acceleration = QAction(dsp_status, self.audio_menu)
-        acceleration.setEnabled(False)
-        self.audio_menu.addAction(acceleration)
-        self.audio_menu.addAction("AUDIO SETUP + LATENCY…", self.show_audio_setup)
         self.audio_menu.addSeparator()
 
         try:
@@ -798,7 +789,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
                 if default_connection
                 else "System default"
             )
-        current = QAction(f"Current · {current_text}", self.audio_menu)
+        current = QAction(f"Playing through · {current_text}", self.audio_menu)
         current.setEnabled(False)
         self.audio_menu.addAction(current)
         self.audio_menu.addSeparator()
@@ -806,7 +797,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         group = QActionGroup(self.audio_menu)
         group.setExclusive(True)
         system_default = self.audio_menu.addAction(
-            "FOLLOW SYSTEM DEFAULT"
+            "Use system default"
             + (f"  ·  {default_connection['name']}" if default_connection is not None else "")
         )
         system_default.setCheckable(True)
@@ -815,7 +806,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         group.addAction(system_default)
 
         if system_outputs:
-            self.audio_menu.addSection("SYSTEM OUTPUTS · PIPEWIRE")
+            self.audio_menu.addSection("Outputs")
         for item in system_outputs:
             action = self.audio_menu.addAction(item["label"])
             action.setCheckable(True)
@@ -827,7 +818,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             group.addAction(action)
 
         if outputs:
-            self.audio_menu.addSection("APPLICATION ROUTES · PORTAUDIO")
+            self.audio_menu.addSection("More outputs")
         for item in outputs:
             action = self.audio_menu.addAction(item["label"])
             action.setCheckable(True)
@@ -839,10 +830,10 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
             group.addAction(action)
 
         self.audio_menu.addSeparator()
-        repair = self.audio_menu.addAction("RECONNECT / FIX AUDIO")
-        repair.setToolTip("Rescan outputs and rebuild the PortAudio connection")
+        repair = self.audio_menu.addAction("Reconnect audio")
+        repair.setToolTip("Rescan outputs and reconnect the audio device")
         repair.triggered.connect(self._repair_audio_connections)
-        rescan = self.audio_menu.addAction("RESCAN CONNECTIONS")
+        rescan = self.audio_menu.addAction("Rescan devices")
         rescan.triggered.connect(self._refresh_audio_menu)
 
     def _select_audio_output(self, key: str):
@@ -961,7 +952,7 @@ class MainWindow(SessionHistoryMixin, PatternActionsMixin, QMainWindow):
         else:
             self.logo.setPixmap(signature)
         self.project_bar.setMinimumWidth(self.project_bar.sizeHint().width())
-        self.btn_theme.setText("DARK" if theme.is_light() else "LIGHT")
+        self.btn_theme.setText("Dark" if theme.is_light() else "Light")
         self.browser.refresh_separation_status()
         self.browser.refresh()
         self.mixer.sync()

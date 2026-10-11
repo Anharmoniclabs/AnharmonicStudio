@@ -36,13 +36,13 @@ def organize_menus(window, controller):
     menus["Sound"] = sound
     for source, destination, title in (
         ("MIDI files", "File", "MIDI files"),
-        ("Loudness delivery", "File", "Mastering & delivery"),
-        ("Recording", "Transport", "Recording & takes"),
+        ("Loudness delivery", "File", "Mastering and delivery"),
+        ("Recording", "Transport", "Recording and takes"),
         ("Markers", "Transport", "Markers"),
         ("Instruments", "Sound", "Instruments"),
         ("Plugins", "Sound", "Plugins"),
         ("Routing", "Sound", "Routing"),
-        ("AUDIO", "Sound", "Devices & connections"),
+        ("AUDIO", "Sound", "Output device"),
         ("Audio engine", "Sound", "Project audio"),
         ("Workflow", "Tools", "Workflow"),
     ):
@@ -57,7 +57,7 @@ def organize_menus(window, controller):
     view = menus["View"]
     original = list(view.actions())
     workspaces = view.addMenu("Workspaces")
-    panels = view.addMenu("Panels & keyboard")
+    panels = view.addMenu("Panels and keyboard")
     appearance = view.addMenu("Appearance")
     for index, action in enumerate(original):
         target = workspaces if index < window.tabs.count() else panels
@@ -69,7 +69,7 @@ def organize_menus(window, controller):
 
     # Device setup belongs beside routing, not among editing commands.
     for action in list(menus["Tools"].actions()):
-        if action.text() in ("Audio setup…", "Devices & Plugins…"):
+        if action.text() in ("Audio setup…", "MIDI and plugins…"):
             menus["Tools"].removeAction(action)
             sound.addAction(action)
     for name in ("File", "Edit", "View", "Transport", "Sound", "Tools", "Help"):

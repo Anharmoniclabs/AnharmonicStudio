@@ -36,7 +36,7 @@ PLAYBACK_NOTICE = (
 )
 EXPORT_NOTICE = (
     "Imported-file export uses current note edits with the original tracks, tempo/meter and "
-    "controller events, not the Playlist or current project tempo. Notes are rounded to the "
+    "controller events, not the Song or current project tempo. Notes are rounded to the "
     "source tick resolution. New or moved events at the same tick follow retained source events. "
     "Use a MIDI-capable player to verify controller and instrument behavior."
 )

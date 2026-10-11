@@ -84,7 +84,7 @@ class AudioSetupDialog(QDialog):
         self.recommendation.setWordWrap(True)
         form.addRow("Recommended", self.recommendation)
 
-        self.test_button = QPushButton("RUN CABLED LOOPBACK TEST")
+        self.test_button = QPushButton("Run loopback test")
         self.test_button.setToolTip(
             "Connect an output to an input with a cable. Keep speakers low."
         )
@@ -105,7 +105,7 @@ class AudioSetupDialog(QDialog):
         form.addRow("Result", self.calibration_label)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Save).setText("USE THIS SETUP")
+        buttons.button(QDialogButtonBox.Save).setText("Use this setup")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)

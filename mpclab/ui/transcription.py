@@ -289,9 +289,7 @@ class TranscriptionDialog(QDialog):
                 return
             song = Project.from_dict(self.window.project.to_dict())
             if song.song_length_beats * 60 / song.bpm > 900:
-                self.status.setText(
-                    "Convert songs up to 15 minutes long. Shorten the arrangement first."
-                )
+                self.status.setText("Convert songs up to 15 minutes long. Shorten the Song first.")
                 return
         self.source_project = self.window.project
         self.result = None

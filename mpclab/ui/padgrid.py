@@ -47,7 +47,7 @@ def _mode_chip_label(mode: str) -> str:
     without a painter or a running audio engine.
     """
 
-    return {"one-shot": "ONE", "gate": "GATE", "loop": "LOOP"}.get(mode, "ONE")
+    return {"one-shot": "SHOT", "gate": "GATE", "loop": "LOOP"}.get(mode, "SHOT")
 
 
 def _mode_chip_layout(
@@ -58,10 +58,12 @@ def _mode_chip_layout(
     The bottom-right keycap reserves 22 px, while a normal chip begins 10 px
     from the left edge.  A 4x4 grid at its 240 px minimum makes each pad only
     about 52 px wide, so spelling out ``GATE`` there used to cover the keycap.
-    Gate and loop retain a small, distinct state glyph at that size; one-shot
-    needs no redundant chip.
+    Gate and loop retain a small, distinct state glyph at that size. One-shot
+    is every pad's default, so it never gets a chip: only unusual modes do.
     """
 
+    if mode not in ("gate", "loop"):
+        return None
     if full_width <= max(0.0, pad_width - 35.0):
         return _mode_chip_label(mode), full_width, False
     if mode == "gate":
@@ -854,20 +856,20 @@ class PadInspector(WindowClient, QScrollArea):
         hb = QGridLayout(buttons)
         hb.setContentsMargins(0, 0, 0, 0)
         hb.setSpacing(5)
-        rev = QPushButton("REVERSE")
+        rev = QPushButton("Reverse")
         rev.setObjectName("mini")
         rev.setCheckable(True)
         rev.setChecked(pad.reverse)
         rev.toggled.connect(lambda b: (setattr(pad, "reverse", b), self.changed.emit()))
-        normalise = QPushButton("NORMALIZE")
+        normalise = QPushButton("Normalize")
         normalise.setObjectName("mini")
         normalise.setToolTip("Set this slice peak to -1 dBFS without changing its audio")
         normalise.clicked.connect(lambda: self.app.normalize_pad(gi))
-        tighten = QPushButton("TIGHTEN")
+        tighten = QPushButton("Trim silence")
         tighten.setObjectName("mini")
         tighten.setToolTip("Trim near-silence from this pad's start and end")
         tighten.clicked.connect(lambda: self.app.tighten_pad(gi))
-        edit = QPushButton("EDIT SAMPLE")
+        edit = QPushButton("Edit sample")
         edit.setObjectName("mini")
         edit.clicked.connect(lambda: self.editSample.emit(pad.sample_id))
         hb.addWidget(rev, 0, 0)

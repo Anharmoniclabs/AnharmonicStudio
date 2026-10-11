@@ -93,10 +93,10 @@ class TypingKeyboardWindow(WindowClient, QDialog):
         controls.addWidget(self.patch)
         controls.addStretch(1)
 
-        self.octave_down = self._button("OCT −", self._octave_down)
+        self.octave_down = self._button("Oct −", self._octave_down)
         self.octave_label = QLabel("C3")
         self.octave_label.setObjectName("readout")
-        self.octave_up = self._button("OCT +", self._octave_up)
+        self.octave_up = self._button("Oct +", self._octave_up)
         controls.addWidget(self.octave_down)
         controls.addWidget(self.octave_label)
         controls.addWidget(self.octave_up)
@@ -108,13 +108,13 @@ class TypingKeyboardWindow(WindowClient, QDialog):
         self.velocity.setCurrentIndex(2)
         controls.addWidget(self.velocity)
 
-        self.sustain = QPushButton("SUSTAIN")
+        self.sustain = QPushButton("Sustain")
         self.sustain.setObjectName("mini")
         self.sustain.setCheckable(True)
         self.sustain.setToolTip("Hold released notes until Sustain is switched off")
         self.sustain.toggled.connect(self._sustain_changed)
         controls.addWidget(self.sustain)
-        controls.addWidget(self._button("PANIC", self.panic))
+        controls.addWidget(self._button("Panic", self.panic))
         outer.addLayout(controls)
 
         self.keyboard = PianoKeyboard()

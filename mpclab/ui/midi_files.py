@@ -179,7 +179,7 @@ class MidiFileController(QObject):
             choice, accepted = QInputDialog.getItem(
                 self.window,
                 "Export current note pattern",
-                "One note pattern only, not Playlist/audio/sampler steps. Constant project tempo, "
+                "One note pattern only, not Song/audio/sampler steps. Constant project tempo, "
                 "4/4 meter and stored MIDI channels; no instrument patches/controllers are generated.",
                 ["Type 1 · conductor and note track", "Type 0 · single track"],
                 0,

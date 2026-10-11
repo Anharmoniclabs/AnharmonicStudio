@@ -35,7 +35,7 @@ def detect_source_key(owner, *, analyze):
     job_id = owner._key_job_id
     cancel = threading.Event()
     owner._key_cancel = cancel
-    owner.detect_key_button.setText("CANCEL KEY DETECTION")
+    owner.detect_key_button.setText("Cancel key detection")
     owner.detect_key_button.setEnabled(True)
     owner.key_progress.show()
     owner.key_progress.setValue(0)
@@ -84,7 +84,7 @@ def render_take(owner):
     cancel = threading.Event()
     owner._tune_cancel = cancel
     owner._render_source_id = clip_id
-    owner.render_button.setText("CANCEL TUNE")
+    owner.render_button.setText("Cancel tuning")
     owner.render_button.setEnabled(True)
     owner.progress.show()
     owner.progress.setValue(1)
@@ -145,7 +145,7 @@ def _key_finished(owner, job_id: int, analysis, key: str, scale: str, confidence
         owner._key_failed(job_id, "Source changed; run key detection on the selected take.")
         return
     owner._key_cancel = None
-    owner.detect_key_button.setText("DETECT KEY")
+    owner.detect_key_button.setText("Detect key")
     owner.detect_key_button.setEnabled(True)
     owner.key_box.setCurrentText(key)
     owner.scale_box.setCurrentText(scale)
@@ -162,7 +162,7 @@ def _key_failed(owner, job_id: int, message: str):
         return
     cancelled = owner._key_cancel.is_set() or "cancel" in message.lower()
     owner._key_cancel = None
-    owner.detect_key_button.setText("DETECT KEY")
+    owner.detect_key_button.setText("Detect key")
     owner.detect_key_button.setEnabled(True)
     owner.key_progress.setValue(0)
     owner.key_progress.setFormat("KEY DETECTION CANCELLED" if cancelled else "KEY DETECTION FAILED")

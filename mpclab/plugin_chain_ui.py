@@ -103,7 +103,7 @@ class PluginChainController(QObject):
                 )
             )
         menu.addSeparator()
-        menu.addAction("Devices & Plugins…", self.app.show_devices)
+        menu.addAction("MIDI and plugins…", self.app.show_devices)
 
     def _state_signature(self) -> str:
         state = validate_pro_daw(getattr(self.app.project, "pro_daw", {}))

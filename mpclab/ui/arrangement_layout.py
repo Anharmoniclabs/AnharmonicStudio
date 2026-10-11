@@ -39,7 +39,7 @@ def _build_song(window) -> QWidget:
     tl.setContentsMargins(10, 4, 10, 4)
     tl.setSpacing(8)
 
-    add_row = QPushButton("+ TRACK")
+    add_row = QPushButton("+ Track")
     add_row.setObjectName("mini")
     add_row.clicked.connect(window.add_song_row)
     tl.addWidget(add_row)
@@ -52,17 +52,17 @@ def _build_song(window) -> QWidget:
     )
     tl.addWidget(window.track_controls_button)
 
-    window.add_vocal_button = QPushButton("+ VOCAL TRACK")
+    window.add_vocal_button = QPushButton("+ Vocal track")
     window.add_vocal_button.setObjectName("mini")
     window.add_vocal_button.setToolTip("Add and arm a dry microphone track at the Song playhead")
     window.add_vocal_button.clicked.connect(window.add_vocal_track)
     tl.addWidget(window.add_vocal_button)
 
-    window.btn_playlist_focus = QPushButton("⛶ FOCUS", window)
+    window.btn_playlist_focus = QPushButton("⛶ Focus", window)
     window.btn_playlist_focus.setObjectName("mini")
     window.btn_playlist_focus.setCheckable(True)
     window.btn_playlist_focus.setToolTip(
-        "Fill the window with the Playlist without closing Browser or Pads (F11)"
+        "Fill the window with the Song without closing Browser or Pads (F11)"
     )
     window.btn_playlist_focus.toggled.connect(window.set_playlist_focus)
     window.btn_playlist_focus.hide()
@@ -94,7 +94,7 @@ def _build_song(window) -> QWidget:
         button.setToolTip(tip)
         # The visible glyphs keep the compact MPC-style toolbar, while a
         # complete name lets screen readers distinguish every edit mode.
-        button.setAccessibleName(f"Playlist tool: {name}")
+        button.setAccessibleName(f"Song tool: {name}")
         button.clicked.connect(lambda _=False, name=tool: window.set_playlist_tool(name))
         window.playlist_tool_group.addButton(button)
         window.playlist_tool_buttons[tool] = button
@@ -103,7 +103,7 @@ def _build_song(window) -> QWidget:
     window.playlist_tool_buttons["draw"].setChecked(True)
 
     window.playlist_tool_selector = QComboBox()
-    window.playlist_tool_selector.setAccessibleName("Arrangement editing tool")
+    window.playlist_tool_selector.setAccessibleName("Song editing tool")
     for tool, (name, _tip) in window._playlist_tool_details.items():
         window.playlist_tool_selector.addItem(name, tool)
     window.playlist_tool_selector.setCurrentIndex(window.playlist_tool_selector.findData("draw"))
@@ -114,7 +114,7 @@ def _build_song(window) -> QWidget:
     window.playlist_tool_selector.hide()
 
     window.playlist_tool_mode_label = small("MODE · DRAW")
-    window.playlist_tool_mode_label.setAccessibleName("Current Playlist editing tool")
+    window.playlist_tool_mode_label.setAccessibleName("Current Song editing tool")
     tl.addWidget(window.playlist_tool_mode_label)
     window._sync_playlist_tool_accessibility("draw")
 
@@ -168,7 +168,7 @@ def _build_song(window) -> QWidget:
     tl.addWidget(window.track_zoom_button)
 
     tl.addStretch(1)
-    window.btn_song_loop = QPushButton("⟳ SONG LOOP")
+    window.btn_song_loop = QPushButton("⟳ Song loop")
     window.btn_song_loop.setObjectName("mini")
     window.btn_song_loop.setCheckable(True)
     window.btn_song_loop.setToolTip("Loop the highlighted ruler range")
@@ -186,7 +186,7 @@ def _build_song(window) -> QWidget:
     window.playlist_loop_bars.setValue(
         max(1, round((window.project.loop_end - window.project.loop_start) / 4))
     )
-    window.playlist_loop_bars.setToolTip("Number of bars in the Playlist loop (1–256)")
+    window.playlist_loop_bars.setToolTip("Number of bars in the Song loop (1–256)")
     window.playlist_loop_bars.setFixedWidth(62)
     window.playlist_loop_bars.valueChanged.connect(window._playlist_loop_bars_changed)
     window.loop_start_box = QDoubleSpinBox(window)
@@ -237,12 +237,12 @@ def _build_song(window) -> QWidget:
     window.playlist_clip_name = small("NO CLIP SELECTED")
     window.playlist_clip_name.setMinimumWidth(150)
     cl.addWidget(window.playlist_clip_name)
-    window.btn_clip_loop = QPushButton("LOOP")
+    window.btn_clip_loop = QPushButton("Loop")
     window.btn_clip_loop.setObjectName("mini")
     window.btn_clip_loop.setCheckable(True)
     window.btn_clip_loop.toggled.connect(window.set_selected_clip_loop)
     cl.addWidget(window.btn_clip_loop)
-    window.btn_clip_reverse = QPushButton("REVERSE")
+    window.btn_clip_reverse = QPushButton("Reverse")
     window.btn_clip_reverse.setObjectName("mini")
     window.btn_clip_reverse.setCheckable(True)
     window.btn_clip_reverse.toggled.connect(window.set_selected_clip_reverse)
@@ -284,14 +284,14 @@ def _build_song(window) -> QWidget:
     )
     window.clip_length.valueChanged.connect(window._selected_clip_length)
     cl.addWidget(window.clip_length)
-    window.btn_clip_unique = QPushButton("MAKE UNIQUE")
+    window.btn_clip_unique = QPushButton("Make unique")
     window.btn_clip_unique.setObjectName("mini")
     window.btn_clip_unique.setToolTip(
         "Give this clip its own notes and steps. Pad sounds and the synth remain shared."
     )
     window.btn_clip_unique.clicked.connect(lambda: window.make_pattern_unique())
     cl.addWidget(window.btn_clip_unique)
-    window.btn_clip_notes = QPushButton("WRITE NOTES")
+    window.btn_clip_notes = QPushButton("Write notes")
     window.btn_clip_notes.setObjectName("mini")
     window.btn_clip_notes.setToolTip(
         "Play this sample across the piano roll · double-click the clip or press Enter"

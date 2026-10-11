@@ -449,9 +449,9 @@ class TakeCompController:
         layout.addWidget(QLabel("Current comp regions"))
         layout.addWidget(coverage, 1)
 
-        swipe = QPushButton("SWIPE RANGE FROM SELECTED TAKE")
-        erase = QPushButton("ERASE RANGE")
-        clear = QPushButton("CLEAR COMP")
+        swipe = QPushButton("Use range from selected take")
+        erase = QPushButton("Erase range")
+        clear = QPushButton("Clear comp")
         layout.addWidget(swipe)
         layout.addWidget(erase)
         layout.addWidget(clear)

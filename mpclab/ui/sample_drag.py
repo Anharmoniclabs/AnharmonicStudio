@@ -45,7 +45,7 @@ def send_local_to_arrange(app, paths):
         return False
     enter_song_mode(app)
     app.status.showMessage(
-        f"{len(placed)} audio file{'s' if len(placed) != 1 else ''} mapped into Arrange · "
+        f"{len(placed)} audio file{'s' if len(placed) != 1 else ''} mapped into the Song · "
         "SONG mode plays the full timeline",
         6500,
     )
@@ -168,7 +168,7 @@ class ArrangeDropFilter(WindowClient, QObject):
             self.app.status.showMessage(
                 {
                     1: "Beats · drop to add sounds to the current bank",
-                    2: "Arrange · drop to map audio onto the full-song timeline",
+                    2: "Song · drop to place audio on the timeline",
                     6: "Notes · drop to create playable sample instruments",
                 }[target]
             )

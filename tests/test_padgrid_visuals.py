@@ -10,14 +10,14 @@ from test_pad_pan import window as window  # real pad grid with synthetic sample
 
 @pytest.mark.parametrize(
     ("mode", "label"),
-    (("one-shot", "ONE"), ("gate", "GATE"), ("loop", "LOOP")),
+    (("one-shot", "SHOT"), ("gate", "GATE"), ("loop", "LOOP")),
 )
 def test_pad_mode_chip_labels_are_compact_and_stable(mode, label):
     assert _mode_chip_label(mode) == label
 
 
 def test_unknown_pad_mode_uses_the_safe_one_shot_chip():
-    assert _mode_chip_label("from-a-future-project") == "ONE"
+    assert _mode_chip_label("from-a-future-project") == "SHOT"
 
 
 @pytest.mark.parametrize(
@@ -38,6 +38,10 @@ def test_compact_pad_mode_chip_never_claims_the_keycap_space(mode, expected):
 
 def test_roomy_pad_mode_chip_keeps_its_full_playback_label():
     assert _mode_chip_layout("gate", 78.0, 30.0) == ("GATE", 30.0, False)
+
+
+def test_default_one_shot_pads_carry_no_chip():
+    assert _mode_chip_layout("one-shot", 200.0, 30.0) is None
 
 
 @pytest.mark.parametrize("palette", ("dark", "light"))

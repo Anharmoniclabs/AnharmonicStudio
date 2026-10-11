@@ -462,7 +462,7 @@ class SynthPanel(WindowClient, QWidget):
         panic.setObjectName("mini")
         panic.clicked.connect(self.app.engine.synth_panic)
         hl.addWidget(panic)
-        self.print_button = QPushButton("SAVE C3 TO PAD A1")
+        self.print_button = QPushButton("Save C3 to pad A1")
         self.print_button.setObjectName("go2")
         self.print_button.setToolTip(
             "Record a two-beat note of this sound and put it on the selected pad"
@@ -545,7 +545,7 @@ class SynthPanel(WindowClient, QWidget):
         self.prism_surface = PrismControls(self.app)
         self.prism_surface.hide()
         outer.addWidget(self.prism_surface, 1)
-        advanced = QPushButton("Sound design & arpeggiator ▸")
+        advanced = QPushButton("Sound design and arpeggiator ▸")
         self._advanced_button = advanced
         advanced.setCheckable(True)
         advanced.setMinimumHeight(34)
@@ -631,7 +631,7 @@ class SynthPanel(WindowClient, QWidget):
         self.arp_presets.addItems([item["name"] for item in ARP_PRESETS])
         self.arp_presets.activated.connect(self._arp_preset)
         arpf.addRow("PRESET", self.arp_presets)
-        self.arp_on = QPushButton("ARP OFF")
+        self.arp_on = QPushButton("Arp off")
         self.arp_on.setObjectName("go")
         self.arp_on.setCheckable(True)
         self.arp_on.toggled.connect(self._arp_toggled)
@@ -686,7 +686,7 @@ class SynthPanel(WindowClient, QWidget):
         advanced.toggled.connect(lambda on: self.sync_plugin_mode())
         advanced.toggled.connect(
             lambda on: advanced.setText(
-                "Sound design & arpeggiator ▾" if on else "Sound design & arpeggiator ▸"
+                "Sound design and arpeggiator ▾" if on else "Sound design and arpeggiator ▸"
             )
         )
 
@@ -709,11 +709,11 @@ class SynthPanel(WindowClient, QWidget):
         )
         self.keyboard_toggle.toggled.connect(self._toggle_docked_keyboard)
         kl.addWidget(self.keyboard_toggle)
-        down = QPushButton("OCT −")
+        down = QPushButton("Oct −")
         down.setAccessibleName("Lower piano octave")
         down.setObjectName("mini")
         down.clicked.connect(lambda: self.set_octave(self.octave - 1))
-        up = QPushButton("OCT +")
+        up = QPushButton("Oct +")
         up.setAccessibleName("Raise piano octave")
         up.setObjectName("mini")
         up.clicked.connect(lambda: self.set_octave(self.octave + 1))
@@ -839,7 +839,7 @@ class SynthPanel(WindowClient, QWidget):
         if self._building:
             return
         self.app.project.arp.enabled = enabled
-        self.arp_on.setText("ARP ON" if enabled else "ARP OFF")
+        self.arp_on.setText("Arp on" if enabled else "Arp off")
         self.app.engine.synth_panic()
         self.visualizer.update()
         self.app._set_dirty(True)
@@ -1021,7 +1021,7 @@ class SynthPanel(WindowClient, QWidget):
             return
         gi = self.app.pads.selected
         bank = chr(ord("A") + gi // 16)
-        self.print_button.setText(f"SAVE C{self.octave} TO PAD {bank}{gi % 16 + 1}")
+        self.print_button.setText(f"Save C{self.octave} to pad {bank}{gi % 16 + 1}")
 
     def sync(self):
         self._building = True
@@ -1084,7 +1084,7 @@ class SynthPanel(WindowClient, QWidget):
         self.track.setCurrentIndex(max(0, min(len(self.app.project.tracks) - 1, patch.track)))
         arp = self.app.project.arp
         self.arp_on.setChecked(arp.enabled)
-        self.arp_on.setText("ARP ON" if arp.enabled else "ARP OFF")
+        self.arp_on.setText("Arp on" if arp.enabled else "Arp off")
         self.arp_rate.setCurrentIndex(max(0, self.arp_rate.findData(arp.rate_beats)))
         self.arp_mode.setCurrentText(arp.mode)
         self.arp_octaves.setCurrentIndex(max(0, min(3, arp.octaves - 1)))

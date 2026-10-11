@@ -229,7 +229,7 @@ def add_audio_clip_actions(menu: QMenu, owner, clip) -> None:
     meta = owner.app.library.clips.get(clip.ref)
     detected = source_bpm(meta) if meta is not None else None
 
-    tempo = menu.addMenu("Tempo & stretch")
+    tempo = menu.addMenu("Tempo and stretch")
     if detected is not None:
         match = tempo.addAction(
             f"Match project tempo · {detected:g} → {float(owner.app.project.bpm):g} BPM"

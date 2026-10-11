@@ -73,7 +73,7 @@ def _build_seq(window) -> QWidget:
     tl.addWidget(window.grid_box)
 
     tl.addWidget(separator())
-    window.btn_only_loaded = QPushButton("LOADED PADS")
+    window.btn_only_loaded = QPushButton("Hide empty lanes")
     window.btn_only_loaded.setObjectName("mini")
     window.btn_only_loaded.setCheckable(True)
     window.btn_only_loaded.setChecked(True)
@@ -84,7 +84,7 @@ def _build_seq(window) -> QWidget:
     window.btn_only_loaded.toggled.connect(window.step_grid_only_loaded)
     tl.addWidget(window.btn_only_loaded)
 
-    window.btn_follow = QPushButton("FOLLOW")
+    window.btn_follow = QPushButton("Follow playhead")
     window.btn_follow.setObjectName("mini")
     window.btn_follow.setCheckable(True)
     window.btn_follow.setChecked(True)

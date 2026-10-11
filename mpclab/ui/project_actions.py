@@ -441,7 +441,7 @@ def export_dialog(window):
     dlg.setStyleSheet(stylesheet())
     form = QFormLayout(dlg)
     mode = QComboBox()
-    mode.addItem("full arrangement (Playlist)", "song")
+    mode.addItem("whole Song", "song")
     mode.addItem("current pattern", "pattern")
     mode.setCurrentIndex(1 if window.engine.mode == "pattern" else 0)
     reps = QSpinBox()

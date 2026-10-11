@@ -710,7 +710,7 @@ class TrackInspector(WindowClient, QWidget):
             widget.blockSignals(False)
         self.arm.setText("Armed · press Record" if self.arm.isChecked() else "Arm track")
         self.record_song.setText(
-            "Stop & save take" if capture.active or capture.pending else "Record in Song"
+            "Stop and save take" if capture.active or capture.pending else "Record in Song"
         )
         self.record_song.setEnabled(
             bool(row) and not (capture.unsaved is not None or capture.recovery_pending)

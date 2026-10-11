@@ -186,7 +186,7 @@ def _build(window):
     for text, callback in (
         ("Browser", window.toggle_browser),
         ("Pads", window.toggle_pads),
-        ("Arrange", lambda: window.btn_playlist_focus.toggle()),
+        ("Focus", lambda: window.btn_playlist_focus.toggle()),
     ):
         button = QPushButton(text)
         button.setObjectName("mini")
@@ -200,10 +200,10 @@ def _build(window):
             window._panel_button_states.append(_PanelButtonState(panel, button))
             shortcut = "F8" if text == "Browser" else "Shift+F8"
             button.setToolTip(f"Show or hide {text.lower()} · {shortcut}")
-        if text == "Arrange":
+        if text == "Focus":
             button.setCheckable(True)
-            button.setToolTip("Give Song Arrange the full workspace; press F11 to leave focus mode")
-            button.setAccessibleName("Arrange focus")
+            button.setToolTip("Give the Song the full workspace; press F11 to leave focus mode")
+            button.setAccessibleName("Song focus")
             window.btn_workspace_focus = button
             window.btn_playlist_focus.toggled.connect(button.setChecked)
     project_layout.addWidget(window.panel_controls)
@@ -275,10 +275,10 @@ def _build_menus(window):
         (
             "Tools",
             (
-                ("Add pattern to arrangement", window.append_pattern_to_arrangement),
-                ("Print synth to pad", window.print_synth_to_pad),
+                ("Add pattern to Song", window.append_pattern_to_arrangement),
+                ("Save synth note to pad", window.print_synth_to_pad),
                 ("Audio setup…", window.show_audio_setup),
-                ("Devices & Plugins…", window.show_devices),
+                ("MIDI and plugins…", window.show_devices),
             ),
         ),
         ("Help", (("Keyboard shortcuts\tF1", window.show_shortcuts),)),
@@ -328,8 +328,8 @@ def _build_stage(window) -> QWidget:
             "The built-in analog instrument and arpeggiator  (F7)",
             "Visually tune recorded vocals and compare takes  (F10)",
             "Compose sample and synth notes  (F12 / Ctrl+7)",
-            "Draw arrangement levels and pan  (Ctrl+8)",
-            "Docked Playlist, channel rack and mix console  (Ctrl+9)",
+            "Draw levels and pan over the Song  (Ctrl+8)",
+            "Song, channel rack and mixer together  (Ctrl+9)",
             "Sheet music, instrument parts, composition and score export",
         )
     ):
@@ -432,12 +432,12 @@ def _build_view_bar(window) -> QWidget:
     zoom_in.clicked.connect(lambda: window.wave.zoom_by(0.625))
     lay.addWidget(zoom_in)
 
-    zoom_selection = QPushButton("⤢ RANGE")
+    zoom_selection = QPushButton("⤢ Range")
     zoom_selection.setObjectName("mini")
     zoom_selection.setToolTip("Fill the editor with the selected range  (Z)")
     zoom_selection.clicked.connect(lambda: window.wave.zoom_to_selection())
     lay.addWidget(zoom_selection)
-    fit = QPushButton("FIT")
+    fit = QPushButton("Fit")
     fit.setObjectName("mini")
     fit.setToolTip("Show the whole sample  (0)")
     fit.clicked.connect(window.wave.fit)

@@ -357,7 +357,7 @@ def _rebuild_chips(window, page=None):
             btn.setStyleSheet(f"QPushButton {{ border-left: 3px solid {colour}; }}")
         btn.setToolTip(
             f"{kind or 'Slice'} · {s:.3f}s → {e:.3f}s\n"
-            "Click to audition · drag onto Arrange or a pad"
+            "Click to audition · drag onto the Song or a pad"
         )
         # Audition at finger-down, without waiting for mouse/key release.
         btn.pressed.connect(lambda idx=i: window._chip_clicked(idx))
@@ -378,11 +378,11 @@ def _rebuild_chips(window, page=None):
         colour = hit_color(kind)
         btn.setStyleSheet(f"QPushButton {{ border: 1px solid {colour}; }}")
         btn.setToolTip(
-            f"{label} · {s:.2f}s → {e:.2f}s\nClick to audition and trim · drag onto Arrange or a pad"
+            f"{label} · {s:.2f}s → {e:.2f}s\nClick to audition and trim · drag onto the Song or a pad"
         )
         btn.pressed.connect(lambda a=s, b=e: window._region_clicked(a, b))
         window.chips.addWidget(btn)
-    window.chips.addWidget(small("Drag a slice onto Arrange or a pad"))
+    window.chips.addWidget(small("Drag a slice onto the Song or a pad"))
     window.chips.addStretch(1)
 
 

@@ -52,7 +52,7 @@ def _build_menu(owner) -> None:
             ),
         ),
         (
-            "Recording & Mixer",
+            "Recording and mixer",
             (
                 "track.new_take_lane",
                 "track.freeze",
@@ -69,7 +69,7 @@ def _build_menu(owner) -> None:
         ("Automation", ("automation.smooth",)),
         ("Scenes", ("scene.capture", "scene.launch")),
         (
-            "Commands & Keymaps",
+            "Commands and shortcuts",
             (
                 "workflow.command_palette",
                 "workflow.keymap",

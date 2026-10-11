@@ -537,7 +537,7 @@ class DevicesDialog(QDialog):
         super().__init__(parent)
         self.controller = controller
         self.setAttribute(Qt.WA_DeleteOnClose, True)
-        self.setWindowTitle("Devices & Plugins")
+        self.setWindowTitle("MIDI and plugins")
         self.resize(800, 660)
         self.setMinimumSize(560, 440)
         layout = QVBoxLayout(self)

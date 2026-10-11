@@ -119,7 +119,7 @@ def test_fit_song_changes_view_only(window):
 def test_arrange_workspace_buttons_have_live_actions(window):
     window.studio.select(2)
     assert not window.studio.arrange_tools.isHidden()
-    assert window.studio.arrange_pattern.text() == "ADD CURRENT PATTERN"
+    assert window.studio.arrange_pattern.text() == "Add current pattern"
 
     window.project.pattern().steps = {0: {0: 1.0}}
     window.studio.song_template.setCurrentText("Trap · compact")

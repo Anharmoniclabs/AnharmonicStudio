@@ -156,7 +156,7 @@ class AutomationCanvas(QWidget):
             p.drawText(
                 r,
                 Qt.AlignCenter,
-                "Click to draw an envelope\nValues follow the arrangement in Song mode",
+                "Click to draw an envelope\nIt plays back whenever the Song plays",
             )
         if self.panel.app.engine.mode == "song":
             x = self.point(self.panel.app.engine.beat, lo).x()
@@ -171,7 +171,7 @@ class AutomationPanel(WindowClient, QWidget):
         self.app = app
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 12)
-        title = QLabel("AUTOMATION   /   ARRANGEMENT")
+        title = QLabel("AUTOMATION")
         title.setObjectName("workspaceTitle")
         layout.addWidget(title)
         hint = QLabel(

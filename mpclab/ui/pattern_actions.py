@@ -228,7 +228,7 @@ class PatternActionsMixin:
         pattern = self.project.pattern()
         if not any(pattern.steps.values()) and not pattern.notes:
             self.status.showMessage(
-                "This pattern is empty. Add some steps or notes, then add it to the arrangement.",
+                "This pattern is empty. Add some steps or notes, then add it to the Song.",
                 5000,
             )
             return None

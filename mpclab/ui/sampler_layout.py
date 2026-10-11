@@ -165,7 +165,7 @@ def _build_chop(window) -> QWidget:
     window.btn_arrange_phrase = QPushButton("Create 4-bar pattern in Song")
     window.btn_arrange_phrase.setToolTip(
         "Treat the exact selection as four bars. Map unused pads and create an editable "
-        "pattern in the Playlist. Repitch follows song tempo and changes pitch like vinyl. "
+        "pattern in the Song. Repitch follows song tempo and changes pitch like vinyl. "
         "Select an existing song clip to append on its lane. Ctrl+Z undoes the whole action."
     )
     window.btn_arrange_phrase.clicked.connect(window.arrange_four_bar_phrase)
@@ -256,7 +256,7 @@ def _build_chop(window) -> QWidget:
     precision_row.addWidget(small("Cut mode: ← → 1 ms · Alt: one sample · M: split"))
     precision_row.addStretch()
 
-    window.btn_loop_range = QPushButton("⟳ LOOP")
+    window.btn_loop_range = QPushButton("⟳ Loop")
     window.btn_loop_range.setObjectName("mini")
     window.btn_loop_range.setCheckable(True)
     window.btn_loop_range.setToolTip("Keep the range cycling while you trim it")
@@ -285,9 +285,9 @@ def _build_chop(window) -> QWidget:
     destination_row.addWidget(window.sample_target)
     destination_row.addWidget(window.map_selection_button)
     window.send_sample_button = SampleDragButton(
-        "SEND RANGE → ARRANGE", window.wave._start_range_drag
+        "Send range to Song", window.wave._start_range_drag
     )
-    window.send_sample_button.setAccessibleName("Send selected range to arrangement")
+    window.send_sample_button.setAccessibleName("Send selected range to the Song")
     window.send_sample_button.setMinimumHeight(36)
     window.send_sample_button.setObjectName("go2")
     window.send_sample_button.setToolTip(

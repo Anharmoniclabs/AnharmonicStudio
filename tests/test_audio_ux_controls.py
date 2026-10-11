@@ -93,8 +93,8 @@ def test_pad_inspector_sound_tools_target_the_selected_pad(window):
     window.pad_inspector.set_pad(pad_index)
 
     buttons = {button.text(): button for button in window.pad_inspector.findChildren(QPushButton)}
-    buttons["NORMALIZE"].click()
-    buttons["TIGHTEN"].click()
+    buttons["Normalize"].click()
+    buttons["Trim silence"].click()
 
     assert calls == [("normalize", pad_index), ("tighten", pad_index)]
 
@@ -274,7 +274,7 @@ def test_audio_menu_lists_outputs_and_persists_selected_connection(window, monke
     window._refresh_audio_menu()
     labels = [action.text() for action in window.audio_menu.actions()]
     assert "EarPods  ·  ALSA" in labels
-    assert "RECONNECT / FIX AUDIO" in labels
+    assert "Reconnect audio" in labels
 
     window._select_audio_output(earpods["key"])
 

@@ -601,7 +601,7 @@ class FXRack(WindowClient, QScrollArea):
             )
         )
 
-        ping = QPushButton("PING-PONG")
+        ping = QPushButton("Ping-pong")
         ping.setObjectName("mini")
         ping.setCheckable(True)
         ping.setChecked(delay.ping_pong)

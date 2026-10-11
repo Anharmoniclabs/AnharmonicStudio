@@ -79,15 +79,15 @@ def _build_transport(window) -> QWidget:
     lay.addWidget(window.record_count_label)
 
     lay.addSpacing(8)
-    window.btn_pattern = QPushButton("PATTERN", window)
+    window.btn_pattern = QPushButton("Pattern", window)
     window.btn_pattern.setObjectName("accent2")
     window.btn_pattern.setCheckable(True)
     window.btn_pattern.setChecked(True)
-    window.btn_song = QPushButton("SONG", window)
+    window.btn_song = QPushButton("Song", window)
     window.btn_song.setObjectName("accent2")
     window.btn_song.setCheckable(True)
     window.btn_pattern.setToolTip("Play the current pattern on repeat  (L switches)")
-    window.btn_song.setToolTip("Play the Playlist arrangement  (L switches)")
+    window.btn_song.setToolTip("Play the whole Song  (L switches)")
     window.btn_pattern.clicked.connect(lambda: window.set_mode("pattern"))
     window.btn_song.clicked.connect(lambda: window.set_mode("song"))
     window.btn_pattern.hide()
@@ -118,7 +118,7 @@ def _build_transport(window) -> QWidget:
     lay.addWidget(window.bpm_box)
 
     window.bpm_box.setToolTip("Project tempo  (T taps it in)")
-    window.btn_tap = QPushButton("TAP")
+    window.btn_tap = QPushButton("Tap")
     window.btn_tap.setObjectName("mini")
     window.btn_tap.setToolTip("Tap four beats to set the tempo  (T)")
     window.btn_tap.clicked.connect(window.tap_tempo)
@@ -136,14 +136,14 @@ def _build_transport(window) -> QWidget:
     lay.addWidget(window.swing_label)
 
     window.swing.setToolTip("Delay every off-eighth, for a shuffled feel")
-    window.btn_metro = QPushButton("MET")
+    window.btn_metro = QPushButton("Metronome")
     window.btn_metro.setObjectName("mini")
     window.btn_metro.setToolTip("Click track  (M)")
     window.btn_metro.setCheckable(True)
     window.btn_metro.toggled.connect(lambda b: setattr(window.engine, "metronome", b))
     lay.addWidget(window.btn_metro)
 
-    window.btn_cut_self = QPushButton("CUT SOURCE")
+    window.btn_cut_self = QPushButton("Cut source")
     window.btn_cut_self.setObjectName("mini")
     window.btn_cut_self.setCheckable(True)
     window.btn_cut_self.setToolTip(
@@ -188,20 +188,20 @@ def _build_transport(window) -> QWidget:
         lay.addWidget(b)
         window.project_action_buttons[text.lower()] = b
 
-    window.btn_theme = QPushButton("DARK")
+    window.btn_theme = QPushButton("Dark")
     window.btn_theme.setObjectName("mini")
     window.btn_theme.setMinimumWidth(52)
     window.btn_theme.setToolTip("Switch light / dark theme  (Ctrl+Shift+T)")
     window.btn_theme.clicked.connect(window.toggle_theme)
     lay.addWidget(window.btn_theme)
 
-    window.btn_typing = QPushButton("KEYS")
+    window.btn_typing = QPushButton("Keys")
     window.btn_typing.setObjectName("mini")
     window.btn_typing.setToolTip("Pop out the musical-typing keyboard  (Ctrl+T)")
     window.btn_typing.clicked.connect(window.toggle_typing_keyboard)
     lay.addWidget(window.btn_typing)
 
-    window.btn_color = QPushButton("COLOR")
+    window.btn_color = QPushButton("Color")
     window.btn_color.setObjectName("mini")
     window.btn_color.setToolTip("Choose your own interface accent color")
     window.btn_color.clicked.connect(window.pick_accent_color)
@@ -230,7 +230,7 @@ def _build_transport(window) -> QWidget:
     window.audio_buffer.currentIndexChanged.connect(window._audio_buffer_changed)
     lay.addWidget(window.audio_buffer)
 
-    window.btn_audio_retry = QPushButton("RETRY")
+    window.btn_audio_retry = QPushButton("Retry audio")
     window.btn_audio_retry.setObjectName("mini")
     window.btn_audio_retry.setToolTip(
         "Retry an offline audio device, or clear DSP/xrun diagnostics"

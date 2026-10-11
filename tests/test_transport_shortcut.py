@@ -111,13 +111,13 @@ class SpaceTransportTests(unittest.TestCase):
         self.assertFalse(self.window.appearance_button.isHidden())
         self.assertFalse(self.window.place_box.isHidden())
         self.assertFalse(self.window.snap_box.isHidden())
-        self.assertEqual(self.window.btn_workspace_focus.text(), "EXIT FOCUS")
+        self.assertEqual(self.window.btn_workspace_focus.text(), "Exit focus")
         self.assertTrue(self.window.btn_workspace_focus.isChecked())
         self.window.set_playlist_focus(False)
         self.assertFalse(self.window.browser_frame.isHidden())
         self.assertFalse(self.window.pad_side.isHidden())
         self.assertFalse(self.window.appearance_button.isHidden())
-        self.assertEqual(self.window.btn_workspace_focus.text(), "ARRANGE")
+        self.assertEqual(self.window.btn_workspace_focus.text(), "Focus")
         self.assertFalse(self.window.btn_workspace_focus.isChecked())
 
     def test_the_window_fits_beside_another_one_in_either_mode(self):
@@ -174,15 +174,15 @@ class SpaceTransportTests(unittest.TestCase):
         slice_tool = self.window.playlist_tool_buttons["slice"]
         draw_tool = self.window.playlist_tool_buttons["draw"]
 
-        self.assertEqual(slice_tool.accessibleName(), "Playlist tool: Scissors")
+        self.assertEqual(slice_tool.accessibleName(), "Song tool: Scissors")
         self.assertIn("Split a clip", slice_tool.accessibleDescription())
         self.assertIn("Selected editing mode", slice_tool.accessibleDescription())
-        self.assertEqual(draw_tool.accessibleName(), "Playlist tool: Draw")
+        self.assertEqual(draw_tool.accessibleName(), "Song tool: Draw")
         self.assertIn("Not selected", draw_tool.accessibleDescription())
         self.assertEqual(self.window.playlist_tool_mode_label.text(), "MODE · SCISSORS")
         self.assertEqual(
             self.window.playlist_tool_mode_label.accessibleDescription(),
-            "Playlist editing mode: Scissors.",
+            "Song editing mode: Scissors.",
         )
 
     def test_dirty_session_is_autosaved(self):

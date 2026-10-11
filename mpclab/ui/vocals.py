@@ -400,7 +400,7 @@ class VocalPanel(WindowClient, QWidget):
         self.app.playlist.refresh()
         self.app._refresh_place_box()
         self.app.status.showMessage(
-            f"placed {source.name} on Playlist lane {rec.playlist_row + 1}", 3500
+            f"placed {source.name} on Song track {rec.playlist_row + 1}", 3500
         )
 
     def _tick(self):

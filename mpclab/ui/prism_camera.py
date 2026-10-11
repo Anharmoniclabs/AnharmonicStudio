@@ -184,7 +184,7 @@ class PrismCameraDialog(WindowClient, QDialog):
             self.effect_meters.append(meter)
             cards.addWidget(card)
         layout.addLayout(cards)
-        settings_toggle = QPushButton("Customize effects & camera ▸")
+        settings_toggle = QPushButton("Customize effects and camera ▸")
         settings_toggle.setCheckable(True)
         layout.addWidget(settings_toggle)
         settings = QWidget()
@@ -319,7 +319,7 @@ class PrismCameraDialog(WindowClient, QDialog):
         self.take_status.setText(
             "Writing touched controls into automation"
             if writing
-            else "Armed · play the arrangement in Song mode to write gestures"
+            else "Armed · play the Song to record gestures"
             if self.write.isChecked()
             else "Live control only. Saved gestures replay with the camera off."
         )

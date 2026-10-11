@@ -139,7 +139,7 @@ def populate(window):
         instrument.setExpanded(True)
         for child in range(instrument.childCount()):
             instrument.child(child).setExpanded(True)
-    window.status.showMessage("Midnight in the crates · 92 BPM · Drag sounds to pads or Playlist")
+    window.status.showMessage("Midnight in the crates · 92 BPM · Drag sounds to pads or the Song")
 
 
 def main():

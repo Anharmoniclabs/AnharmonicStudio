@@ -135,7 +135,7 @@ def delete_selected_take(owner):
     if references or children or comp_references:
         detail = []
         if references:
-            detail.append(f"{references} Playlist placement(s)")
+            detail.append(f"{references} Song placement(s)")
         if children:
             detail.append(f"{children} tuned take(s)")
         if comp_references:

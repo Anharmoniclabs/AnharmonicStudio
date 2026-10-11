@@ -407,7 +407,7 @@ def _wave_menu(window, position, seconds: float):
     bank = chr(ord("A") + gi // PADS_PER_BANK)
     act_map = menu.addAction(f"Map range → pad {bank}{gi % PADS_PER_BANK + 1}")
     act_new = menu.addAction("Save range as a new sample")
-    act_arrange = menu.addAction("Send range to Arrange")
+    act_arrange = menu.addAction("Send range to Song")
     menu.addSeparator()
     act_zoom = menu.addAction("Zoom to range")
     act_fit = menu.addAction("Fit whole sample")

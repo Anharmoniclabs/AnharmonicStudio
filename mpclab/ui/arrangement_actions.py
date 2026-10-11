@@ -48,14 +48,14 @@ def set_playlist_focus(window, on: bool):
         widget.setVisible(not on)
     window._sync_responsive_panels()
     window._sync_compact_playlist_ui()
-    window.btn_playlist_focus.setText("⛶ EXIT" if on else "⛶ FOCUS")
+    window.btn_playlist_focus.setText("⛶ Exit" if on else "⛶ FOCUS")
     if hasattr(window, "btn_workspace_focus"):
         window.btn_workspace_focus.setChecked(on)
-        window.btn_workspace_focus.setText("EXIT FOCUS" if on else "ARRANGE")
+        window.btn_workspace_focus.setText("Exit focus" if on else "Focus")
         window.btn_workspace_focus.setToolTip(
             "Restore Browser and Inspector (F11)"
             if on
-            else "Give Song Arrange the full workspace (F11)"
+            else "Give the Song the full workspace (F11)"
         )
     # Showing and hiding widgets only *queues* the layout requests that
     # move the window's minimum size.  Flush them here, after every
@@ -63,7 +63,7 @@ def set_playlist_focus(window, on: bool):
     # toggle — a drag of the window edge, or a tiling window manager
     # placing us — is still clamped by the full-workspace minimum.
     QApplication.sendPostedEvents(None, QEvent.LayoutRequest)
-    window.status.showMessage("Playlist focus mode" if on else "sidebars restored", 1800)
+    window.status.showMessage("Song focus mode" if on else "sidebars restored", 1800)
 
 
 def _sync_compact_playlist_ui(window):
@@ -96,7 +96,7 @@ def set_playlist_tool(window, tool: str):
     if button and not button.isChecked():
         button.setChecked(True)
     window._sync_playlist_tool_accessibility(tool)
-    window.status.showMessage(f"Playlist tool · {tool}", 1200)
+    window.status.showMessage(f"Song tool · {tool}", 1200)
 
 
 def _sync_playlist_tool_accessibility(window, active_tool: str):
@@ -113,9 +113,7 @@ def _sync_playlist_tool_accessibility(window, active_tool: str):
         state = "Selected editing mode" if tool == active_tool else "Not selected"
         button.setAccessibleDescription(f"{tip}. {state}.")
     window.playlist_tool_mode_label.setText(f"MODE · {active_name.upper()}")
-    window.playlist_tool_mode_label.setAccessibleDescription(
-        f"Playlist editing mode: {active_name}."
-    )
+    window.playlist_tool_mode_label.setAccessibleDescription(f"Song editing mode: {active_name}.")
 
 
 def _playlist_selection_changed(window, clip):
@@ -193,7 +191,7 @@ def _playlist_selection_changed(window, clip):
 
 
 def rename_song_row(window, row):
-    name, ok = QInputDialog.getText(window, "Rename Playlist track", "Track name:", text=row.name)
+    name, ok = QInputDialog.getText(window, "Rename Song track", "Track name:", text=row.name)
     if ok and name.strip():
         window.snapshot()
         row.name = name.strip()

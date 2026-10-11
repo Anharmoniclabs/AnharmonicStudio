@@ -182,7 +182,7 @@ class PremiumWorkflowController(QObject):
     def _selected_audio_clip(self):
         clip = self.window.playlist.selected_clip
         if clip is None or clip.kind != "audio":
-            raise ValueError("select an audio clip in the Playlist")
+            raise ValueError("select an audio clip in the Song")
         return clip
 
     def _toggle_clip_loop(self):

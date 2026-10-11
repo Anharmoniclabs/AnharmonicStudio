@@ -26,6 +26,11 @@ from .fxrack import FXRack
 from .theme import q, TRACK_COLORS
 
 
+def _db_text(gain: float) -> str:
+    """Fader level as people read it: "+1.5 dB", "-6.0 dB" or "-∞ dB"."""
+    return "-∞ dB" if gain <= 0.005 else f"{20 * np.log10(gain):+.1f} dB"
+
+
 class VUMeter(QWidget):
     """A compact channel meter with a readable dBFS reference scale."""
 
@@ -85,8 +90,11 @@ class VUMeter(QWidget):
         for db in self._REFERENCE_DB:
             y = h * (1 - self._db_position(db))
             p.setPen(QPen(q("dim2"), 1))
-            p.drawLine(bar_width + 1, round(y), bar_width + 3, round(y))
-            if h >= 80:
+            # A tick beside a "-12" label reads as a second minus sign, so
+            # draw ticks only when the meter is too short for labels.
+            if h < 80:
+                p.drawLine(bar_width + 1, round(y), bar_width + 3, round(y))
+            else:
                 label = "0" if db == 0 else str(db)
                 p.drawText(
                     QRectF(
@@ -247,7 +255,7 @@ class Strip(WindowClient, QWidget):
 
     def _update_value(self):
         g = self.app.project.master if self.master else self._track().gain
-        self.value.setText("-inf" if g <= 0.005 else f"{20 * np.log10(g):+.1f}")
+        self.value.setText(_db_text(g))
 
     def sync(self):
         self._syncing = True
@@ -262,7 +270,8 @@ class Strip(WindowClient, QWidget):
             self.mute.setChecked(t.mute)
             self.solo.setChecked(t.solo)
             n = sum(1 for p in self.app.project.pads if p.sample_id and p.track == self.index)
-            self.sub.setText(f"{n} pad{'' if n == 1 else 's'}")
+            # Instrument and audio tracks have no pads, so say nothing rather than "0".
+            self.sub.setText(f"{n} sound{'' if n == 1 else 's'}" if n else "")
             parts = self._fx_parts(t.fx)
             self.fx_badge.setChecked(bool(parts))
             # A narrow strip cannot hold four labels, so it shows the first two
@@ -321,10 +330,7 @@ class Strip(WindowClient, QWidget):
                 if gain_auto
                 else "Track level"
             )
-            self.value.setText(
-                ("A " if gain_auto else "")
-                + ("-inf" if gain <= 0.005 else f"{20 * np.log10(gain):+.1f}")
-            )
+            self.value.setText(("Auto " if gain_auto else "") + _db_text(gain))
             if not self.master:
                 pan = self._track().pan
                 if pan_auto:
@@ -341,7 +347,9 @@ class Strip(WindowClient, QWidget):
         if self.master:
             self.meter.set_level(float(eng.master_meter.mean()), eng.master_peak)
             reduction = eng.mastering.gain_reduction_db
-            self.sub.setText(f"GR {reduction:.1f} dB" if reduction > 0.05 else "-1 dBFS")
+            self.sub.setText(
+                f"Limiting {reduction:.1f} dB" if reduction > 0.05 else "Ceiling -1 dB"
+            )
         else:
             self.meter.set_level(float(eng.meters[self.index]), float(eng.peaks[self.index]))
 
@@ -392,7 +400,7 @@ class MixerPanel(WindowClient, QWidget):
         self.master_strip = Strip(app, -1, master=True)
         self.master_strip.changed.connect(self.changed.emit)
         master_lay.addWidget(self.master_strip)
-        self.add_track_button = QPushButton("+ TRACK")
+        self.add_track_button = QPushButton("+ Track")
         self.add_track_button.setToolTip("Add an independent mixer track (up to 128)")
         self.add_track_button.clicked.connect(self._add_track)
         master_lay.addWidget(self.add_track_button)

@@ -6,8 +6,10 @@ import time
 from dataclasses import dataclass, field
 from .audio_kernel import AUDIO_SAMPLE_RATE
 
-# Keep "#" so note names such as "C#5" survive in sample names.
-_SAFE = re.compile(r"[^A-Za-z0-9._ ()#-]+")
+# Clip names are display text (files are stored by clip id), so keep every
+# printable character a person typed: "Kick · Sub weight", "C#5", "Café".
+# Only control characters and characters filesystems reject are replaced.
+_SAFE = re.compile(r'[\x00-\x1f\x7f/\\:*?"<>|]+')
 
 _CLIP_ID = re.compile(r"^[a-f0-9]{12}$")
 

@@ -463,7 +463,7 @@ def _update_loop_button(window):
 
 def edit_playlist_loop(window):
     dlg = QDialog(window)
-    dlg.setWindowTitle("Playlist loop")
+    dlg.setWindowTitle("Song loop")
     form = QFormLayout(dlg)
     start = QDoubleSpinBox()
     start.setRange(0, 100000)

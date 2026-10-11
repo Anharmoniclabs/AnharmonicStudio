@@ -37,8 +37,9 @@ def test_user_pack_manifest_root_notes_are_used(tmp_path):
     assert roots["Shaker"] is None
 
 
-def test_sharp_note_names_survive_in_sample_names():
+def test_sample_names_keep_what_people_typed():
     assert slug("Kalimba C#5") == "Kalimba C#5"
+    assert slug("Kick · Sub weight") == "Kick · Sub weight"
     assert slug("bad/name:here") == "bad_name_here"
 
 

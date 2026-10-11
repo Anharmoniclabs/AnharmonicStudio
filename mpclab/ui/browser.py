@@ -256,7 +256,7 @@ class BrowserPanel(WindowClient, QWidget):
         head = QWidget()
         hh = QHBoxLayout(head)
         hh.setContentsMargins(9, 6, 9, 6)
-        self.crate_detail_toggle = QPushButton("CRATES ▾")
+        self.crate_detail_toggle = QPushButton("Crates ▾")
         self.crate_detail_toggle.setObjectName("mini")
         self.crate_detail_toggle.setCheckable(True)
         self.crate_detail_toggle.setChecked(True)
@@ -264,15 +264,15 @@ class BrowserPanel(WindowClient, QWidget):
             "Show detailed record crates; collapse for more sound rows"
         )
         self.crate_detail_toggle.toggled.connect(self._set_crate_detail)
-        add = QPushButton("+ FILE")
+        add = QPushButton("+ File")
         add.setObjectName("mini")
         add.clicked.connect(self.import_dialog)
-        self.add_pack = QPushButton("+ PACK")
+        self.add_pack = QPushButton("+ Pack")
         self.add_pack.setObjectName("mini")
         self.add_pack.setToolTip("Add an extracted sample-pack folder without copying its sounds")
         self.add_pack.setAccessibleName("Add sample pack folder")
         self.add_pack.clicked.connect(self.import_pack_dialog)
-        self.sep_toggle = QPushButton("STEMS ▾")
+        self.sep_toggle = QPushButton("Stems ▾")
         self.sep_toggle.setObjectName("mini")
         self.sep_toggle.setCheckable(True)
         self.sep_toggle.setChecked(False)
@@ -307,7 +307,7 @@ class BrowserPanel(WindowClient, QWidget):
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._set_filter)
         self.source_filter = QComboBox()
-        self.source_filter.addItem("ALL SOUNDS", "all")
+        self.source_filter.addItem("All sounds", "all")
         self.source_filter.addItem("PROJECT LIBRARY", "library")
         self.source_filter.addItem("SAMPLE PACKS", "packs")
         self.source_filter.currentIndexChanged.connect(self._source_changed)
@@ -318,7 +318,7 @@ class BrowserPanel(WindowClient, QWidget):
         wrap = QWidget()
         wl = QVBoxLayout(wrap)
         wl.setContentsMargins(8, 7, 8, 5)
-        self.all_crates = QPushButton("ALL SOUNDS")
+        self.all_crates = QPushButton("All sounds")
         self.all_crates.setObjectName("mini")
         self.all_crates.setCheckable(True)
         self.all_crates.setChecked(True)
@@ -328,7 +328,7 @@ class BrowserPanel(WindowClient, QWidget):
         self.crate_summary.setObjectName("hint")
         shelf_bar = QHBoxLayout()
         shelf_bar.addWidget(self.all_crates)
-        self.filter_toggle = QPushButton("FILTERS")
+        self.filter_toggle = QPushButton("Filters")
         self.filter_toggle.setObjectName("mini")
         self.filter_toggle.setCheckable(True)
         shelf_bar.addWidget(self.filter_toggle)
@@ -375,7 +375,7 @@ class BrowserPanel(WindowClient, QWidget):
         lay.addWidget(use_sound)
         hint = QLabel(
             "▶ Preview · double-click or Enter to audition\n"
-            "Drag to Beats lanes, Notes, pads or Arrange"
+            "Drag to Beats lanes, Notes, pads or Song"
         )
         hint.setObjectName("hint")
         hint.setWordWrap(True)
@@ -420,7 +420,7 @@ class BrowserPanel(WindowClient, QWidget):
         self.hq.setToolTip(
             "Runs the split four times for cleaner edges. Takes about four times as long."
         )
-        self.sep_btn = QPushButton("SPLIT SELECTED")
+        self.sep_btn = QPushButton("Split selected")
         self.sep_btn.setObjectName("go")
         self.sep_btn.clicked.connect(self.start_separation)
         action_layout.addWidget(self.hq)
@@ -445,7 +445,7 @@ class BrowserPanel(WindowClient, QWidget):
 
     # ── library ──────────────────────────────────────────────
     def _set_crate_detail(self, detailed):
-        self.crate_detail_toggle.setText("CRATES ▾" if detailed else "CRATES ▸")
+        self.crate_detail_toggle.setText("Crates ▾" if detailed else "Crates ▸")
         for button in self.crate_buttons.values():
             button.set_detailed(detailed)
         self.crate_shelf.layout().invalidate()
@@ -607,7 +607,7 @@ class BrowserPanel(WindowClient, QWidget):
         count = sum(len(clips) for clips in groups.values())
         self.crate_summary.setText(f"{count:,}")
         self.crate_summary.setToolTip(f"{count:,} matching sounds")
-        self.filter_toggle.setText("FILTERS •" if source_mode != "all" else "FILTERS")
+        self.filter_toggle.setText("Filters •" if source_mode != "all" else "Filters")
         self.empty_label.setVisible(count == 0)
         self.list.blockSignals(False)
         if select:
@@ -686,7 +686,7 @@ class BrowserPanel(WindowClient, QWidget):
                     self,
                     "Clip is still in use",
                     f"“{clip.name}” has {references} project reference"
-                    f"{'s' if references != 1 else ''}. Remove its pads, Playlist "
+                    f"{'s' if references != 1 else ''}. Remove its pads, Song "
                     "blocks, and saved slices before moving it to trash.",
                 )
             elif (
@@ -786,7 +786,7 @@ class BrowserPanel(WindowClient, QWidget):
     # ── stem separation ─────────────────────────────────────
     def _set_sep_expanded(self, expanded: bool) -> None:
         self.sep_panel.setVisible(expanded)
-        self.sep_toggle.setText("STEMS ▴" if expanded else "STEMS ▾")
+        self.sep_toggle.setText("Stems ▴" if expanded else "Stems ▾")
 
     def _model_changed(self, *_args) -> None:
         model = self.model_box.currentData()
@@ -797,7 +797,7 @@ class BrowserPanel(WindowClient, QWidget):
     def refresh_separation_status(self) -> None:
         ready = separate.available()
         if ready:
-            self.sep_status.setText("LOCAL ENGINE READY · CPU")
+            self.sep_status.setText("Stem splitter ready")
             self.sep_status.setStyleSheet(f"color: {C['ok']};")
             self.sep_btn.setEnabled(True)
             if self.stem_deck.state == "offline":
@@ -805,7 +805,7 @@ class BrowserPanel(WindowClient, QWidget):
                     "ready", stems=separate.MODELS[self.model_box.currentData()]["stems"]
                 )
         else:
-            self.sep_status.setText("ADD ENGINE · ./install-separation.sh")
+            self.sep_status.setText("Stem splitter not installed · run ./install-separation.sh")
             self.sep_status.setStyleSheet(f"color: {C['dim']};")
             self.sep_btn.setEnabled(False)
             self.stem_deck.set_status(

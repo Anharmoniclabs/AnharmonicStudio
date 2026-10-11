@@ -235,7 +235,7 @@ def place_sample_selection(app) -> Clip | None:
     """
     sample_id = getattr(app, "current_clip", None)
     if not sample_id or sample_id not in app.library.clips:
-        _status(app, "Select a sample first, then use Selection → Arrange")
+        _status(app, "Select a sample first, then use Selection → Song")
         return None
     try:
         start, end = app.wave.selection()
@@ -295,7 +295,7 @@ def fit_song(app) -> bool:
     usable = max(240.0, float(viewport) - 170.0)
     playlist.px_per_beat = min(64.0, max(4.0, usable / end))
     playlist.refresh()
-    _status(app, f"Fit {end:.0f} beats in Arrange", 2500)
+    _status(app, f"Fit {end:.0f} beats in Song", 2500)
     return True
 
 
