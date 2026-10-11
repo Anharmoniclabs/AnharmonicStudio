@@ -537,7 +537,7 @@ class PadGainControl(_PadParameterControl):
     def __init__(self, value: float, parent=None):
         super().__init__(value, parent)
         self.editor.setSpecialValueText("-∞ dB")
-        self.mute_action = QAction("Mute gain (-∞ dB)", self)
+        self.mute_action = QAction("Silence this pad", self)
         self.mute_action.triggered.connect(lambda: self._change(0.0))
         self.slider.addAction(self.mute_action)
 

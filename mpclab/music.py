@@ -180,7 +180,9 @@ def _valid_automation_targets(track_count=None):
 def target_range(target):
     if target.startswith("prism:"):
         return (0.0, 1.0)
-    return (-1.0, 1.0) if target.endswith(":pan") else (0.0, 1.3)
+    from .model import MAX_GAIN
+
+    return (-1.0, 1.0) if target.endswith(":pan") else (0.0, MAX_GAIN)
 
 
 def automation_values(project, target, beats, default):

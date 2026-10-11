@@ -462,9 +462,11 @@ class SynthPanel(WindowClient, QWidget):
         panic.setObjectName("mini")
         panic.clicked.connect(self.app.engine.synth_panic)
         hl.addWidget(panic)
-        self.print_button = QPushButton("PRINT C3 → PAD A1")
+        self.print_button = QPushButton("SAVE C3 TO PAD A1")
         self.print_button.setObjectName("go2")
-        self.print_button.setToolTip("Render a two-beat note from this patch onto the selected pad")
+        self.print_button.setToolTip(
+            "Record a two-beat note of this sound and put it on the selected pad"
+        )
         self.print_button.clicked.connect(self.app.print_synth_to_pad)
         hl.addWidget(self.print_button)
         # Include room for the horizontal scrollbar: it must not cover the
@@ -1019,7 +1021,7 @@ class SynthPanel(WindowClient, QWidget):
             return
         gi = self.app.pads.selected
         bank = chr(ord("A") + gi // 16)
-        self.print_button.setText(f"PRINT C{self.octave} → PAD {bank}{gi % 16 + 1}")
+        self.print_button.setText(f"SAVE C{self.octave} TO PAD {bank}{gi % 16 + 1}")
 
     def sync(self):
         self._building = True

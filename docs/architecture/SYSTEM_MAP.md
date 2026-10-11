@@ -56,7 +56,7 @@ path is production, test, or delivery code unless marked experimental below.
 
 ### Python modules under `mpclab`
 
-`__init__.py`, `__main__.py`, `agent_harness.py`, `application_features.py`,
+`__init__.py`, `__main__.py`, `application_features.py`,
 `audio_analysis.py`, `audio_kernel.py`, `audio_normalization.py`, `audio_setup.py`,
 `audio_storage.py`, `automation_clipboard.py`, `automation_mode_state.py`,
 `automation_modes.py`, `channel_registry.py`, `command_catalog.py`, `crates.py`,

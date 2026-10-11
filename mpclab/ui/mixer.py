@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
-from ..model import MAX_TRACKS
+from ..model import MAX_GAIN, MAX_TRACKS
 from ..music import automation_values
 from .fxrack import FXRack
 from .theme import q, TRACK_COLORS
@@ -147,7 +147,7 @@ class Strip(WindowClient, QWidget):
         mid = QHBoxLayout()
         mid.setSpacing(7)
         self.fader = QSlider(Qt.Vertical)
-        self.fader.setRange(0, 130)
+        self.fader.setRange(0, round(MAX_GAIN * 100))
         self.fader.setFixedHeight(180)
         self.fader.valueChanged.connect(self._gain_changed)
         self.meter = VUMeter()

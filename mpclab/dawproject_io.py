@@ -26,7 +26,7 @@ from .dawproject import (
     _safe_member,
     _xml_id,
 )
-from .model import Clip, Pattern, Project, Row
+from .model import MAX_GAIN, Clip, Pattern, Project, Row
 from .music import Note
 
 
@@ -323,7 +323,9 @@ def import_dawproject(source: str | Path, library) -> Project:
                     track.pan = _number(pan.get("value"), low=-1, high=1, label="pan")
                 volume = channel.find("Volume")
                 if volume is not None and volume.get("value") is not None:
-                    track.gain = _number(volume.get("value"), low=0, high=2, label="volume")
+                    track.gain = min(
+                        _number(volume.get("value"), low=0, high=2, label="volume"), MAX_GAIN
+                    )
             master = next(
                 (item for item in structure.findall("Channel") if item.get("role") == "master"),
                 None,

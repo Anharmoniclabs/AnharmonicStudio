@@ -21,9 +21,14 @@ if sys.platform == "win32":
 # in an individual test and then letting Python collect the wrapper can destroy
 # Qt's process-global application while later test modules still hold widgets,
 # which manifests as a native abort instead of a useful assertion failure.
-from PySide6.QtWidgets import QApplication  # noqa: E402
-
-QT_APP = QApplication.instance() or QApplication([])
+# Machines without system graphics libraries (libEGL) cannot load QtWidgets.
+# Audio, model and DSP tests still run there; only widget tests are affected.
+try:
+    from PySide6.QtWidgets import QApplication  # noqa: E402
+except ImportError:
+    QT_APP = None
+else:
+    QT_APP = QApplication.instance() or QApplication([])
 
 
 import pytest  # noqa: E402
@@ -43,6 +48,9 @@ def release_test_windows():
     from PySide6.QtCore import QCoreApplication, QEvent
     from shiboken6 import isValid
 
+    if QT_APP is None:
+        yield
+        return
     before = {id(widget) for widget in QT_APP.topLevelWidgets()}
     yield
     for widget in QT_APP.topLevelWidgets():
@@ -52,3 +60,13 @@ def release_test_windows():
     QCoreApplication.processEvents()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     gc.collect()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_make_collect_report(collector):
+    """Skip, rather than abort on, widget test modules when Qt widgets cannot load."""
+    outcome = yield
+    report = outcome.get_result()
+    if QT_APP is None and report.failed and "libEGL" in str(report.longrepr):
+        report.outcome = "skipped"
+        report.longrepr = (str(collector.path), 0, "Skipped: Qt widgets need libEGL")

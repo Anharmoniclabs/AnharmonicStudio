@@ -75,12 +75,12 @@ def _record_group(owner) -> QGroupBox:
     owner.count_in.currentIndexChanged.connect(owner._record_settings_changed)
     grid.addWidget(owner.count_in, 2, 1)
     owner.monitor = QCheckBox("MONITOR")
-    owner.monitor.setToolTip("Low-latency software monitoring. Use headphones to prevent feedback.")
+    owner.monitor.setToolTip("Hear your input while recording. Use headphones to avoid feedback.")
     owner.monitor.toggled.connect(owner._record_settings_changed)
     grid.addWidget(owner.monitor, 2, 2)
-    owner.corrected_monitor = QCheckBox("Corrected cue · V2")
+    owner.corrected_monitor = QCheckBox("Hear tuned vocal")
     owner.corrected_monitor.setToolTip(
-        "Worker-based pitch-corrected cue. Adds processing delay; dry recording is unchanged. Settings are captured when recording starts."
+        "Hear the pitch-corrected voice while you record. Adds a little delay; the recording itself stays untouched."
     )
     owner.corrected_monitor.toggled.connect(owner._record_settings_changed)
     grid.addWidget(owner.corrected_monitor, 5, 0, 1, 3)

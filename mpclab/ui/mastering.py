@@ -145,7 +145,7 @@ class MasteringPanel(QWidget):
         controls = QHBoxLayout()
         analyze = QPushButton("Analyze rendered mix")
         analyze.clicked.connect(self.analyze_mix)
-        reset = QPushButton("Reset live scope")
+        reset = QPushButton("Clear live meter")
         reset.clicked.connect(self.reset_live)
         controls.addWidget(analyze)
         controls.addWidget(reset)
@@ -178,7 +178,7 @@ class MasteringPanel(QWidget):
         scopes.addWidget(self.field, 1)
         layout.addLayout(scopes, 1)
 
-        self.live = QLabel("Live: waiting for master output")
+        self.live = QLabel("Live meter: press play to see the master output")
         self.live.setObjectName("hint")
         layout.addWidget(self.live)
         self.timer = QTimer(self)
@@ -206,14 +206,14 @@ class MasteringPanel(QWidget):
             tap.reset()
         self.spectrum.set_data([], [])
         self.field.set_audio([])
-        self.live.setText("Live: reset")
+        self.live.setText("Live meter cleared")
 
     def refresh_live(self):
         if not self.isVisible():
             return
         tap = getattr(self.app.engine, "mastering_tap", None)
         if tap is None:
-            self.live.setText("Live analysis tap unavailable")
+            self.live.setText("Live meter unavailable")
             return
         data = tap.snapshot(min(tap.sample_rate * 2, tap.capacity))
         if not len(data):

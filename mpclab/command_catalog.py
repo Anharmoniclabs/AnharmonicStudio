@@ -52,7 +52,9 @@ def _register_commands(owner) -> None:
         "Ctrl+E",
         ("render", "bounce"),
     )
-    spec("project.export_fl", "Export mix (FL key)", w.export_dialog, "Project", "Ctrl+R")
+    spec(
+        "project.export_fl", "Export mix (FL Studio shortcut)", w.export_dialog, "Project", "Ctrl+R"
+    )
     spec("history.undo", "Undo", w.undo, "Project", "Ctrl+Z")
     spec("history.redo", "Redo", w.redo, "Project", "Ctrl+Shift+Z")
     spec("ui.typing", "Musical typing", w.toggle_typing_keyboard, "Windows", "Ctrl+T")
@@ -204,7 +206,7 @@ def _register_commands(owner) -> None:
         "Audio",
     )
     spec("clip.gain", "Set selected clip gain", owner.set_clip_gain, "Audio")
-    spec("clip.fade", "Render clip fades", owner.fade_dialog, "Audio")
+    spec("clip.fade", "Apply clip fades", owner.fade_dialog, "Audio")
     spec("clip.stretch", "Time-stretch selected clip", owner.stretch_dialog, "Audio")
     spec(
         "clip.tempo_conform",
@@ -257,9 +259,9 @@ def _register_commands(owner) -> None:
         "Recording",
         "Ctrl+Alt+T",
     )
-    spec("mixer.create_group", "Create VCA track group", owner.create_group_dialog, "Mixer")
+    spec("mixer.create_group", "Group tracks under one fader", owner.create_group_dialog, "Mixer")
     spec("mixer.edit_group", "Edit track group", owner.edit_group_dialog, "Mixer")
-    spec("mixer.sidechain", "Create sidechain duck route", owner.sidechain_dialog, "Mixer")
+    spec("mixer.sidechain", "Duck a track when another plays", owner.sidechain_dialog, "Mixer")
     spec("track.preset_save", "Save selected track preset", owner.save_track_preset, "Mixer")
     spec("track.preset_recall", "Recall track preset", owner.recall_track_preset, "Mixer")
     spec("master.preset", "Apply mastering preset", owner.mastering_dialog, "Mastering")

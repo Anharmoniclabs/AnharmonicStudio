@@ -27,6 +27,8 @@ BANKS = 4
 NPADS = PADS_PER_BANK * BANKS
 NTRACKS = 8  # Legacy/default mixer size, never a runtime routing limit.
 MAX_TRACKS = 128
+# Highest fader level (+2.3 dB). Faders, automation and loaded projects share it.
+MAX_GAIN = 1.3
 
 # Classic 4x4 sampler layout: pad 1 sits bottom-left. Display row 0 is the top.
 # Pads use the numeric keypad plus matching number-row digits in the workspace.
@@ -954,7 +956,7 @@ class Project:
             name=str(d.get("name", "untitled")),
             bpm=number("bpm", 90, 1, 1_000),
             swing=number("swing", 0, 0, 100),
-            master=number("master", 0.85, 0, 2),
+            master=min(number("master", 0.85, 0, 2), MAX_GAIN),
             self_choke=boolean("self_choke"),
             slices={str(k): list(v) for k, v in slices_data.items()},
             synth=SynthPatch(
@@ -1057,7 +1059,8 @@ class Project:
                 raise ValueError("mixer track id is required in project format 6")
             fields = {k: v for k, v in t.items() if k in Track.__annotations__ and k != "fx"}
             track = Track(fx=_from_dict(TrackFX, t.get("fx")), **fields)
-            track.gain = finite_field(track.gain, "track gain", 0, 4)
+            # Older files may hold louder values than a fader can show; clamp them.
+            track.gain = min(finite_field(track.gain, "track gain", 0, 4), MAX_GAIN)
             track.pan = finite_field(track.pan, "track pan", -1, 1)
             for field_name in ("mute", "solo"):
                 if type(getattr(track, field_name)) is not bool:

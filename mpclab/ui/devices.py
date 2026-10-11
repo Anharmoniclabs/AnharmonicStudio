@@ -588,7 +588,7 @@ class DevicesDialog(QDialog):
             self.velocity.addItem(curve.title(), curve)
         self.encoder = QComboBox()
         self.encoder.addItem("Absolute knobs", "absolute")
-        self.encoder.addItem("Relative encoders (two's complement)", "relative")
+        self.encoder.addItem("Endless encoders (relative)", "relative")
         self.takeover = QCheckBox("Pick up the current value before changing it")
         self.follow_clock = QCheckBox("Follow this device's tempo and transport")
         self.transport_enabled = QCheckBox("Accept transport buttons")

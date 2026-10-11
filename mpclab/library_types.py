@@ -6,7 +6,8 @@ import time
 from dataclasses import dataclass, field
 from .audio_kernel import AUDIO_SAMPLE_RATE
 
-_SAFE = re.compile(r"[^A-Za-z0-9._ ()-]+")
+# Keep "#" so note names such as "C#5" survive in sample names.
+_SAFE = re.compile(r"[^A-Za-z0-9._ ()#-]+")
 
 _CLIP_ID = re.compile(r"^[a-f0-9]{12}$")
 

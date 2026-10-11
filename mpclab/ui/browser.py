@@ -416,8 +416,10 @@ class BrowserPanel(WindowClient, QWidget):
         action_layout = QHBoxLayout(action_row)
         action_layout.setContentsMargins(0, 0, 0, 0)
         action_layout.setSpacing(6)
-        self.hq = QCheckBox("refine ×4")
-        self.hq.setToolTip("Four inference shifts can make edges cleaner, but take longer")
+        self.hq = QCheckBox("Cleaner split (slower)")
+        self.hq.setToolTip(
+            "Runs the split four times for cleaner edges. Takes about four times as long."
+        )
         self.sep_btn = QPushButton("SPLIT SELECTED")
         self.sep_btn.setObjectName("go")
         self.sep_btn.clicked.connect(self.start_separation)

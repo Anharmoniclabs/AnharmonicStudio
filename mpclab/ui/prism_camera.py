@@ -410,7 +410,7 @@ class PrismCameraDialog(WindowClient, QDialog):
         editor.target.setCurrentIndex(editor.target.findData(target))
         self.app.show_tab(self.app.TAB_AUTO)
         editor.setFocus()
-        self.take_status.setText("Prism curve selected in the automation editor")
+        self.take_status.setText("Opened this movement in the Automation editor")
 
     def closeEvent(self, event):
         self.stop_camera()

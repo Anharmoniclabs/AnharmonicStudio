@@ -213,17 +213,18 @@ class Library:
         root = root.resolve()
         if not root.is_dir():
             return 0
+        # Any pack, bundled or added by the user, may name each sound's root note
+        # in manifest.json so pitched samples play in tune without manual setup.
         roots = {}
-        if identity is not None:
-            try:
-                manifest = json.loads((root / "manifest.json").read_text())
-                roots = {
-                    item["file"]: item["root_midi"]
-                    for item in manifest["sounds"]
-                    if type(item.get("root_midi")) is int and 0 <= item["root_midi"] <= 127
-                }
-            except (OSError, ValueError, KeyError, TypeError):
-                pass
+        try:
+            manifest = json.loads((root / "manifest.json").read_text())
+            roots = {
+                item["file"]: item["root_midi"]
+                for item in manifest["sounds"]
+                if type(item.get("root_midi")) is int and 0 <= item["root_midi"] <= 127
+            }
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
         added = 0
         for source in sorted(root.rglob("*")):
             if (

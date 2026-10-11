@@ -404,6 +404,13 @@ def iter_offline_blocks(
         next_voice = 0
 
         any_solo = proj.any_solo()
+        # Muted (or un-soloed) tracks are dropped at the mix stage, so their pad
+        # voices are never rendered. Chokes were already decided with every voice.
+        silent_tracks = {
+            index
+            for index, track in enumerate(proj.tracks)
+            if track.mute or (any_solo and not track.solo)
+        }
         rack = MixRack(track_count)
         rack.prepare(blocksize)
         kernel = MasteringKernel(engine.sr, blocksize=blocksize)
@@ -422,9 +429,11 @@ def iter_offline_blocks(
 
             while next_voice < len(voices) and voices[next_voice][0] < stop:
                 at, voice = voices[next_voice]
+                next_voice += 1
+                if voice.track in silent_tracks:
+                    continue
                 voice.length = min(voice.length, total - at)
                 active.append((at, voice))
-                next_voice += 1
             for at, voice in active:
                 offset = max(0, at - start)
                 voice.render(tracks[voice.track], offset, voice_workspace)

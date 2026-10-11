@@ -556,9 +556,9 @@ class TrackInspector(WindowClient, QWidget):
         self.monitor.setToolTip("Listen to the input while recording. Use headphones.")
         self.monitor.toggled.connect(self.settings_changed)
         form.addRow(self.monitor)
-        self.corrected_monitor = QCheckBox("Pitch-corrected cue · V2")
+        self.corrected_monitor = QCheckBox("Hear tuned vocal while recording")
         self.corrected_monitor.setToolTip(
-            "Uses the Vocal pitch settings. Adds processing delay; recording stays dry."
+            "Uses your Vocal pitch settings. Adds a little delay; the recording itself stays untouched."
         )
         self.corrected_monitor.toggled.connect(self.settings_changed)
         form.addRow(self.corrected_monitor)

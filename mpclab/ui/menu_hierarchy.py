@@ -43,7 +43,7 @@ def organize_menus(window, controller):
         ("Plugins", "Sound", "Plugins"),
         ("Routing", "Sound", "Routing"),
         ("AUDIO", "Sound", "Devices & connections"),
-        ("Audio engine", "Sound", "Audio engine"),
+        ("Audio engine", "Sound", "Project audio"),
         ("Workflow", "Tools", "Workflow"),
     ):
         menu = menus.get(source)
