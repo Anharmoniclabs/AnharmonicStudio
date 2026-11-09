@@ -29,11 +29,14 @@ class Page(HTMLParser):
     def __init__(self):
         super().__init__()
         self.ids = set()
+        self.links = set()
         self.references = []
         self.errors = []
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
+        if tag == "a" and attrs.get("href"):
+            self.links.add(attrs["href"])
         if "id" in attrs:
             if attrs["id"] in self.ids:
                 self.errors.append(f"Duplicate id: {attrs['id']}")
@@ -60,10 +63,19 @@ def main():
             errors.append(f"Symlinks are not allowed in Pages: {path.relative_to(ROOT)}")
         elif path.is_file() and path.suffix.lower() not in ALLOWED and path != ROOT / ".nojekyll":
             errors.append(f"Non-site file in Pages: {path.relative_to(ROOT)}")
-    required = {"download", "open-source", "support", "release-status", "download-dialog"}
-    landing = pages[(ROOT / "index.html").resolve()]
-    if required - landing.ids:
-        errors.append(f"Required sections missing: {required - landing.ids}")
+    required_sections = {
+        "index.html": {"main", "projects", "ventures", "journal", "about"},
+        "studio.html": {"download", "open-source", "support", "release-status", "download-dialog"},
+    }
+    for filename, required in required_sections.items():
+        page = pages.get((ROOT / filename).resolve())
+        if page is None:
+            errors.append(f"Required page missing: {filename}")
+        elif required - page.ids:
+            errors.append(f"{filename}: Required sections missing: {required - page.ids}")
+    landing = pages.get((ROOT / "index.html").resolve())
+    if landing is not None and "studio.html" not in landing.links:
+        errors.append("index.html: Missing direct link to the Studio website (studio.html)")
     errors.extend(validate_app_shell())
     if errors:
         raise SystemExit("\n".join(errors))

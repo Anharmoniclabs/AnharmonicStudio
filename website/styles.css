@@ -91,3 +91,10 @@
   .site-footer > div { flex-wrap: wrap; gap: 12px 20px; }
   .site-footer > div a { min-height: 44px; display: inline-flex; align-items: center; font-size: 14px; }
 }
+
+/* A way back to the umbrella site, without changing the Studio experience. */
+.labs-return{display:flex;justify-content:space-between;align-items:center;gap:16px;min-height:44px;border-bottom:1px solid #303640;color:#a2a7b1;font-size:10px;letter-spacing:.3px}
+.labs-return a{display:inline-flex;align-items:center;gap:9px;min-height:44px;color:#9cb9ff}
+.labs-return a:hover{color:#fff}
+.labs-return>span{font:8px monospace;letter-spacing:1px;text-transform:uppercase}
+@media(max-width:380px){.labs-return>span{font-size:7px;letter-spacing:.3px}}
