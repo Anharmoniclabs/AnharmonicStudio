@@ -400,7 +400,7 @@ def test_session_lock_rejects_second_owner_and_releases(tmp_path):
     second.unlock()
 
 
-def test_record_counts_three_beats_before_starting(window, monkeypatch):
+def test_record_counts_four_beats_before_starting(window, monkeypatch):
     window.show_tab(window.TAB_SEQ)
     now = [100.0]
     monkeypatch.setattr(main_window.time, "monotonic", lambda: now[0])
@@ -408,15 +408,18 @@ def test_record_counts_three_beats_before_starting(window, monkeypatch):
     starts = []
     monkeypatch.setattr(window.engine, "play", lambda: starts.append(True))
     window.btn_rec.setChecked(True)
-    assert window.record_count_label.text() == "3"
+    deadline = window._record_count_deadline
+    beat_seconds = window._record_count_beat_seconds
+    assert deadline == pytest.approx(now[0] + window.engine.latency_ms / 1000 + 4 * beat_seconds)
+    assert window.record_count_label.text() == "4"
     assert not window.engine.recording
-    for instant, label in ((100.51, "2"), (101.01, "1")):
-        now[0] = instant
+    for remaining in (3, 2, 1):
+        now[0] = deadline - (remaining - 0.5) * beat_seconds
         window._advance_record_count()
-        assert window.record_count_label.text() == label
+        assert window.record_count_label.text() == str(remaining)
         assert not window.engine.recording
         assert not starts
-    now[0] = 101.51
+    now[0] = deadline
     window._advance_record_count()
     assert window.engine.recording
     assert starts == [True]

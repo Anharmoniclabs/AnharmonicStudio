@@ -215,6 +215,9 @@ def edit_instrument(window, operation, *, name=None, midi_channel=None, track=No
         project.selected_instrument = None
     else:
         raise ValueError("Unknown instrument operation")
+    # Applying the project restores the pattern controls. Keep their selection
+    # in sync so they cannot replace a newly selected instrument with a stale one.
+    project.pattern().selected_instrument = project.selected_instrument
     project.to_dict()  # Validate before touching history or live state.
     undo, redo, dirty = list(window._undo), list(window._redo), window._dirty
     window.snapshot()

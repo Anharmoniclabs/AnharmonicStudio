@@ -73,7 +73,7 @@ test('WAV encoding produces a valid 16-bit PCM file', () => {
 });
 
 test('the web instrument bank mirrors the desktop Native and Prism banks', () => {
-  assert.equal(bank.tones.length, 54);
+  assert.equal(bank.tones.length, 78);
   assert.equal(bank.performances.length, 120);
   assert.ok(bank.tones.every(item => item.patch.osc1 && Number.isFinite(item.patch.cutoff)));
   assert.ok(bank.performances.every(item => item.effects && typeof item.effects === 'object'));

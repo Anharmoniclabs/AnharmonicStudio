@@ -486,7 +486,7 @@ def main():
                     bool(prism_id)
                     and model()["instrument_plugins"][prism_id]["plugin_name"] == "Anharmonic Prism"
                     and len(model()["instrument_plugins"][prism_id]["parameters"]) == 76
-                    and page.locator("#prism-sound option").count() == 174,
+                    and page.locator("#prism-sound option").count() == 198,
                 )
                 page.locator("#prism-search").fill("Glass Current")
                 page.locator("#prism-sound").select_option(index=0)
