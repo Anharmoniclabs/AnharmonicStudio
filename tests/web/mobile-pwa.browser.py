@@ -34,7 +34,13 @@ def main():
     server = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, directory=str(root)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     origin = f"http://127.0.0.1:{server.server_port}"
-    report = {"engine": args.engine, "viewports": [], "legacy_links": [], "offline": [], "errors": []}
+    report = {
+        "engine": args.engine,
+        "viewports": [],
+        "legacy_links": [],
+        "offline": [],
+        "errors": [],
+    }
     try:
         with sync_playwright() as pw:
             browser = getattr(pw, args.engine).launch(
