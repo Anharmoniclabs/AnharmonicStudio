@@ -1,4 +1,22 @@
-# Anharmonic Studio website
+# Anharmonic Labs website
+
+The domain opens the Anharmonic Labs creative home. The **Anharmonic Studio**
+navigation tab opens the existing Studio storefront; the music app keeps its
+original URL.
+
+| Page | Purpose |
+| --- | --- |
+| `index.html` | Labs home: projects, ventures, journal, and about |
+| `studio.html` | Studio tour, film, desktop downloads, pricing, and support |
+| `app/studio.html` | Browser music workstation |
+
+`labs.js` forwards legacy homepage Studio anchors such as `/#download`,
+`/#installation-guidance`, and `/#privacy` to the same anchor on `studio.html`.
+The relative destination also works under the GitHub Pages repository prefix.
+New links to Studio sections should use `studio.html#download` (or the appropriate
+section) directly; the forwarding preserves old bookmarks and payment-page links.
+
+## Studio storefront
 
 A static GitHub Pages storefront with the app tour, original commercial, free source,
 and a $1 USD one-time desktop download through Stripe. Applicable tax is shown at
@@ -28,7 +46,8 @@ python scripts/check_website.py
 python -m http.server 8765 --bind 127.0.0.1 --directory website
 ```
 
-Open http://127.0.0.1:8765. Source links, FAQs, prices, and video work without JavaScript.
+Open http://127.0.0.1:8765 for Labs or http://127.0.0.1:8765/studio.html for the
+Studio storefront. Studio source links, FAQs, prices, and video work without JavaScript.
 JavaScript adds workspace tabs and sends the selected platform to checkout. Without it,
 checkout's confirmation page offers a platform chooser. The confirmation page requires
 JavaScript to verify the purchase and request download links.

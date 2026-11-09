@@ -34,7 +34,7 @@ def main():
     server = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, directory=str(root)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     origin = f"http://127.0.0.1:{server.server_port}"
-    report = {"engine": args.engine, "viewports": [], "offline": [], "errors": []}
+    report = {"engine": args.engine, "viewports": [], "legacy_links": [], "offline": [], "errors": []}
     try:
         with sync_playwright() as pw:
             browser = getattr(pw, args.engine).launch(
@@ -105,15 +105,36 @@ def main():
                     assert not page.locator(".mobile-tabs").is_visible()
                     assert page.locator(".studio-nav").is_visible()
                 page.goto(origin + "/")
+                studio_link = page.locator('nav a[href="studio.html"]').first
+                assert studio_link.is_visible()
+                assert page.locator("h1").is_visible()
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+1"), (
+                    width,
+                    height,
+                    "Labs landing overflow",
+                )
+                studio_link.click()
+                page.wait_for_url(origin + "/studio.html")
                 assert page.locator('.hero-actions a[href="app/studio.html"]').is_visible()
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+1"), (
                     width,
                     height,
-                    "landing overflow",
+                    "Studio landing overflow",
                 )
                 report["viewports"].append(
                     {"width": width, "height": height, "phone_shell": phone, "pass": True}
                 )
+                context.close()
+            # Old shared download URLs must still reach the Studio storefront,
+            # including GitHub Pages repositories served below a path prefix.
+            for prefix in ["", "/AnharmonicStudio"]:
+                context = browser.new_context()
+                page = context.new_page()
+                page.on("pageerror", lambda error: report["errors"].append(str(error)))
+                page.goto(origin + prefix + "/#download")
+                page.wait_for_url(origin + prefix + "/studio.html#download")
+                assert page.locator("#download").is_visible()
+                report["legacy_links"].append({"path": prefix + "/#download", "pass": True})
                 context.close()
             # Chromium supplies service workers in this isolated Linux environment.
             if args.engine == "chromium":
